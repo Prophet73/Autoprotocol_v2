@@ -25,3 +25,4 @@ python-docx
 # Utils
 python-dotenv
 numpy
+pydantic>=2.0

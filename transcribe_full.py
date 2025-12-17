@@ -13,6 +13,7 @@ import numpy as np
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
+from typing import Optional
 
 # Patch torch.load BEFORE any imports (PyTorch 2.8+ fix)
 _original_torch_load = torch.load
@@ -38,20 +39,25 @@ PROJECT_ROOT = Path(__file__).parent.resolve()
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output"
 
 # Модель эмоций - РУССКАЯ (Aniemore)
+# Labels: anger, disgust, enthusiasm, fear, happiness, neutral, sadness
 EMOTION_MODEL = "Aniemore/wav2vec2-xlsr-53-russian-emotion-recognition"
 EMOTION_LABELS_RU = {
+    'anger': 'Гнев',
+    'disgust': 'Отвращение',
+    'enthusiasm': 'Энтузиазм',
+    'fear': 'Страх',
+    'happiness': 'Радость',
     'neutral': 'Нейтрально',
-    'positive': 'Позитив',
-    'sad': 'Грусть',
-    'angry': 'Раздражение',
-    'other': 'Другое'
+    'sadness': 'Грусть'
 }
 EMOTION_EMOJI = {
+    'anger': '😠',
+    'disgust': '🤢',
+    'enthusiasm': '🤩',
+    'fear': '😨',
+    'happiness': '😊',
     'neutral': '😐',
-    'positive': '😊',
-    'sad': '😔',
-    'angry': '😠',
-    'other': '🤔'
+    'sadness': '😔'
 }
 
 
@@ -203,12 +209,16 @@ def build_speaker_profiles(merged_segments: list) -> dict:
         dominant_emotions = sorted(data['emotion_counts'].items(), key=lambda x: -x[1])
         dominant = dominant_emotions[0][0] if dominant_emotions else 'neutral'
 
-        if dominant == 'positive':
+        if dominant in ('happiness', 'enthusiasm'):
             data['interpretation'] = 'Позитивный настрой, энтузиазм'
-        elif dominant == 'angry':
+        elif dominant == 'anger':
             data['interpretation'] = 'Напряжённость, возможно недовольство'
-        elif dominant == 'sad':
+        elif dominant == 'sadness':
             data['interpretation'] = 'Обеспокоенность, усталость'
+        elif dominant == 'fear':
+            data['interpretation'] = 'Неуверенность, тревожность'
+        elif dominant == 'disgust':
+            data['interpretation'] = 'Негативное отношение'
         else:
             data['interpretation'] = 'Деловой, сдержанный тон'
 
@@ -454,6 +464,90 @@ def process_file(
     return word_path
 
 
+def build_transcription_result(
+    merged_segments: list,
+    speaker_profiles: dict,
+    input_file: Path,
+    processing_time: float,
+    model: str,
+    language: str
+) -> "TranscriptionResult":
+    """
+    Конвертирует внутренние структуры в Pydantic TranscriptionResult.
+    Используется для передачи данных в домены.
+    """
+    # Ленивый импорт чтобы не ломать CLI если pydantic не установлен
+    from schemas.transcription import (
+        TranscriptionResult, Segment, SpeakerProfile,
+        ProcessingMetadata, Emotion
+    )
+
+    # Конвертируем сегменты
+    segments = []
+    for seg in merged_segments:
+        emotion_str = seg.get("emotion", "neutral")
+        try:
+            emotion = Emotion(emotion_str)
+        except ValueError:
+            emotion = Emotion.NEUTRAL
+
+        segments.append(Segment(
+            start=seg["start"],
+            end=seg["end"],
+            text=seg["text"],
+            speaker=seg["speaker"],
+            emotion=emotion,
+            emotion_confidence=seg.get("emotion_confidence", 0.0)
+        ))
+
+    # Конвертируем профили спикеров
+    speakers = []
+    for speaker_id, data in speaker_profiles.items():
+        dominant_str = max(data["emotion_counts"].items(), key=lambda x: x[1])[0] if data["emotion_counts"] else "neutral"
+        try:
+            dominant = Emotion(dominant_str)
+        except ValueError:
+            dominant = Emotion.NEUTRAL
+
+        speakers.append(SpeakerProfile(
+            speaker_id=speaker_id,
+            total_time=data["total_time"],
+            segment_count=data["segment_count"],
+            emotion_distribution=dict(data["emotion_counts"]),
+            dominant_emotion=dominant,
+            interpretation=data["interpretation"]
+        ))
+
+    # Сортируем по времени речи
+    speakers.sort(key=lambda x: -x.total_time)
+
+    # Общая длительность
+    duration = merged_segments[-1]["end"] if merged_segments else 0.0
+
+    # Метаданные
+    metadata = ProcessingMetadata(
+        source_file=input_file.name,
+        duration_seconds=duration,
+        processing_time_seconds=processing_time,
+        model_name=model,
+        language=language
+    )
+
+    return TranscriptionResult(
+        segments=segments,
+        speakers=speakers,
+        metadata=metadata
+    )
+
+
+def save_json(result: "TranscriptionResult", output_path: Path):
+    """Сохраняет результат в JSON"""
+    import json
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(result.model_dump_json(indent=2, ensure_ascii=False))
+    print(f"JSON сохранён: {output_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="WhisperX Full Pipeline - Транскрипция + Диаризация + Эмоции"
@@ -467,6 +561,7 @@ def main():
     parser.add_argument("--batch-size", type=int, default=16, help="Размер батча (default: 16)")
     parser.add_argument("--skip-emotions", action="store_true", help="Пропустить анализ эмоций")
     parser.add_argument("--hf-token", help="HuggingFace токен для диаризации")
+    parser.add_argument("--json", action="store_true", help="Дополнительно сохранить результат в JSON")
     parser.add_argument("--open", action="store_true", help="Открыть результат после обработки (только Windows)")
 
     args = parser.parse_args()
