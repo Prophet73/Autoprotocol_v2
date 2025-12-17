@@ -1,0 +1,27 @@
+# WhisperX Full Pipeline - Requirements
+# Python 3.10 recommended
+
+# Core
+whisperx
+faster-whisper
+
+# PyTorch (install separately with CUDA support)
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+torch
+torchaudio
+
+# Audio processing
+librosa
+soundfile
+ffmpeg-python
+
+# NLP / ML
+transformers
+pyannote.audio
+
+# Document generation
+python-docx
+
+# Utils
+python-dotenv
+numpy
