@@ -1,590 +1,428 @@
-#!/usr/bin/env python3
 """
-WhisperX Full Pipeline
-Транскрипция + Диаризация + Эмоции + Word отчёт
-Кроссплатформенный (Windows/Linux)
-"""
+Transcription Pipeline Orchestrator.
 
+Coordinates all stages of the transcription pipeline:
+1. Audio extraction
+2. VAD analysis
+3. Multi-language transcription
+4. Speaker diarization
+5. Translation
+6. Emotion analysis
+7. Report generation
+"""
 import torch
-import os
-import sys
-import argparse
-import numpy as np
+import time
+import logging
 from pathlib import Path
+from typing import List, Dict, Optional, Callable
 from datetime import datetime
-from collections import defaultdict
-from typing import Optional
 
-# Patch torch.load BEFORE any imports (PyTorch 2.8+ fix)
+import whisperx
+
+from .config import PipelineConfig, config as default_config
+from .models import (
+    TranscriptionRequest,
+    TranscriptionResult,
+    FinalSegment,
+    SpeakerProfile,
+)
+from .stages import (
+    AudioExtractor,
+    VADProcessor,
+    MultilingualTranscriber,
+    DiarizationProcessor,
+    GeminiTranslator,
+    EmotionAnalyzer,
+    ReportGenerator,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# PyTorch 2.8+ compatibility patch
 _original_torch_load = torch.load
 def _patched_torch_load(*args, **kwargs):
     kwargs['weights_only'] = False
     return _original_torch_load(*args, **kwargs)
 torch.load = _patched_torch_load
 
-import lightning_fabric.utilities.cloud_io as cloud_io
-cloud_io.torch.load = _patched_torch_load
-
-import whisperx
-from whisperx.diarize import DiarizationPipeline
-from docx import Document
-from docx.shared import Pt, Inches, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from transformers import Wav2Vec2ForSequenceClassification, Wav2Vec2FeatureExtractor
-import librosa
-import subprocess
-
-# === КОНСТАНТЫ ===
-PROJECT_ROOT = Path(__file__).parent.resolve()
-DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output"
-
-# Модель эмоций - РУССКАЯ (Aniemore)
-# Labels: anger, disgust, enthusiasm, fear, happiness, neutral, sadness
-EMOTION_MODEL = "Aniemore/wav2vec2-xlsr-53-russian-emotion-recognition"
-EMOTION_LABELS_RU = {
-    'anger': 'Гнев',
-    'disgust': 'Отвращение',
-    'enthusiasm': 'Энтузиазм',
-    'fear': 'Страх',
-    'happiness': 'Радость',
-    'neutral': 'Нейтрально',
-    'sadness': 'Грусть'
-}
-EMOTION_EMOJI = {
-    'anger': '😠',
-    'disgust': '🤢',
-    'enthusiasm': '🤩',
-    'fear': '😨',
-    'happiness': '😊',
-    'neutral': '😐',
-    'sadness': '😔'
-}
+try:
+    import lightning_fabric.utilities.cloud_io as cloud_io
+    cloud_io.torch.load = _patched_torch_load
+except ImportError:
+    pass
 
 
-def get_hf_token():
-    """Получает HuggingFace токен из .env или переменной окружения"""
-    # Сначала пробуем из переменной окружения
-    token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")
-    if token:
-        return token
+class TranscriptionPipeline:
+    """
+    Main transcription pipeline orchestrator.
 
-    # Пробуем загрузить из .env
-    env_file = PROJECT_ROOT / ".env"
-    if env_file.exists():
-        try:
-            from dotenv import load_dotenv
-            load_dotenv(env_file)
-            token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")
-        except ImportError:
-            # Читаем вручную если dotenv не установлен
-            with open(env_file, 'r') as f:
-                for line in f:
-                    if line.startswith("HUGGINGFACE_TOKEN=") or line.startswith("HF_TOKEN="):
-                        token = line.split('=', 1)[1].strip().strip('"\'')
-                        break
-    return token
+    Manages the full flow from audio input to report generation.
+    """
 
-
-def format_time(seconds):
-    """Форматирует секунды в HH:MM:SS или MM:SS"""
-    hours = int(seconds // 3600)
-    mins = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    if hours > 0:
-        return f"{hours:02d}:{mins:02d}:{secs:02d}"
-    return f"{mins:02d}:{secs:02d}"
-
-
-def extract_audio(input_file: Path, output_file: Path):
-    """Извлекает аудио из видео"""
-    print(f"Извлечение аудио из {input_file.name}...")
-    cmd = [
-        'ffmpeg', '-i', str(input_file),
-        '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1',
-        '-y', str(output_file)
+    STAGES = [
+        "audio_extraction",
+        "vad_analysis",
+        "transcription",
+        "diarization",
+        "translation",
+        "emotion_analysis",
+        "report_generation",
     ]
-    subprocess.run(cmd, capture_output=True)
-    print(f"Аудио сохранено: {output_file}")
 
+    def __init__(
+        self,
+        config: Optional[PipelineConfig] = None,
+        progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    ):
+        """
+        Initialize pipeline.
 
-class EmotionAnalyzer:
-    def __init__(self, model_name: str = EMOTION_MODEL, device: str = "cuda"):
-        print(f"Загрузка модели эмоций: {model_name}")
-        self.device = device
-        self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(model_name)
-        self.model = Wav2Vec2ForSequenceClassification.from_pretrained(model_name).to(device)
-        self.model.eval()
-        self.id2label = self.model.config.id2label
+        Args:
+            config: Pipeline configuration
+            progress_callback: Callback for progress updates (stage, percent, message)
+        """
+        self.config = config or default_config
+        self.progress_callback = progress_callback
 
-    def analyze(self, audio_path: Path, start_time: float, end_time: float):
-        """Анализирует эмоцию в сегменте"""
+        # Stage processors (lazy loaded)
+        self._audio_extractor = None
+        self._vad_processor = None
+        self._transcriber = None
+        self._diarizer = None
+        self._translator = None
+        self._emotion_analyzer = None
+        self._report_generator = None
+
+    def _report_progress(self, stage: str, percent: int, message: str = ""):
+        """Report progress to callback."""
+        if self.progress_callback:
+            self.progress_callback(stage, percent, message)
+        logger.info(f"[{stage}] {percent}% - {message}")
+
+    def process(
+        self,
+        input_file: Path,
+        request: Optional[TranscriptionRequest] = None,
+        output_dir: Optional[Path] = None,
+    ) -> TranscriptionResult:
+        """
+        Run full transcription pipeline.
+
+        Args:
+            input_file: Input audio/video file
+            request: Transcription request parameters
+            output_dir: Output directory for reports
+
+        Returns:
+            TranscriptionResult with all data
+        """
+        start_time = time.time()
+        request = request or TranscriptionRequest()
+        output_dir = output_dir or self.config.output_dir
+
+        logger.info("=" * 60)
+        logger.info("Starting Transcription Pipeline v4")
+        logger.info(f"Input: {input_file.name}")
+        logger.info(f"Languages: {request.languages}")
+        logger.info("=" * 60)
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        temp_audio = output_dir / "temp_audio.wav"
+
         try:
-            duration = end_time - start_time
-            if duration > 30:
-                samples = []
-                for offset in [0, duration/2 - 5, duration - 10]:
-                    audio, sr = librosa.load(str(audio_path), sr=16000, offset=start_time + offset, duration=10)
-                    if len(audio) >= 1600:
-                        samples.append(audio)
-                if not samples:
-                    return 'neutral', 0.5
-                all_probs = []
-                for audio in samples:
-                    inputs = self.feature_extractor(audio, sampling_rate=16000, return_tensors="pt", padding=True)
-                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                    with torch.no_grad():
-                        outputs = self.model(**inputs)
-                        probs = torch.softmax(outputs.logits, dim=-1)
-                        all_probs.append(probs[0].cpu().numpy())
-                avg_probs = np.mean(all_probs, axis=0)
-                pred_idx = np.argmax(avg_probs)
-                confidence = avg_probs[pred_idx]
+            # Stage 1: Audio extraction
+            self._report_progress("audio_extraction", 0, "Extracting audio...")
+            audio_file = self._extract_audio(input_file, temp_audio)
+            self._report_progress("audio_extraction", 100, "Audio extracted")
+
+            # Stage 2: VAD
+            self._report_progress("vad_analysis", 0, "Analyzing voice activity...")
+            vad_segments = self._run_vad(audio_file)
+            self._report_progress("vad_analysis", 100, f"Found {len(vad_segments)} segments")
+
+            # Stage 3: Transcription
+            self._report_progress("transcription", 0, "Transcribing...")
+            segments = self._transcribe(audio_file, vad_segments, request)
+            self._report_progress("transcription", 100, f"Transcribed {len(segments)} segments")
+
+            # Stage 4: Diarization
+            if not request.skip_diarization:
+                self._report_progress("diarization", 0, "Identifying speakers...")
+                segments = self._diarize(segments, audio_file)
+                self._report_progress("diarization", 100, "Speakers identified")
             else:
-                audio, sr = librosa.load(str(audio_path), sr=16000, offset=start_time, duration=duration)
-                if len(audio) < 1600:
-                    return 'neutral', 0.5
-                inputs = self.feature_extractor(audio, sampling_rate=16000, return_tensors="pt", padding=True)
-                inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                with torch.no_grad():
-                    outputs = self.model(**inputs)
-                    probs = torch.softmax(outputs.logits, dim=-1)
-                    pred_idx = torch.argmax(probs, dim=-1).item()
-                    confidence = probs[0][pred_idx].item()
+                for seg in segments:
+                    seg["speaker"] = "SPEAKER_00"
 
-            return self.id2label[pred_idx], confidence
-        except Exception as e:
-            print(f"Ошибка анализа эмоций: {e}")
-            return 'neutral', 0.5
+            # Stage 5: Translation
+            if not request.skip_translation:
+                self._report_progress("translation", 0, "Translating...")
+                segments = self._translate(segments)
+                self._report_progress("translation", 100, "Translation complete")
 
+            # Stage 6: Emotions
+            if not request.skip_emotions:
+                self._report_progress("emotion_analysis", 0, "Analyzing emotions...")
+                segments = self._analyze_emotions(audio_file, segments)
+                self._report_progress("emotion_analysis", 100, "Emotions analyzed")
+            else:
+                for seg in segments:
+                    seg["emotion"] = "neutral"
+                    seg["emotion_confidence"] = 0.5
 
-def merge_speaker_segments(segments: list) -> list:
-    """Склеивает последовательные сегменты одного спикера"""
-    if not segments:
-        return []
+            # Stage 7: Reports
+            self._report_progress("report_generation", 0, "Generating reports...")
+            elapsed = time.time() - start_time
+            output_files = self._generate_reports(segments, input_file, elapsed, output_dir)
+            self._report_progress("report_generation", 100, "Reports generated")
 
-    merged = []
-    current = None
+            # Build result
+            result = self._build_result(
+                segments=segments,
+                input_file=input_file,
+                elapsed=elapsed,
+                output_files=output_files,
+            )
 
-    for seg in segments:
-        speaker = seg.get("speaker", "UNKNOWN")
-        text = seg.get("text", "").strip()
-        start = seg.get("start", 0)
-        end = seg.get("end", 0)
+            logger.info("=" * 60)
+            logger.info(f"Pipeline complete! Time: {elapsed/60:.1f} min")
+            logger.info(f"Output: {output_files.get('docx', output_dir)}")
+            logger.info("=" * 60)
 
-        if current is None:
-            current = {"speaker": speaker, "start": start, "end": end, "text": text}
-        elif current["speaker"] == speaker:
-            current["end"] = end
-            current["text"] += " " + text
-        else:
-            merged.append(current)
-            current = {"speaker": speaker, "start": start, "end": end, "text": text}
+            return result
 
-    if current:
-        merged.append(current)
+        finally:
+            # Cleanup
+            if temp_audio.exists() and temp_audio != input_file:
+                temp_audio.unlink()
+            self._cleanup()
 
-    return merged
+    def _extract_audio(self, input_file: Path, output_file: Path) -> Path:
+        """Stage 1: Extract audio."""
+        if self._audio_extractor is None:
+            self._audio_extractor = AudioExtractor()
+        return self._audio_extractor.extract(input_file, output_file)
 
+    def _run_vad(self, audio_file: Path) -> List[Dict]:
+        """Stage 2: Run VAD."""
+        if self._vad_processor is None:
+            self._vad_processor = VADProcessor(
+                device=self.config.model.device,
+                threshold=self.config.vad.threshold,
+                min_speech_duration_ms=self.config.vad.min_speech_duration_ms,
+                min_silence_duration_ms=self.config.vad.min_silence_duration_ms,
+                max_segment_duration=self.config.vad.max_segment_duration,
+                max_gap=self.config.vad.max_gap,
+            )
 
-def build_speaker_profiles(merged_segments: list) -> dict:
-    """Строит профиль эмоций для каждого спикера"""
-    profiles = defaultdict(lambda: {
-        'emotions': [],
-        'total_time': 0,
-        'segment_count': 0,
-        'emotion_counts': defaultdict(int)
-    })
+        _, merged_segments, _ = self._vad_processor.process(audio_file)
+        self._vad_processor.cleanup()
+        return merged_segments
 
-    for seg in merged_segments:
-        speaker = seg['speaker']
-        emotion = seg.get('emotion', 'neutral')
-        duration = seg['end'] - seg['start']
+    def _transcribe(
+        self,
+        audio_file: Path,
+        vad_segments: List[Dict],
+        request: TranscriptionRequest,
+    ) -> List[Dict]:
+        """Stage 3: Transcribe."""
+        if self._transcriber is None:
+            self._transcriber = MultilingualTranscriber(
+                model_name=self.config.model.whisper_model,
+                languages=request.languages,
+                device=self.config.model.device,
+                compute_type=self.config.model.compute_type,
+                quality_config=self.config.quality,
+            )
 
-        profiles[speaker]['emotions'].append(emotion)
-        profiles[speaker]['total_time'] += duration
-        profiles[speaker]['segment_count'] += 1
-        profiles[speaker]['emotion_counts'][emotion] += 1
+        audio = whisperx.load_audio(str(audio_file))
+        segments = self._transcriber.transcribe_all(
+            audio,
+            vad_segments,
+            batch_size=request.batch_size or self.config.model.batch_size,
+        )
+        self._transcriber.cleanup()
+        return segments
 
-    for speaker, data in profiles.items():
-        dominant_emotions = sorted(data['emotion_counts'].items(), key=lambda x: -x[1])
-        dominant = dominant_emotions[0][0] if dominant_emotions else 'neutral'
+    def _diarize(self, segments: List[Dict], audio_file: Path) -> List[Dict]:
+        """Stage 4: Diarize."""
+        if self._diarizer is None:
+            self._diarizer = DiarizationProcessor(
+                device=self.config.model.device,
+                hf_token=self.config.huggingface_token,
+            )
 
-        if dominant in ('happiness', 'enthusiasm'):
-            data['interpretation'] = 'Позитивный настрой, энтузиазм'
-        elif dominant == 'anger':
-            data['interpretation'] = 'Напряжённость, возможно недовольство'
-        elif dominant == 'sadness':
-            data['interpretation'] = 'Обеспокоенность, усталость'
-        elif dominant == 'fear':
-            data['interpretation'] = 'Неуверенность, тревожность'
-        elif dominant == 'disgust':
-            data['interpretation'] = 'Негативное отношение'
-        else:
-            data['interpretation'] = 'Деловой, сдержанный тон'
+        audio = whisperx.load_audio(str(audio_file))
+        segments = self._diarizer.process(segments, audio)
+        segments = self._diarizer.merge_speaker_segments(segments)
+        self._diarizer.cleanup()
+        return segments
 
-        data['emoji_string'] = ''.join(EMOTION_EMOJI.get(e, '😐') for e in data['emotions'][:10])
-        if len(data['emotions']) > 10:
-            data['emoji_string'] += f'... (+{len(data["emotions"]) - 10})'
+    def _translate(self, segments: List[Dict]) -> List[Dict]:
+        """Stage 5: Translate."""
+        if not self.config.gemini_api_key:
+            logger.warning("No Gemini API key, skipping translation")
+            return segments
 
-    return dict(profiles)
+        if self._translator is None:
+            self._translator = GeminiTranslator(
+                api_key=self.config.gemini_api_key,
+                target_language=self.config.translation.target_language,
+                context_window=self.config.translation.context_window,
+                rate_limit_seconds=self.config.translation.rate_limit_seconds,
+            )
 
+        return self._translator.translate(segments)
 
-def create_word_report(merged_segments: list, speaker_profiles: dict, audio_file: Path, output_path: Path):
-    """Создаёт полный Word отчёт"""
-    doc = Document()
+    def _analyze_emotions(self, audio_file: Path, segments: List[Dict]) -> List[Dict]:
+        """Stage 6: Analyze emotions."""
+        if self._emotion_analyzer is None:
+            self._emotion_analyzer = EmotionAnalyzer(
+                model_name=self.config.model.emotion_model,
+                device=self.config.model.device,
+                max_segment_duration=self.config.emotions.max_segment_duration,
+            )
 
-    title = doc.add_heading('Протокол совещания', 0)
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        segments = self._emotion_analyzer.analyze_segments(audio_file, segments)
+        self._emotion_analyzer.cleanup()
+        return segments
 
-    doc.add_heading('Информация о записи', level=1)
-    total_duration = merged_segments[-1]["end"] if merged_segments else 0
+    def _generate_reports(
+        self,
+        segments: List[Dict],
+        input_file: Path,
+        elapsed: float,
+        output_dir: Path,
+    ) -> Dict[str, Path]:
+        """Stage 7: Generate reports."""
+        if self._report_generator is None:
+            self._report_generator = ReportGenerator(output_dir=output_dir)
 
-    info_table = doc.add_table(rows=5, cols=2)
-    info_table.style = 'Table Grid'
-    info_data = [
-        ('Файл', audio_file.name),
-        ('Дата обработки', datetime.now().strftime('%d.%m.%Y %H:%M')),
-        ('Длительность', format_time(total_duration)),
-        ('Участников', str(len(speaker_profiles))),
-        ('Сегментов', str(len(merged_segments))),
-    ]
-    for i, (label, value) in enumerate(info_data):
-        row = info_table.rows[i]
-        row.cells[0].text = label
-        row.cells[1].text = value
-        row.cells[0].paragraphs[0].runs[0].bold = True
+        return self._report_generator.generate_all(
+            segments=segments,
+            input_file=input_file,
+            elapsed_time=elapsed,
+        )
 
-    doc.add_paragraph()
-    doc.add_heading('Профиль участников', level=1)
+    def _build_result(
+        self,
+        segments: List[Dict],
+        input_file: Path,
+        elapsed: float,
+        output_files: Dict[str, Path],
+    ) -> TranscriptionResult:
+        """Build final result object."""
+        from .stages.report import build_speaker_profiles
 
-    profile_table = doc.add_table(rows=len(speaker_profiles) + 1, cols=4)
-    profile_table.style = 'Table Grid'
+        profiles = build_speaker_profiles(segments)
 
-    headers = ['Спикер', 'Время', 'Эмоции', 'Интерпретация']
-    for i, h in enumerate(headers):
-        profile_table.rows[0].cells[i].text = h
-        profile_table.rows[0].cells[i].paragraphs[0].runs[0].bold = True
+        # Language distribution
+        lang_dist = {}
+        emotion_dist = {}
+        for seg in segments:
+            lang = seg.get("language", "unknown")
+            lang_dist[lang] = lang_dist.get(lang, 0) + 1
 
-    sorted_speakers = sorted(speaker_profiles.items(), key=lambda x: -x[1]['total_time'])
-    for i, (speaker, data) in enumerate(sorted_speakers, 1):
-        row = profile_table.rows[i]
-        row.cells[0].text = speaker
-        row.cells[1].text = format_time(data['total_time'])
-        row.cells[2].text = data['emoji_string']
-        row.cells[3].text = data['interpretation']
-
-    doc.add_paragraph()
-    doc.add_heading('Общая статистика эмоций', level=1)
-
-    total_emotions = defaultdict(int)
-    for seg in merged_segments:
-        total_emotions[seg.get('emotion', 'neutral')] += 1
-
-    emotion_table = doc.add_table(rows=len(total_emotions) + 1, cols=3)
-    emotion_table.style = 'Table Grid'
-
-    emotion_table.rows[0].cells[0].text = 'Эмоция'
-    emotion_table.rows[0].cells[1].text = 'Количество'
-    emotion_table.rows[0].cells[2].text = 'Процент'
-    for cell in emotion_table.rows[0].cells:
-        cell.paragraphs[0].runs[0].bold = True
-
-    total = len(merged_segments)
-    for i, (emotion, count) in enumerate(sorted(total_emotions.items(), key=lambda x: -x[1]), 1):
-        row = emotion_table.rows[i]
-        row.cells[0].text = f"{EMOTION_EMOJI.get(emotion, '')} {EMOTION_LABELS_RU.get(emotion, emotion)}"
-        row.cells[1].text = str(count)
-        row.cells[2].text = f"{count/total*100:.0f}%"
-
-    doc.add_page_break()
-    doc.add_heading('Транскрипция', level=1)
-
-    for seg in merged_segments:
-        speaker = seg["speaker"]
-        start = seg["start"]
-        end = seg["end"]
-        text = seg["text"]
-        emotion = seg.get("emotion", "neutral")
-
-        emotion_str = f"{EMOTION_EMOJI.get(emotion, '')} {EMOTION_LABELS_RU.get(emotion, emotion)}"
-
-        header = doc.add_paragraph()
-        header_run = header.add_run(f"[{format_time(start)} - {format_time(end)}] {speaker} | {emotion_str}")
-        header_run.bold = True
-        header_run.font.size = Pt(11)
-
-        text_para = doc.add_paragraph(text)
-        text_para.paragraph_format.space_after = Pt(12)
-
-    doc.save(str(output_path))
-    print(f"Word отчёт сохранён: {output_path}")
-
-
-def save_txt(merged_segments: list, speaker_profiles: dict, output_path: Path):
-    """Сохраняет TXT отчёт"""
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("=" * 60 + "\n")
-        f.write("ПРОТОКОЛ СОВЕЩАНИЯ\n")
-        f.write("=" * 60 + "\n\n")
-
-        f.write("ПРОФИЛЬ УЧАСТНИКОВ:\n")
-        f.write("-" * 60 + "\n")
-        f.write(f"{'Спикер':<12} | {'Время':<8} | {'Эмоции':<15} | Интерпретация\n")
-        f.write("-" * 60 + "\n")
-
-        sorted_speakers = sorted(speaker_profiles.items(), key=lambda x: -x[1]['total_time'])
-        for speaker, data in sorted_speakers:
-            emoji_short = ''.join(EMOTION_EMOJI.get(e, '😐') for e in data['emotions'][:5])
-            f.write(f"{speaker:<12} | {format_time(data['total_time']):<8} | {emoji_short:<15} | {data['interpretation']}\n")
-
-        f.write("\n" + "=" * 60 + "\n")
-        f.write("ТРАНСКРИПЦИЯ:\n")
-        f.write("=" * 60 + "\n\n")
-
-        for seg in merged_segments:
             emotion = seg.get("emotion", "neutral")
-            emotion_str = f"{EMOTION_EMOJI.get(emotion, '')} {EMOTION_LABELS_RU.get(emotion, emotion)}"
-            f.write(f"[{format_time(seg['start'])} - {format_time(seg['end'])}] {seg['speaker']} | {emotion_str}\n")
-            f.write(f"{seg['text']}\n\n")
+            emotion_dist[emotion] = emotion_dist.get(emotion, 0) + 1
 
-    print(f"TXT сохранён: {output_path}")
+        return TranscriptionResult(
+            source_file=input_file.name,
+            processed_at=datetime.now(),
+            pipeline_version="v4",
+            processing_time_seconds=elapsed,
+            segments=[FinalSegment(**seg) for seg in segments],
+            speakers={
+                k: SpeakerProfile(speaker_id=k, **v)
+                for k, v in profiles.items()
+            },
+            total_duration=segments[-1]["end"] if segments else 0,
+            segment_count=len(segments),
+            language_distribution=lang_dist,
+            emotion_distribution=emotion_dist,
+        )
+
+    def _cleanup(self):
+        """Cleanup all processors."""
+        if self._vad_processor:
+            self._vad_processor.cleanup()
+        if self._transcriber:
+            self._transcriber.cleanup()
+        if self._diarizer:
+            self._diarizer.cleanup()
+        if self._emotion_analyzer:
+            self._emotion_analyzer.cleanup()
 
 
 def process_file(
     input_file: Path,
-    output_dir: Path = DEFAULT_OUTPUT_DIR,
-    model: str = "large-v3",
-    language: str = "ru",
-    device: str = "cuda",
-    compute_type: str = "float16",
-    batch_size: int = 16,
+    output_dir: Optional[Path] = None,
+    languages: List[str] = None,
+    skip_diarization: bool = False,
+    skip_translation: bool = False,
     skip_emotions: bool = False,
-    hf_token: str = None
-) -> Path:
+    **kwargs,
+) -> TranscriptionResult:
     """
-    Основная функция обработки файла.
-    Возвращает путь к Word отчёту.
+    Convenience function to process a file.
+
+    Args:
+        input_file: Input audio/video file
+        output_dir: Output directory
+        languages: Languages to transcribe
+        skip_diarization: Skip speaker identification
+        skip_translation: Skip translation
+        skip_emotions: Skip emotion analysis
+        **kwargs: Additional config overrides
+
+    Returns:
+        TranscriptionResult
     """
-    start_time_total = datetime.now()
-
-    print("=" * 60)
-    print("WhisperX Full Pipeline")
-    print(f"Файл: {input_file}")
-    print(f"Модель: {model}")
-    print(f"Устройство: {device}")
-    print("=" * 60)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    temp_audio = output_dir / "temp_audio.wav"
-
-    # 1. Извлечение аудио
-    print("\n[1/7] Извлечение аудио из видео...")
-    extract_audio(input_file, temp_audio)
-
-    # 2. Загрузка модели
-    print("\n[2/7] Загрузка модели транскрипции...")
-    whisper_model = whisperx.load_model(model, device, compute_type=compute_type, language=language)
-
-    # 3. Загрузка аудио
-    print("[3/7] Загрузка аудио...")
-    audio = whisperx.load_audio(str(temp_audio))
-
-    # 4. Транскрипция
-    print("[4/7] Транскрипция...")
-    result = whisper_model.transcribe(audio, batch_size=batch_size)
-    print(f"    Найдено сегментов: {len(result['segments'])}")
-
-    # 5. Выравнивание
-    print("[5/7] Выравнивание...")
-    model_a, metadata = whisperx.load_align_model(language_code=language, device=device)
-    result = whisperx.align(result["segments"], model_a, metadata, audio, device=device)
-
-    del whisper_model
-    del model_a
-    torch.cuda.empty_cache()
-
-    # 6. Диаризация
-    print("[6/7] Диаризация спикеров...")
-    token = hf_token or get_hf_token()
-    if not token:
-        print("ВНИМАНИЕ: HF_TOKEN не найден, диаризация может не работать")
-
-    diarize_model = DiarizationPipeline(use_auth_token=token, device=device)
-    diarize_segments = diarize_model(audio)
-    result = whisperx.assign_word_speakers(diarize_segments, result)
-
-    del diarize_model
-    torch.cuda.empty_cache()
-
-    # Склейка
-    print("\nСклейка сегментов...")
-    merged = merge_speaker_segments(result["segments"])
-    print(f"Исходных: {len(result['segments'])} -> После склейки: {len(merged)}")
-
-    # 7. Анализ эмоций
-    if not skip_emotions:
-        print("\n[7/7] Анализ эмоций...")
-        emotion_analyzer = EmotionAnalyzer(EMOTION_MODEL, device=device)
-
-        for i, seg in enumerate(merged):
-            emotion, confidence = emotion_analyzer.analyze(temp_audio, seg["start"], seg["end"])
-            seg["emotion"] = emotion
-            seg["emotion_confidence"] = confidence
-            if (i + 1) % 10 == 0 or i == len(merged) - 1:
-                print(f"    Прогресс: {i+1}/{len(merged)}")
-    else:
-        print("\n[7/7] Анализ эмоций пропущен")
-        for seg in merged:
-            seg["emotion"] = "neutral"
-            seg["emotion_confidence"] = 0.0
-
-    # Профили спикеров
-    print("\nПостроение профилей спикеров...")
-    speaker_profiles = build_speaker_profiles(merged)
-
-    # Сохранение
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-    txt_path = output_dir / f"protocol_{timestamp}.txt"
-    save_txt(merged, speaker_profiles, txt_path)
-
-    word_path = output_dir / f"protocol_{timestamp}.docx"
-    create_word_report(merged, speaker_profiles, input_file, word_path)
-
-    # Удаляем временный файл
-    if temp_audio.exists():
-        temp_audio.unlink()
-
-    elapsed = datetime.now() - start_time_total
-    print("\n" + "=" * 60)
-    print(f"ГОТОВО! Время обработки: {elapsed}")
-    print(f"Результат: {word_path}")
-    print("=" * 60)
-
-    return word_path
-
-
-def build_transcription_result(
-    merged_segments: list,
-    speaker_profiles: dict,
-    input_file: Path,
-    processing_time: float,
-    model: str,
-    language: str
-) -> "TranscriptionResult":
-    """
-    Конвертирует внутренние структуры в Pydantic TranscriptionResult.
-    Используется для передачи данных в домены.
-    """
-    # Ленивый импорт чтобы не ломать CLI если pydantic не установлен
-    from .schemas import (
-        TranscriptionResult, Segment, SpeakerProfile,
-        ProcessingMetadata, Emotion
+    request = TranscriptionRequest(
+        languages=languages or ["ru"],
+        skip_diarization=skip_diarization,
+        skip_translation=skip_translation,
+        skip_emotions=skip_emotions,
     )
 
-    # Конвертируем сегменты
-    segments = []
-    for seg in merged_segments:
-        emotion_str = seg.get("emotion", "neutral")
-        try:
-            emotion = Emotion(emotion_str)
-        except ValueError:
-            emotion = Emotion.NEUTRAL
-
-        segments.append(Segment(
-            start=seg["start"],
-            end=seg["end"],
-            text=seg["text"],
-            speaker=seg["speaker"],
-            emotion=emotion,
-            emotion_confidence=seg.get("emotion_confidence", 0.0)
-        ))
-
-    # Конвертируем профили спикеров
-    speakers = []
-    for speaker_id, data in speaker_profiles.items():
-        dominant_str = max(data["emotion_counts"].items(), key=lambda x: x[1])[0] if data["emotion_counts"] else "neutral"
-        try:
-            dominant = Emotion(dominant_str)
-        except ValueError:
-            dominant = Emotion.NEUTRAL
-
-        speakers.append(SpeakerProfile(
-            speaker_id=speaker_id,
-            total_time=data["total_time"],
-            segment_count=data["segment_count"],
-            emotion_distribution=dict(data["emotion_counts"]),
-            dominant_emotion=dominant,
-            interpretation=data["interpretation"]
-        ))
-
-    # Сортируем по времени речи
-    speakers.sort(key=lambda x: -x.total_time)
-
-    # Общая длительность
-    duration = merged_segments[-1]["end"] if merged_segments else 0.0
-
-    # Метаданные
-    metadata = ProcessingMetadata(
-        source_file=input_file.name,
-        duration_seconds=duration,
-        processing_time_seconds=processing_time,
-        model_name=model,
-        language=language
-    )
-
-    return TranscriptionResult(
-        segments=segments,
-        speakers=speakers,
-        metadata=metadata
+    pipeline = TranscriptionPipeline()
+    return pipeline.process(
+        input_file=Path(input_file),
+        request=request,
+        output_dir=Path(output_dir) if output_dir else None,
     )
 
 
-def save_json(result: "TranscriptionResult", output_path: Path):
-    """Сохраняет результат в JSON"""
-    import json
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(result.model_dump_json(indent=2, ensure_ascii=False))
-    print(f"JSON сохранён: {output_path}")
+# CLI entry point
+if __name__ == "__main__":
+    import argparse
+    import sys
 
+    logging.basicConfig(level=logging.INFO)
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="WhisperX Full Pipeline - Транскрипция + Диаризация + Эмоции"
-    )
-    parser.add_argument("input", type=Path, help="Входной аудио/видео файл")
-    parser.add_argument("-o", "--output", type=Path, default=DEFAULT_OUTPUT_DIR, help="Папка для результатов")
-    parser.add_argument("-m", "--model", default="large-v3", help="Модель Whisper (default: large-v3)")
-    parser.add_argument("-l", "--language", default="ru", help="Язык (default: ru)")
-    parser.add_argument("-d", "--device", default="cuda", help="Устройство: cuda/cpu (default: cuda)")
-    parser.add_argument("--compute-type", default="float16", help="Тип вычислений (default: float16)")
-    parser.add_argument("--batch-size", type=int, default=16, help="Размер батча (default: 16)")
-    parser.add_argument("--skip-emotions", action="store_true", help="Пропустить анализ эмоций")
-    parser.add_argument("--hf-token", help="HuggingFace токен для диаризации")
-    parser.add_argument("--json", action="store_true", help="Дополнительно сохранить результат в JSON")
-    parser.add_argument("--open", action="store_true", help="Открыть результат после обработки (только Windows)")
+    parser = argparse.ArgumentParser(description="WhisperX Transcription Pipeline v4")
+    parser.add_argument("input", help="Input file")
+    parser.add_argument("-o", "--output", type=Path, default=None, help="Output directory")
+    parser.add_argument("--languages", nargs="+", default=["ru"], help="Languages to transcribe")
+    parser.add_argument("--skip-diarization", action="store_true")
+    parser.add_argument("--skip-translation", action="store_true")
+    parser.add_argument("--skip-emotions", action="store_true")
 
     args = parser.parse_args()
 
-    if not args.input.exists():
-        print(f"Ошибка: файл не найден: {args.input}")
+    input_file = Path(args.input)
+    if not input_file.exists():
+        print(f"Error: File not found: {input_file}")
         sys.exit(1)
 
-    word_path = process_file(
-        input_file=args.input,
+    result = process_file(
+        input_file=input_file,
         output_dir=args.output,
-        model=args.model,
-        language=args.language,
-        device=args.device,
-        compute_type=args.compute_type,
-        batch_size=args.batch_size,
+        languages=args.languages,
+        skip_diarization=args.skip_diarization,
+        skip_translation=args.skip_translation,
         skip_emotions=args.skip_emotions,
-        hf_token=args.hf_token
     )
 
-    if args.open and sys.platform == "win32":
-        os.startfile(word_path)
-
-
-if __name__ == "__main__":
-    main()
+    print(f"\nDone! Processed {result.segment_count} segments in {result.processing_time_seconds:.1f}s")

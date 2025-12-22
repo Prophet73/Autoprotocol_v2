@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # API Server
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - WHISPER_MODEL=large-v3
+      - COMPUTE_TYPE=float16
+      - DEVICE=cuda
+    volumes:
+      - uploads:/data/uploads
+      - output:/data/output
+      - models:/data/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Celery Worker (GPU)
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: celery -A backend.tasks.celery_app worker -Q transcription -c 1 --loglevel=info
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - WHISPER_MODEL=large-v3
+      - COMPUTE_TYPE=float16
+      - DEVICE=cuda
+    volumes:
+      - uploads:/data/uploads
+      - output:/data/output
+      - models:/data/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # Redis (Task Queue + Cache)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  # Flower (Celery Monitoring) - Optional
+  flower:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: celery -A backend.tasks.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+      - worker
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  uploads:
+  output:
+  models:
+  redis_data:

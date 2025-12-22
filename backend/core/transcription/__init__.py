@@ -1,20 +1,27 @@
-from .schemas import (
-    Emotion,
-    Segment,
-    SpeakerProfile,
+"""Transcription core module."""
+from .pipeline import TranscriptionPipeline, process_file
+from .config import PipelineConfig, config
+from .models import (
+    TranscriptionRequest,
     TranscriptionResult,
-    ProcessingMetadata
+    TranscriptionJob,
+    JobStatus,
+    FinalSegment,
+    SpeakerProfile,
 )
-from .pipeline import process_file, build_transcription_result
 
 __all__ = [
-    # Schemas
-    "Emotion",
-    "Segment",
-    "SpeakerProfile",
-    "TranscriptionResult",
-    "ProcessingMetadata",
     # Pipeline
+    "TranscriptionPipeline",
     "process_file",
-    "build_transcription_result"
+    # Config
+    "PipelineConfig",
+    "config",
+    # Models
+    "TranscriptionRequest",
+    "TranscriptionResult",
+    "TranscriptionJob",
+    "JobStatus",
+    "FinalSegment",
+    "SpeakerProfile",
 ]
