@@ -18,6 +18,16 @@ class JobStatus(str, Enum):
     FAILED = "failed"
 
 
+def _format_time(seconds: float) -> str:
+    """Format seconds to MM:SS or HH:MM:SS."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
 class SegmentBase(BaseModel):
     """Base segment with timing info."""
     start: float = Field(..., description="Start time in seconds")
@@ -26,6 +36,14 @@ class SegmentBase(BaseModel):
     @property
     def duration(self) -> float:
         return self.end - self.start
+
+    @property
+    def start_formatted(self) -> str:
+        return _format_time(self.start)
+
+    @property
+    def end_formatted(self) -> str:
+        return _format_time(self.end)
 
 
 class VADSegment(SegmentBase):
@@ -76,6 +94,12 @@ class FinalSegment(EmotionSegment):
     pass
 
 
+class EmotionInfo(BaseModel):
+    """Emotion information for display."""
+    label_ru: str = Field(default="Нейтральный")
+    emoji: str = Field(default="😐")
+
+
 class SpeakerProfile(BaseModel):
     """Speaker statistics and profile."""
     speaker_id: str
@@ -84,6 +108,21 @@ class SpeakerProfile(BaseModel):
     emotion_counts: Dict[str, int] = Field(default_factory=dict)
     languages: List[str] = Field(default_factory=list)
     interpretation: str = Field(default="Деловой тон")
+    dominant_emotion: Optional[EmotionInfo] = Field(default=None)
+
+    @property
+    def total_time_formatted(self) -> str:
+        return _format_time(self.total_time)
+
+
+class TranscriptionMetadata(BaseModel):
+    """Metadata for transcription result."""
+    source_file: str
+    duration: float = Field(default=0.0)
+
+    @property
+    def duration_formatted(self) -> str:
+        return _format_time(self.duration)
 
 
 class TranscriptionResult(BaseModel):
@@ -101,6 +140,32 @@ class TranscriptionResult(BaseModel):
     segment_count: int = Field(default=0)
     language_distribution: Dict[str, int] = Field(default_factory=dict)
     emotion_distribution: Dict[str, int] = Field(default_factory=dict)
+
+    @property
+    def metadata(self) -> TranscriptionMetadata:
+        """Get metadata object for compatibility with generators."""
+        return TranscriptionMetadata(
+            source_file=self.source_file,
+            duration=self.total_duration,
+        )
+
+    @property
+    def speaker_count(self) -> int:
+        """Get number of speakers."""
+        return len(self.speakers)
+
+    @property
+    def speakers_list(self) -> List[SpeakerProfile]:
+        """Get speakers as list for iteration."""
+        return list(self.speakers.values())
+
+    def to_plain_text(self) -> str:
+        """Convert transcription to plain text for LLM analysis."""
+        lines = []
+        for seg in self.segments:
+            speaker = seg.speaker if hasattr(seg, 'speaker') else "SPEAKER"
+            lines.append(f"[{seg.start_formatted}] {speaker}: {seg.text}")
+        return "\n".join(lines)
 
 
 class TranscriptionRequest(BaseModel):

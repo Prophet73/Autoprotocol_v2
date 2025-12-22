@@ -1,61 +1,101 @@
 """
 Stage 6: Emotion Analysis
 
-Analyzes emotions in speech segments using Aniemore model.
-Russian emotion recognition with wav2vec2.
+Analyzes emotions in speech segments using KELONMYOSA wav2vec2 model.
+Russian emotion recognition with 90% accuracy (trained on DUSHA dataset).
+
+Model: https://huggingface.co/KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru
+No aniemore dependency - uses transformers directly.
 """
 import torch
+import torch.nn.functional as F
 import librosa
 import logging
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
-from transformers import AutoModelForAudioClassification, AutoFeatureExtractor
-
 from .transcribe import clean_cuda_cache
 
 logger = logging.getLogger(__name__)
 
+# Model identifier on HuggingFace
+MODEL_ID = "KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru"
+
 
 class EmotionAnalyzer:
-    """Emotion analyzer using Aniemore wav2vec2 model."""
+    """
+    Emotion analyzer using KELONMYOSA wav2vec2 model.
 
-    DEFAULT_MODEL = "Aniemore/wav2vec2-xlsr-53-russian-emotion-recognition"
+    90% accuracy on DUSHA dataset.
+    Emotions: neutral, positive, angry, sad, other
+    """
 
     def __init__(
         self,
-        model_name: str = None,
         device: str = "cuda",
         max_segment_duration: float = 30.0,
+        model_id: str = MODEL_ID,
     ):
         """
         Initialize emotion analyzer.
 
         Args:
-            model_name: HuggingFace model name
-            device: Device to run on
-            max_segment_duration: Max segment length to analyze
+            device: Device to run on ('cuda' or 'cpu')
+            max_segment_duration: Max segment length to analyze (seconds)
+            model_id: HuggingFace model identifier
         """
-        self.model_name = model_name or self.DEFAULT_MODEL
         self.device = device
         self.max_segment_duration = max_segment_duration
+        self.model_id = model_id
 
+        # Model components (lazy loaded)
         self.model = None
-        self.feature_extractor = None
-        self.id2label = None
+        self.processor = None
+        self.config = None
+        self.sampling_rate = 16000
+
+        # Emotion labels mapping (model output -> normalized)
+        self.emotion_labels = {
+            'neutral': 'neutral',
+            'positive': 'happiness',  # Map to match previous API
+            'angry': 'anger',
+            'sad': 'sadness',
+            'other': 'neutral',
+        }
 
     def load_model(self) -> None:
-        """Load emotion recognition model."""
+        """Load emotion recognition model from HuggingFace."""
         if self.model is not None:
             return
 
-        logger.info(f"Loading emotion model: {self.model_name}")
-        self.feature_extractor = AutoFeatureExtractor.from_pretrained(self.model_name)
-        self.model = AutoModelForAudioClassification.from_pretrained(self.model_name)
-        self.model = self.model.to(self.device)
-        self.model.eval()
-        self.id2label = self.model.config.id2label
-        logger.info("Emotion model loaded")
+        logger.info(f"Loading emotion model: {self.model_id}")
+
+        try:
+            from transformers import (
+                AutoConfig,
+                AutoModelForAudioClassification,
+                Wav2Vec2Processor,
+            )
+
+            # Load config, processor and model
+            self.config = AutoConfig.from_pretrained(self.model_id)
+            self.processor = Wav2Vec2Processor.from_pretrained(self.model_id)
+            self.sampling_rate = self.processor.feature_extractor.sampling_rate
+
+            self.model = AutoModelForAudioClassification.from_pretrained(
+                self.model_id,
+                trust_remote_code=True
+            )
+            self.model.to(self.device)
+            self.model.eval()
+
+            logger.info(f"Emotion model loaded: {self.model_id} (90% accuracy)")
+            logger.info(f"Labels: {list(self.config.id2label.values())}")
+
+        except Exception as e:
+            logger.error(f"Failed to load emotion model: {e}")
+            self.model = None
+            self.processor = None
 
     def analyze(
         self,
@@ -76,6 +116,9 @@ class EmotionAnalyzer:
         """
         self.load_model()
 
+        if self.model is None or self.processor is None:
+            return 'neutral', 0.5
+
         try:
             # Limit segment duration
             duration = min(end_time - start_time, self.max_segment_duration)
@@ -83,36 +126,120 @@ class EmotionAnalyzer:
             # Load audio segment
             audio, sr = librosa.load(
                 str(audio_path),
-                sr=16000,
+                sr=self.sampling_rate,
                 offset=start_time,
                 duration=duration
             )
 
-            # Skip very short segments
-            if len(audio) < 1600:  # < 0.1 sec
+            # Skip very short segments (< 0.1 sec)
+            if len(audio) < self.sampling_rate * 0.1:
                 return 'neutral', 0.5
 
-            # Extract features
-            inputs = self.feature_extractor(
+            # Process audio
+            features = self.processor(
                 audio,
-                sampling_rate=16000,
+                sampling_rate=self.sampling_rate,
                 return_tensors="pt",
                 padding=True
             )
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-            # Predict
+            input_values = features.input_values.to(self.device)
+            attention_mask = features.attention_mask.to(self.device) if hasattr(features, 'attention_mask') else None
+
+            # Inference
             with torch.no_grad():
-                outputs = self.model(**inputs)
-                probs = torch.softmax(outputs.logits, dim=-1)
-                pred_idx = torch.argmax(probs, dim=-1).item()
-                confidence = probs[0][pred_idx].item()
+                if attention_mask is not None:
+                    logits = self.model(input_values, attention_mask=attention_mask).logits
+                else:
+                    logits = self.model(input_values).logits
 
-            return self.id2label[pred_idx], confidence
+            # Get probabilities
+            scores = F.softmax(logits, dim=1).cpu().numpy()[0]
+
+            # Find best emotion
+            best_idx = scores.argmax()
+            raw_label = self.config.id2label[best_idx]
+            confidence = float(scores[best_idx])
+
+            # Map to normalized label
+            emotion = self.emotion_labels.get(raw_label, raw_label)
+
+            return emotion, confidence
 
         except Exception as e:
             logger.warning(f"Emotion analysis error: {e}")
             return 'neutral', 0.5
+
+    def analyze_batch(
+        self,
+        audio_path: Path,
+        segments: List[Dict],
+        batch_size: int = 8,
+    ) -> List[Tuple[str, float]]:
+        """
+        Analyze emotions for multiple segments in batches.
+
+        More efficient than analyzing one by one.
+        """
+        self.load_model()
+
+        if self.model is None:
+            return [('neutral', 0.5)] * len(segments)
+
+        results = []
+
+        for i in range(0, len(segments), batch_size):
+            batch_segments = segments[i:i + batch_size]
+            batch_audio = []
+
+            for seg in batch_segments:
+                try:
+                    duration = min(
+                        seg["end"] - seg["start"],
+                        self.max_segment_duration
+                    )
+                    audio, _ = librosa.load(
+                        str(audio_path),
+                        sr=self.sampling_rate,
+                        offset=seg["start"],
+                        duration=duration
+                    )
+                    batch_audio.append(audio)
+                except Exception:
+                    batch_audio.append(None)
+
+            # Process valid audio
+            for audio in batch_audio:
+                if audio is None or len(audio) < self.sampling_rate * 0.1:
+                    results.append(('neutral', 0.5))
+                    continue
+
+                try:
+                    features = self.processor(
+                        audio,
+                        sampling_rate=self.sampling_rate,
+                        return_tensors="pt",
+                        padding=True
+                    )
+
+                    input_values = features.input_values.to(self.device)
+
+                    with torch.no_grad():
+                        logits = self.model(input_values).logits
+
+                    scores = F.softmax(logits, dim=1).cpu().numpy()[0]
+                    best_idx = scores.argmax()
+                    raw_label = self.config.id2label[best_idx]
+                    confidence = float(scores[best_idx])
+                    emotion = self.emotion_labels.get(raw_label, raw_label)
+
+                    results.append((emotion, confidence))
+
+                except Exception as e:
+                    logger.warning(f"Batch emotion error: {e}")
+                    results.append(('neutral', 0.5))
+
+        return results
 
     def analyze_segments(
         self,
@@ -163,9 +290,11 @@ class EmotionAnalyzer:
             del self.model
             self.model = None
 
-        if self.feature_extractor is not None:
-            del self.feature_extractor
-            self.feature_extractor = None
+        if self.processor is not None:
+            del self.processor
+            self.processor = None
+
+        self.config = None
 
         clean_cuda_cache()
         logger.debug("Emotion analyzer cleaned up")

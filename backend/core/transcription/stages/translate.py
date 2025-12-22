@@ -4,13 +4,14 @@ Stage 5: Translation
 Translates non-Russian segments using Google Gemini API.
 Uses context-aware translation for better quality.
 """
+import os
 import re
 import time
 import logging
 from typing import List, Dict, Optional
 from collections import defaultdict
 
-import google.generativeai as genai
+from google import genai
 
 logger = logging.getLogger(__name__)
 
@@ -29,17 +30,17 @@ class GeminiTranslator:
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str = None,
         target_language: str = "ru",
         context_window: int = 3,
         rate_limit_seconds: float = 0.3,
-        model_name: str = "gemini-2.0-flash",
+        model_name: str = "gemini-2.5-flash",
     ):
         """
         Initialize translator.
 
         Args:
-            api_key: Gemini API key
+            api_key: Gemini API key (or uses GOOGLE_API_KEY env var)
             target_language: Target language for translation
             context_window: Number of previous segments for context
             rate_limit_seconds: Delay between API calls
@@ -48,9 +49,13 @@ class GeminiTranslator:
         self.target_language = target_language
         self.context_window = context_window
         self.rate_limit_seconds = rate_limit_seconds
+        self.model_name = model_name
 
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model_name)
+        # Set API key in env if provided
+        if api_key:
+            os.environ["GOOGLE_API_KEY"] = api_key
+
+        self.client = genai.Client()
         logger.info(f"Gemini translator initialized: {model_name}")
 
     def translate(
@@ -165,7 +170,10 @@ class GeminiTranslator:
 
 ПЕРЕВОД НА РУССКИЙ:"""
 
-        response = self.model.generate_content(prompt)
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+        )
         translation = response.text.strip()
 
         # Clean artifacts
@@ -224,7 +232,10 @@ class GeminiTranslator:
 {numbered}"""
 
                 try:
-                    response = self.model.generate_content(prompt)
+                    response = self.client.models.generate_content(
+                        model=self.model_name,
+                        contents=prompt,
+                    )
                     translations = response.text.strip().split("\n")
 
                     for j, seg in enumerate(batch):

@@ -1,131 +1,111 @@
-# WhisperX Pipeline
+# CLAUDE.md
 
-## О проекте
-Полный пайплайн для обработки аудио/видео записей совещаний:
-- **Транскрипция** — WhisperX (large-v3), 70x realtime
-- **Диаризация** — pyannote-audio, идентификация спикеров
-- **Эмоции** — Aniemore (русская модель wav2vec2)
-- **Отчёты** — Word + TXT с профилями спикеров
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Требования
-- Python 3.10
-- NVIDIA GPU с CUDA (8+ GB VRAM)
-- FFmpeg
-- HuggingFace токен (для pyannote)
+## Project Overview
 
-## Установка
+WhisperX Pipeline - production-ready audio/video transcription service with modular backend architecture. Features 7-stage processing pipeline: audio extraction, VAD, multi-language transcription (WhisperX), speaker diarization (pyannote), translation (Gemini), emotion analysis (Aniemore), and report generation.
 
-### Windows
-```powershell
-# Создать venv
-python -m venv venv
-.\venv\Scripts\Activate.ps1
+## Commands
 
-# PyTorch с CUDA
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-# Зависимости
-pip install -r requirements.txt
-```
-
-### Ubuntu
+### Development
 ```bash
-# Системные зависимости
-sudo apt update
-sudo apt install ffmpeg python3.10 python3.10-venv
+# Run API server
+python -m backend.api.main
 
-# Создать venv
-python3.10 -m venv venv
-source venv/bin/activate
+# Run Celery worker (single concurrency for GPU)
+celery -A backend.tasks.celery_app worker -Q transcription -c 1
 
-# PyTorch с CUDA
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-# Зависимости
-pip install -r requirements.txt
+# Run pipeline directly on a file
+python test_multilang_v4.py video.mp4
 ```
 
-## Настройка HuggingFace токена
-1. Создать аккаунт: https://huggingface.co
-2. Принять условия pyannote: https://huggingface.co/pyannote/speaker-diarization-3.1
-3. Создать токен: https://huggingface.co/settings/tokens
-4. Добавить в `.env`:
-```
-HUGGINGFACE_TOKEN=hf_xxxxxxxxxxxxx
-```
-
-## Использование
-
-### CLI
+### Docker
 ```bash
-# Базовое использование
-python transcribe_full.py video.mp4
+# Start full stack (API + Worker + Redis)
+docker-compose -f docker/docker-compose.yml up -d
 
-# С параметрами
-python transcribe_full.py video.mp4 -m large-v3 -l ru -o ./results
+# Include Flower monitoring dashboard
+docker-compose -f docker/docker-compose.yml --profile monitoring up -d
 
-# Без анализа эмоций (быстрее)
-python transcribe_full.py video.mp4 --skip-emotions
-
-# CPU режим
-python transcribe_full.py video.mp4 -d cpu --compute-type int8
-
-# Справка
-python transcribe_full.py --help
+# View worker logs
+docker-compose -f docker/docker-compose.yml logs -f worker
 ```
 
-### Python API
-```python
-from pathlib import Path
-from transcribe_full import process_file
+### Setup
+```bash
+# Windows
+python -m venv venv && .\venv\Scripts\Activate.ps1
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt
 
-result = process_file(
-    input_file=Path("video.mp4"),
-    output_dir=Path("./output"),
-    model="large-v3",
-    language="ru",
-    device="cuda"
-)
-print(f"Результат: {result}")
+# Required .env
+HUGGINGFACE_TOKEN=hf_xxx   # Required for pyannote diarization
+GEMINI_API_KEY=AIzaSy...   # Optional, for translation stage
 ```
 
-## Параметры CLI
+## Architecture
 
-| Параметр | По умолчанию | Описание |
-|----------|--------------|----------|
-| `input` | — | Входной файл (обязательный) |
-| `-o, --output` | `./output` | Папка для результатов |
-| `-m, --model` | `large-v3` | Модель Whisper |
-| `-l, --language` | `ru` | Язык |
-| `-d, --device` | `cuda` | Устройство (cuda/cpu) |
-| `--compute-type` | `float16` | Тип вычислений |
-| `--batch-size` | `16` | Размер батча |
-| `--skip-emotions` | `false` | Пропустить эмоции |
-| `--hf-token` | из .env | HuggingFace токен |
-| `--open` | `false` | Открыть результат (Windows) |
+### 7-Stage Pipeline (`backend/core/transcription/pipeline.py`)
 
-## Выходные файлы
-- `protocol_YYYYMMDD_HHMMSS.docx` — Word отчёт
-- `protocol_YYYYMMDD_HHMMSS.txt` — текстовый отчёт
+```
+AudioExtractor → VADProcessor → MultilingualTranscriber → DiarizationProcessor
+                                                              ↓
+                ReportGenerator ← EmotionAnalyzer ← GeminiTranslator
+```
 
-### Структура отчёта
-1. **Информация о записи** — файл, дата, длительность
-2. **Профиль участников** — время, эмоции, интерпретация
-3. **Статистика эмоций** — общая по всем спикерам
-4. **Транскрипция** — с таймкодами, спикерами, эмоциями
+Each stage in `backend/core/transcription/stages/`:
+- `audio.py` - FFmpeg extraction to 16kHz WAV
+- `vad.py` - Silero VAD for speech segmentation
+- `transcribe.py` - WhisperX with multi-language detection and hallucination filtering
+- `diarize.py` - pyannote speaker identification
+- `translate.py` - Gemini API for non-Russian to Russian translation
+- `emotion.py` - Aniemore wav2vec2 Russian emotion recognition
+- `report.py` - Word + TXT report generation with speaker profiles
 
-## Модели эмоций
-Используется русская модель: `Aniemore/wav2vec2-xlsr-53-russian-emotion-recognition`
+**Key pattern**: Lazy initialization of models to conserve GPU memory. Each processor loads its model only when `process()` is called.
 
-Классы:
-- 😐 neutral — Нейтрально
-- 😊 positive — Позитив
-- 😔 sad — Грусть
-- 😠 angry — Раздражение
-- 🤔 other — Другое
+### Data Flow (Segment Evolution)
 
-## PyTorch 2.8+ Workaround
-Скрипт содержит патч для совместимости с PyTorch 2.8+:
+```
+SegmentBase → VADSegment → TranscribedSegment → DiarizedSegment
+                                                      ↓
+                                              TranslatedSegment → EmotionSegment → FinalSegment
+```
+
+Models in `backend/core/transcription/models.py`. Each stage adds fields to segments.
+
+### Service Architecture
+
+```
+FastAPI (backend/api/)
+    ├── POST /transcribe → Celery task
+    ├── GET /transcribe/{id} → job status
+    └── GET /download/{id} → output files
+         ↓
+Celery Worker (backend/tasks/)
+    └── process_transcription_task()
+         ↓
+TranscriptionPipeline
+    └── 7-stage processing
+```
+
+### Domain Services (`backend/domains/`)
+
+Abstract base pattern for domain-specific LLM reports. Currently implemented: `ConstructionService` with report types: weekly_summary, compliance_check, action_items, issues_tracker.
+
+Extend by inheriting `BaseDomainService` and implementing `get_system_prompt()`, `get_report_prompt()`, `parse_llm_response()`.
+
+## Configuration
+
+Pydantic config in `backend/core/transcription/config.py`:
+- `PipelineConfig` contains nested: `ModelConfig`, `VADConfig`, `QualityConfig`, `TranslationConfig`, `LanguageConfig`, `EmotionConfig`
+- All support env var overrides (e.g., `WHISPER_MODEL`, `BATCH_SIZE`, `VAD_THRESHOLD`)
+
+## Critical Implementation Notes
+
+### PyTorch 2.8+ Compatibility
+All entry points must include this patch before loading models:
 ```python
 _original_torch_load = torch.load
 def _patched_torch_load(*args, **kwargs):
@@ -134,28 +114,33 @@ def _patched_torch_load(*args, **kwargs):
 torch.load = _patched_torch_load
 ```
 
-## Troubleshooting
-
-| Проблема | Решение |
-|----------|---------|
-| CUDA out of memory | Уменьшить `--batch-size` или модель |
-| FFmpeg not found | Установить FFmpeg, добавить в PATH |
-| weights_only error | Патч уже включён в скрипт |
-| Диаризация не работает | Проверить HF_TOKEN и права доступа |
-
-## Структура проекта
-```
-WhisperX/
-├── transcribe_full.py   # Основной скрипт
-├── requirements.txt     # Зависимости
-├── .env                 # Токены (не в git)
-├── .gitignore
-├── claude.md            # Документация
-├── output/              # Результаты (не в git)
-└── venv/                # Окружение (не в git)
+### GPU Memory Management
+After each pipeline stage, call:
+```python
+torch.cuda.empty_cache()
+gc.collect()
 ```
 
-## Производительность
-Тестировано на RTX 4060 Ti (16GB):
-- 58 мин видео → ~4.5 мин обработки
-- Модель large-v3, batch_size=16
+### Celery Worker Concurrency
+Must be `-c 1` (single task) due to GPU memory constraints. Configured in `backend/tasks/celery_app.py`.
+
+### Hallucination Filtering
+`MultilingualTranscriber` includes pattern-based filtering for common ASR hallucinations (repetitive phrases, subtitles artifacts). Patterns defined in `config.py`.
+
+## API Schemas
+
+Request/response models in `backend/api/schemas.py` and `backend/core/transcription/schemas.py`.
+
+Key request: `TranscribeRequest` with flags: `skip_diarization`, `skip_translation`, `skip_emotions`, `languages: List[str]`.
+
+## File Outputs
+
+Pipeline generates to output directory:
+- `protocol_YYYYMMDD_HHMMSS.docx` - Word report with speaker profiles, emotion stats, timestamped transcript
+- `protocol_YYYYMMDD_HHMMSS.txt` - Plain text version
+- `result_YYYYMMDD_HHMMSS.json` - Full structured data
+
+## Requirements
+
+- Python 3.10, NVIDIA GPU (8+ GB VRAM), FFmpeg in PATH
+- HuggingFace token with pyannote access (https://huggingface.co/pyannote/speaker-diarization-3.1)

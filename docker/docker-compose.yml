@@ -1,8 +1,7 @@
-version: '3.8'
-
 services:
   # API Server
   api:
+    container_name: whisperx-api
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -32,6 +31,7 @@ services:
 
   # Celery Worker (GPU)
   worker:
+    container_name: whisperx-worker
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -58,8 +58,9 @@ services:
       - redis
     restart: unless-stopped
 
-  # Redis (Task Queue + Cache)
+  # Redis (Task Queue + Job Storage)
   redis:
+    container_name: whisperx-redis
     image: redis:7-alpine
     ports:
       - "6379:6379"
@@ -70,6 +71,7 @@ services:
 
   # Flower (Celery Monitoring) - Optional
   flower:
+    container_name: whisperx-flower
     build:
       context: ..
       dockerfile: docker/Dockerfile

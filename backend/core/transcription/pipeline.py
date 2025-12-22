@@ -10,7 +10,6 @@ Coordinates all stages of the transcription pipeline:
 6. Emotion analysis
 7. Report generation
 """
-import torch
 import time
 import logging
 from pathlib import Path
@@ -35,22 +34,14 @@ from .stages import (
     EmotionAnalyzer,
     ReportGenerator,
 )
+from ..utils.model_loading import setup_model_loading
 
 logger = logging.getLogger(__name__)
 
 
-# PyTorch 2.8+ compatibility patch
-_original_torch_load = torch.load
-def _patched_torch_load(*args, **kwargs):
-    kwargs['weights_only'] = False
-    return _original_torch_load(*args, **kwargs)
-torch.load = _patched_torch_load
-
-try:
-    import lightning_fabric.utilities.cloud_io as cloud_io
-    cloud_io.torch.load = _patched_torch_load
-except ImportError:
-    pass
+# Setup model loading compatibility (replaces global torch.load patch)
+# This is safer than global patching - only affects pyannote/wav2vec models
+setup_model_loading(enable_pyannote_compat=True)
 
 
 class TranscriptionPipeline:
@@ -69,6 +60,17 @@ class TranscriptionPipeline:
         "emotion_analysis",
         "report_generation",
     ]
+
+    # Stage weights for overall progress calculation (should sum to 100)
+    STAGE_WEIGHTS = {
+        "audio_extraction": 5,
+        "vad_analysis": 10,
+        "transcription": 35,
+        "diarization": 25,
+        "translation": 10,
+        "emotion_analysis": 10,
+        "report_generation": 5,
+    }
 
     def __init__(
         self,
@@ -94,11 +96,27 @@ class TranscriptionPipeline:
         self._emotion_analyzer = None
         self._report_generator = None
 
+    def _calculate_overall_progress(self, stage: str, stage_percent: int) -> int:
+        """Calculate overall progress based on stage and stage percent."""
+        # Calculate base progress from completed stages
+        base_progress = 0
+        for s in self.STAGES:
+            if s == stage:
+                break
+            base_progress += self.STAGE_WEIGHTS.get(s, 0)
+
+        # Add progress within current stage
+        stage_weight = self.STAGE_WEIGHTS.get(stage, 0)
+        stage_contribution = (stage_weight * stage_percent) // 100
+
+        return base_progress + stage_contribution
+
     def _report_progress(self, stage: str, percent: int, message: str = ""):
         """Report progress to callback."""
+        overall_percent = self._calculate_overall_progress(stage, percent)
         if self.progress_callback:
-            self.progress_callback(stage, percent, message)
-        logger.info(f"[{stage}] {percent}% - {message}")
+            self.progress_callback(stage, overall_percent, message)
+        logger.info(f"[{stage}] {overall_percent}% - {message}")
 
     def process(
         self,
@@ -171,11 +189,11 @@ class TranscriptionPipeline:
                     seg["emotion"] = "neutral"
                     seg["emotion_confidence"] = 0.5
 
-            # Stage 7: Reports
-            self._report_progress("report_generation", 0, "Generating reports...")
+            # Stage 7: Reports (skipped - handled by domain generators)
+            self._report_progress("report_generation", 0, "Preparing results...")
             elapsed = time.time() - start_time
-            output_files = self._generate_reports(segments, input_file, elapsed, output_dir)
-            self._report_progress("report_generation", 100, "Reports generated")
+            output_files = {}  # Domain generators create files
+            self._report_progress("report_generation", 100, "Results prepared")
 
             # Build result
             result = self._build_result(
@@ -187,7 +205,7 @@ class TranscriptionPipeline:
 
             logger.info("=" * 60)
             logger.info(f"Pipeline complete! Time: {elapsed/60:.1f} min")
-            logger.info(f"Output: {output_files.get('docx', output_dir)}")
+            logger.info(f"Segments: {len(segments)}")
             logger.info("=" * 60)
 
             return result
@@ -279,7 +297,7 @@ class TranscriptionPipeline:
         """Stage 6: Analyze emotions."""
         if self._emotion_analyzer is None:
             self._emotion_analyzer = EmotionAnalyzer(
-                model_name=self.config.model.emotion_model,
+                model_id=self.config.model.emotion_model,
                 device=self.config.model.device,
                 max_segment_duration=self.config.emotions.max_segment_duration,
             )

@@ -14,17 +14,9 @@ from typing import List, Dict, Optional, Any
 from collections import defaultdict
 
 from ..config import config, HALLUCINATION_PATTERNS
+from ...utils import clean_cuda_cache, get_gpu_manager, log_gpu_memory
 
 logger = logging.getLogger(__name__)
-
-
-def clean_cuda_cache():
-    """Aggressive CUDA memory cleanup."""
-    import gc
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
 
 
 def clean_repetitions(text: str) -> str:
@@ -344,8 +336,15 @@ class MultilingualTranscriber:
 
     def cleanup(self) -> None:
         """Release GPU memory."""
+        log_gpu_memory("before_transcriber_cleanup")
+
         for model in self.models.values():
             del model
         self.models.clear()
-        clean_cuda_cache()
+
+        # Use GPU manager for proper cleanup
+        gpu_manager = get_gpu_manager()
+        gpu_manager.cleanup(aggressive=True)
+
+        log_gpu_memory("after_transcriber_cleanup")
         logger.debug("Transcriber cleaned up")

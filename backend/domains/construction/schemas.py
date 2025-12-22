@@ -235,3 +235,81 @@ class ProcessingResult(BaseModel):
         minutes = int((self.duration_seconds % 3600) // 60)
         seconds = int(self.duration_seconds % 60)
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+# === ENUMS для service.py ===
+
+class Priority(str, Enum):
+    """Приоритет задачи"""
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class IssueSeverity(str, Enum):
+    """Серьёзность проблемы"""
+    CRITICAL = "critical"
+    MAJOR = "major"
+    MINOR = "minor"
+
+
+class IssueStatus(str, Enum):
+    """Статус проблемы"""
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+
+
+# === МОДЕЛИ для service.py ===
+
+class ActionItem(BaseModel):
+    """Задача/поручение из совещания"""
+    description: str = Field(description="Описание задачи")
+    responsible: Optional[str] = Field(None, description="Ответственный")
+    deadline: Optional[str] = Field(None, description="Срок")
+    priority: Priority = Field(default=Priority.MEDIUM, description="Приоритет")
+    status: Optional[str] = Field(None, description="Статус")
+
+
+class ConstructionIssue(BaseModel):
+    """Проблема/замечание"""
+    title: str = Field(description="Заголовок проблемы")
+    description: str = Field(description="Описание")
+    severity: IssueSeverity = Field(default=IssueSeverity.MINOR, description="Серьёзность")
+    status: IssueStatus = Field(default=IssueStatus.OPEN, description="Статус")
+    responsible: Optional[str] = Field(None, description="Ответственный")
+    location: Optional[str] = Field(None, description="Локация/объект")
+
+
+class Risk(BaseModel):
+    """Риск проекта"""
+    description: str = Field(description="Описание риска")
+    probability: Optional[str] = Field(None, description="Вероятность")
+    impact: Optional[str] = Field(None, description="Влияние")
+    mitigation: Optional[str] = Field(None, description="Меры снижения")
+
+
+class ComplianceItem(BaseModel):
+    """Пункт соответствия нормативам"""
+    requirement: str = Field(description="Требование")
+    status: str = Field(default="not_checked", description="Статус проверки")
+    regulation: Optional[str] = Field(None, description="Нормативный документ")
+    notes: Optional[str] = Field(None, description="Примечания")
+
+
+class ConstructionReport(BaseModel):
+    """Полный отчёт стройконтроля (для service.py)"""
+    report_type: str = Field(description="Тип отчёта")
+    title: str = Field(description="Заголовок")
+    summary: str = Field(description="Краткое содержание")
+    content: str = Field(default="", description="Полный контент")
+    key_points: List[str] = Field(default_factory=list, description="Ключевые пункты")
+    action_items: List[ActionItem] = Field(default_factory=list, description="Задачи")
+    issues: List[ConstructionIssue] = Field(default_factory=list, description="Проблемы")
+    risks: List[Risk] = Field(default_factory=list, description="Риски")
+    compliance_items: List[ComplianceItem] = Field(default_factory=list, description="Соответствие")
+    participants: List[str] = Field(default_factory=list, description="Участники")
+    project_name: Optional[str] = Field(None, description="Название проекта")
+    source_file: Optional[str] = Field(None, description="Исходный файл")
+    meeting_date: Optional[date] = Field(None, description="Дата совещания")

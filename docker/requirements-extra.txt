@@ -9,8 +9,12 @@ ffmpeg-python
 # NLP / Speaker Diarization
 pyannote.audio
 
-# Translation
-google-generativeai
+# Emotion Recognition
+# Using KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru directly via transformers
+# No additional dependencies needed (model loaded from HuggingFace)
+
+# Translation & LLM
+google-genai
 
 # API Server
 fastapi>=0.100.0
@@ -23,8 +27,10 @@ redis>=4.0.0
 
 # Document Generation
 python-docx
+openpyxl  # Excel generation for tasks.xlsx
 
 # Data Validation & Utils
 pydantic>=2.0
 pydantic-settings
 python-dotenv
+PyYAML  # For loading prompts.yaml

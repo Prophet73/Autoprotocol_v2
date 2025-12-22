@@ -17,8 +17,8 @@ class ModelConfig(BaseModel):
     """Model configuration"""
     whisper_model: str = Field(default="large-v3", description="WhisperX model name")
     emotion_model: str = Field(
-        default="Aniemore/wav2vec2-xlsr-53-russian-emotion-recognition",
-        description="Emotion recognition model"
+        default="KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru",
+        description="Emotion recognition model (90% accuracy on DUSHA dataset)"
     )
     compute_type: str = Field(default="float16", description="Compute type for inference")
     device: str = Field(default="cuda", description="Device: cuda or cpu")
@@ -155,17 +155,31 @@ class PipelineConfig(BaseModel):
 config = PipelineConfig.from_env()
 
 
-# Hallucination patterns for filtering
-HALLUCINATION_PATTERNS = [
-    r'продолжение следует',
-    r'субтитры\s*(сделал|подогнал|создал|делал)',
-    r'редактор субтитров',
-    r'корректор\s+[а-яё]+\.[а-яё]+',
-    r'спасибо за просмотр',
-    r'подписывайтесь на канал',
-    r'ставьте лайк',
-    r'^пока\.?$', r'^ага\.?$', r'^угу\.?$',
-    r'^谢谢大家\.?$', r'^谢谢\.?$', r'^谢谢观看', r'^感谢收看',
-    r'^thank you\.?$', r'^thanks for watching',
-    r'DimaTorzok', r'Амели',
-]
+# Hallucination patterns for filtering (loaded from YAML or fallback)
+def _load_hallucination_patterns() -> List[str]:
+    """Load hallucination patterns from YAML config or use defaults."""
+    try:
+        from ...config import get_hallucination_patterns
+        patterns = get_hallucination_patterns()
+        if patterns:
+            return patterns
+    except Exception:
+        pass
+
+    # Fallback defaults
+    return [
+        r'продолжение следует',
+        r'субтитры\s*(сделал|подогнал|создал|делал)',
+        r'редактор субтитров',
+        r'корректор\s+[а-яё]+\.[а-яё]+',
+        r'спасибо за просмотр',
+        r'подписывайтесь на канал',
+        r'ставьте лайк',
+        r'^пока\.?$', r'^ага\.?$', r'^угу\.?$',
+        r'^谢谢大家\.?$', r'^谢谢\.?$', r'^谢谢观看', r'^感谢收看',
+        r'^thank you\.?$', r'^thanks for watching',
+        r'DimaTorzok', r'Амели',
+    ]
+
+
+HALLUCINATION_PATTERNS = _load_hallucination_patterns()

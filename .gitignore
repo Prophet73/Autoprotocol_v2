@@ -44,3 +44,7 @@ nul
 # Documents
 *.docx
 ~$*
+
+# Bundler output
+scripts/bundles/
+venv310/

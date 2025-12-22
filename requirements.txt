@@ -23,9 +23,9 @@ soundfile
 ffmpeg-python
 
 # =============================================================================
-# Translation
+# Translation & LLM
 # =============================================================================
-google-generativeai
+google-genai
 
 # =============================================================================
 # API Server
@@ -45,6 +45,7 @@ flower  # Celery monitoring (optional)
 # Document Generation
 # =============================================================================
 python-docx
+openpyxl  # Excel generation for tasks.xlsx
 
 # =============================================================================
 # Data Validation & Utils
