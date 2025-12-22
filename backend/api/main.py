@@ -43,10 +43,31 @@ def _check_gpu() -> bool:
 
 # Create FastAPI app
 app = FastAPI(
-    title="WhisperX Transcription API",
-    description="Multi-language transcription service with speaker diarization, translation, and emotion analysis",
+    title="WhisperX API — Сервис транскрипции",
+    description="""
+## Мультиязычный сервис транскрипции аудио/видео
+
+### Возможности:
+- 🎤 **Транскрипция** — распознавание речи на русском, китайском, английском и других языках
+- 👥 **Диаризация** — определение спикеров (кто говорит)
+- 🌐 **Перевод** — автоматический перевод на русский через Gemini AI
+- 😊 **Анализ эмоций** — определение эмоций говорящих (90% точность)
+- 📄 **Генерация отчётов** — протоколы совещаний, задачи, аналитика
+
+### Поддерживаемые форматы:
+- Аудио: WAV, MP3, FLAC, OGG, M4A
+- Видео: MP4, MKV, AVI, MOV, WEBM
+
+### Модели:
+- WhisperX large-v3 — транскрипция
+- pyannote/speaker-diarization-3.1 — диаризация
+- KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru — эмоции
+- Gemini 2.0 Flash — перевод и генерация отчётов
+    """,
     version="4.0.0",
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 # CORS middleware

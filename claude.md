@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-WhisperX Pipeline - production-ready audio/video transcription service with modular backend architecture. Features 7-stage processing pipeline: audio extraction, VAD, multi-language transcription (WhisperX), speaker diarization (pyannote), translation (Gemini), emotion analysis (Aniemore), and report generation.
+WhisperX Pipeline - production-ready audio/video transcription service with modular backend architecture. Features 7-stage processing pipeline: audio extraction, VAD, multi-language transcription (WhisperX), speaker diarization (pyannote), translation (Gemini), emotion analysis, and report generation.
+
+**Key update**: Emotion analysis now uses KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru (90% accuracy) instead of aniemore to resolve dependency conflicts with WhisperX.
 
 ## Commands
 
@@ -16,8 +18,8 @@ python -m backend.api.main
 # Run Celery worker (single concurrency for GPU)
 celery -A backend.tasks.celery_app worker -Q transcription -c 1
 
-# Run pipeline directly on a file
-python test_multilang_v4.py video.mp4
+# Run frontend (React + Vite)
+cd frontend && npm run dev
 ```
 
 ### Docker
@@ -30,6 +32,9 @@ docker-compose -f docker/docker-compose.yml --profile monitoring up -d
 
 # View worker logs
 docker-compose -f docker/docker-compose.yml logs -f worker
+
+# Rebuild after code changes
+docker-compose -f docker/docker-compose.yml build --no-cache
 ```
 
 ### Setup
@@ -60,10 +65,19 @@ Each stage in `backend/core/transcription/stages/`:
 - `transcribe.py` - WhisperX with multi-language detection and hallucination filtering
 - `diarize.py` - pyannote speaker identification
 - `translate.py` - Gemini API for non-Russian to Russian translation
-- `emotion.py` - Aniemore wav2vec2 Russian emotion recognition
+- `emotion.py` - KELONMYOSA wav2vec2 Russian emotion recognition (90% accuracy)
 - `report.py` - Word + TXT report generation with speaker profiles
 
 **Key pattern**: Lazy initialization of models to conserve GPU memory. Each processor loads its model only when `process()` is called.
+
+### Models Used
+
+| Stage | Model | Description |
+|-------|-------|-------------|
+| Transcription | WhisperX large-v3 | Multi-language ASR |
+| Diarization | pyannote/speaker-diarization-3.1 | Speaker identification |
+| Emotion | KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru | 90% accuracy, 5 emotions |
+| Translation | Gemini 2.0 Flash | Context-aware translation |
 
 ### Data Flow (Segment Evolution)
 
@@ -78,17 +92,36 @@ Models in `backend/core/transcription/models.py`. Each stage adds fields to segm
 ### Service Architecture
 
 ```
-FastAPI (backend/api/)
-    ├── POST /transcribe → Celery task
-    ├── GET /transcribe/{id} → job status
-    └── GET /download/{id} → output files
-         ↓
-Celery Worker (backend/tasks/)
-    └── process_transcription_task()
-         ↓
-TranscriptionPipeline
-    └── 7-stage processing
+Frontend (React)          Backend (FastAPI)
+localhost:3000     →      localhost:8000
+    │                         │
+    │                    ┌────▼────┐
+    │                    │   API   │
+    │                    └────┬────┘
+    │                         │
+    │                    ┌────▼────┐
+    │                    │ Celery  │
+    │                    │ Worker  │
+    │                    └────┬────┘
+    │                         │
+    └─────────────────────────┘
+                              │
+                         ┌────▼────┐
+                         │  Redis  │
+                         └─────────┘
 ```
+
+### API Endpoints (http://localhost:8000/docs)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/transcribe` | Upload file, start transcription |
+| GET | `/transcribe/{id}/status` | Get job status & progress |
+| GET | `/transcribe/{id}` | Get completed job result |
+| GET | `/transcribe/{id}/download/{type}` | Download result file |
+| GET | `/transcribe` | List recent jobs |
+| DELETE | `/transcribe/{id}` | Cancel job |
+| GET | `/health` | Service health check |
 
 ### Domain Services (`backend/domains/`)
 
@@ -101,6 +134,12 @@ Extend by inheriting `BaseDomainService` and implementing `get_system_prompt()`,
 Pydantic config in `backend/core/transcription/config.py`:
 - `PipelineConfig` contains nested: `ModelConfig`, `VADConfig`, `QualityConfig`, `TranslationConfig`, `LanguageConfig`, `EmotionConfig`
 - All support env var overrides (e.g., `WHISPER_MODEL`, `BATCH_SIZE`, `VAD_THRESHOLD`)
+
+### Emotion Model Configuration
+Default model: `KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru`
+- 90% accuracy on DUSHA dataset
+- Emotions: neutral, positive (happiness), angry (anger), sad (sadness), other
+- No dependency conflicts with WhisperX (uses transformers >=4.48, numpy >=2.0)
 
 ## Critical Implementation Notes
 
@@ -127,20 +166,49 @@ Must be `-c 1` (single task) due to GPU memory constraints. Configured in `backe
 ### Hallucination Filtering
 `MultilingualTranscriber` includes pattern-based filtering for common ASR hallucinations (repetitive phrases, subtitles artifacts). Patterns defined in `config.py`.
 
+### Why KELONMYOSA instead of Aniemore?
+Aniemore has hard dependency conflicts:
+- Requires `transformers==4.26.1` (WhisperX needs >=4.48)
+- Requires `numpy<2.0` (WhisperX needs >=2.0)
+- Requires Python <3.12 (project uses 3.11+)
+
+KELONMYOSA model uses the same wav2vec2 architecture but is loaded directly via transformers, avoiding all conflicts.
+
 ## API Schemas
 
 Request/response models in `backend/api/schemas.py` and `backend/core/transcription/schemas.py`.
 
-Key request: `TranscribeRequest` with flags: `skip_diarization`, `skip_translation`, `skip_emotions`, `languages: List[str]`.
+Key request parameters for `/transcribe`:
+- `file` - Audio/video file
+- `languages` - Comma-separated (e.g., "ru,zh,en")
+- `skip_diarization`, `skip_translation`, `skip_emotions` - Skip stages
+- `generate_transcript`, `generate_tasks`, `generate_report`, `generate_analysis` - Artifact options
 
 ## File Outputs
 
 Pipeline generates to output directory:
-- `protocol_YYYYMMDD_HHMMSS.docx` - Word report with speaker profiles, emotion stats, timestamped transcript
+- `transcript_YYYYMMDD_HHMMSS.docx` - Word report with speaker profiles, emotion stats, timestamped transcript
 - `protocol_YYYYMMDD_HHMMSS.txt` - Plain text version
 - `result_YYYYMMDD_HHMMSS.json` - Full structured data
 
 ## Requirements
 
-- Python 3.10, NVIDIA GPU (8+ GB VRAM), FFmpeg in PATH
+- Python 3.10+, NVIDIA GPU (8+ GB VRAM), FFmpeg in PATH
 - HuggingFace token with pyannote access (https://huggingface.co/pyannote/speaker-diarization-3.1)
+- Node.js 18+ for frontend development
+
+## Frontend
+
+React + TypeScript + Vite + Tailwind CSS
+
+```bash
+cd frontend
+npm install
+npm run dev  # http://localhost:3000
+```
+
+Features:
+- File upload with drag & drop
+- Real-time job progress
+- Job history
+- Result download

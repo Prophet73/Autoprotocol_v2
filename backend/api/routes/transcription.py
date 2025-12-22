@@ -1,4 +1,14 @@
-"""Transcription API routes with Redis-backed job storage."""
+"""
+API маршруты транскрипции с хранением задач в Redis.
+
+Эндпоинты:
+- POST /transcribe — загрузка файла и запуск транскрипции
+- GET /transcribe/{job_id}/status — статус обработки
+- GET /transcribe/{job_id} — результат обработки
+- GET /transcribe/{job_id}/download/{file_type} — скачивание файлов
+- GET /transcribe — список задач
+- DELETE /transcribe/{job_id} — отмена задачи
+"""
 import os
 import uuid
 import shutil
@@ -22,7 +32,7 @@ from ...tasks.transcription import process_transcription_task
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/transcribe", tags=["transcription"])
+router = APIRouter(prefix="/transcribe", tags=["Транскрипция"])
 
 # Storage paths - use DATA_DIR env or default to /data (Docker)
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
@@ -35,24 +45,48 @@ def get_store() -> JobStore:
     return get_job_store()
 
 
-@router.post("", response_model=JobResponse)
+@router.post(
+    "",
+    response_model=JobResponse,
+    summary="Загрузить файл и начать транскрипцию",
+    description="Загружает аудио/видео файл и запускает процесс транскрипции. Возвращает job_id для отслеживания прогресса.",
+)
 async def create_transcription(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(..., description="Audio or video file"),
-    languages: str = Form(default="ru", description="Comma-separated languages"),
-    skip_diarization: bool = Form(default=False),
-    skip_translation: bool = Form(default=False),
-    skip_emotions: bool = Form(default=False),
+    file: UploadFile = File(..., description="Аудио или видео файл (WAV, MP3, MP4, MKV и др.)"),
+    languages: str = Form(default="ru", description="Языки через запятую (ru, zh, en). Пример: ru,zh"),
+    skip_diarization: bool = Form(default=False, description="Пропустить определение спикеров"),
+    skip_translation: bool = Form(default=False, description="Пропустить перевод на русский"),
+    skip_emotions: bool = Form(default=False, description="Пропустить анализ эмоций"),
     # Domain artifact options (ДПУ)
-    generate_transcript: bool = Form(default=True, description="Generate transcript.docx"),
-    generate_tasks: bool = Form(default=False, description="Generate tasks.xlsx via LLM"),
-    generate_report: bool = Form(default=False, description="Generate report.docx via LLM"),
-    generate_analysis: bool = Form(default=False, description="Generate analysis.docx via LLM"),
+    generate_transcript: bool = Form(default=True, description="Создать транскрипт (transcript.docx)"),
+    generate_tasks: bool = Form(default=False, description="Извлечь задачи через LLM (tasks.xlsx)"),
+    generate_report: bool = Form(default=False, description="Создать отчёт через LLM (report.docx)"),
+    generate_analysis: bool = Form(default=False, description="Создать аналитику через LLM (analysis.docx)"),
 ):
     """
-    Upload file and start transcription job.
+    ## Загрузка файла и запуск транскрипции
 
-    Returns job_id to track progress.
+    Поддерживаемые форматы:
+    - **Аудио**: WAV, MP3, FLAC, OGG, M4A
+    - **Видео**: MP4, MKV, AVI, MOV, WEBM
+
+    ### Языки
+    Укажите языки через запятую. Система выберет лучший вариант для каждого сегмента:
+    - `ru` — русский
+    - `zh` — китайский
+    - `en` — английский
+
+    ### Этапы обработки
+    1. Извлечение аудио (FFmpeg)
+    2. Голосовая активность (VAD)
+    3. Транскрипция (WhisperX)
+    4. Диаризация (pyannote)
+    5. Перевод (Gemini AI)
+    6. Анализ эмоций
+    7. Генерация отчётов
+
+    Возвращает `job_id` для отслеживания прогресса.
     """
     store = get_store()
 
@@ -142,9 +176,22 @@ async def create_transcription(
     )
 
 
-@router.get("/{job_id}/status", response_model=JobStatusResponse)
+@router.get(
+    "/{job_id}/status",
+    response_model=JobStatusResponse,
+    summary="Получить статус задачи",
+    description="Возвращает текущий статус обработки, этап и процент выполнения.",
+)
 async def get_job_status(job_id: str):
-    """Get job processing status."""
+    """
+    ## Статус задачи
+
+    Возвращает:
+    - **status** — статус (pending, processing, completed, failed)
+    - **current_stage** — текущий этап обработки
+    - **progress_percent** — процент выполнения (0-100)
+    - **message** — описание текущего действия
+    """
     store = get_store()
     job = store.get(job_id)
 
@@ -164,9 +211,24 @@ async def get_job_status(job_id: str):
     )
 
 
-@router.get("/{job_id}", response_model=JobResultResponse)
+@router.get(
+    "/{job_id}",
+    response_model=JobResultResponse,
+    summary="Получить результат задачи",
+    description="Возвращает результат завершённой задачи: статистику, список файлов и метаданные.",
+)
 async def get_job_result(job_id: str):
-    """Get completed job result."""
+    """
+    ## Результат задачи
+
+    Доступен только для завершённых задач (status=completed).
+
+    Возвращает:
+    - **segment_count** — количество сегментов
+    - **language_distribution** — распределение по языкам
+    - **output_files** — словарь доступных файлов для скачивания
+    - **processing_time_seconds** — время обработки
+    """
     store = get_store()
     job = store.get(job_id)
 
@@ -194,12 +256,23 @@ async def get_job_result(job_id: str):
     )
 
 
-@router.get("/{job_id}/download/{file_type}")
+@router.get(
+    "/{job_id}/download/{file_type}",
+    summary="Скачать файл результата",
+    description="Скачивание результирующего файла по типу.",
+)
 async def download_result(job_id: str, file_type: str):
     """
-    Download result file.
+    ## Скачивание файла
 
-    file_type: transcript, tasks, report, analysis, docx, txt, json
+    Типы файлов (file_type):
+    - **transcript** — транскрипт (DOCX)
+    - **tasks** — задачи (XLSX)
+    - **report** — отчёт (DOCX)
+    - **analysis** — аналитика (DOCX)
+    - **protocol_docx** — протокол Word
+    - **protocol_txt** — протокол текст
+    - **result_json** — сырые данные JSON
     """
     store = get_store()
     job = store.get(job_id)
@@ -225,9 +298,20 @@ async def download_result(job_id: str, file_type: str):
     )
 
 
-@router.get("")
+@router.get(
+    "",
+    summary="Список задач",
+    description="Возвращает список последних задач с базовой информацией.",
+)
 async def list_jobs(limit: int = 50):
-    """List recent jobs."""
+    """
+    ## История задач
+
+    Возвращает список последних задач, отсортированных по дате создания.
+
+    Параметры:
+    - **limit** — максимальное количество (по умолчанию 50)
+    """
     store = get_store()
     jobs = store.list_jobs(limit=limit)
 
@@ -246,9 +330,21 @@ async def list_jobs(limit: int = 50):
     }
 
 
-@router.delete("/{job_id}")
+@router.delete(
+    "/{job_id}",
+    summary="Отменить задачу",
+    description="Отменяет задачу в статусе pending или processing.",
+)
 async def cancel_job(job_id: str):
-    """Cancel a pending or processing job."""
+    """
+    ## Отмена задачи
+
+    Отменяет выполнение задачи. Работает только для задач в статусе:
+    - **pending** — ожидает в очереди
+    - **processing** — выполняется
+
+    Завершённые или уже отменённые задачи отменить нельзя.
+    """
     store = get_store()
     job = store.get(job_id)
 
