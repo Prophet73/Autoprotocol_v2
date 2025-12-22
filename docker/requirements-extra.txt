@@ -1,0 +1,30 @@
+# Additional dependencies for WhisperX Pipeline
+# Base image already has: whisperx, torch, torchaudio, faster-whisper, transformers
+
+# Audio processing
+librosa
+soundfile
+ffmpeg-python
+
+# NLP / Speaker Diarization
+pyannote.audio
+
+# Translation
+google-generativeai
+
+# API Server
+fastapi>=0.100.0
+uvicorn[standard]
+python-multipart
+
+# Task Queue
+celery[redis]>=5.3.0
+redis>=4.0.0
+
+# Document Generation
+python-docx
+
+# Data Validation & Utils
+pydantic>=2.0
+pydantic-settings
+python-dotenv

@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
-from transformers import Wav2Vec2ForSequenceClassification, Wav2Vec2FeatureExtractor
+from transformers import AutoModelForAudioClassification, AutoFeatureExtractor
 
 from .transcribe import clean_cuda_cache
 
@@ -50,8 +50,8 @@ class EmotionAnalyzer:
             return
 
         logger.info(f"Loading emotion model: {self.model_name}")
-        self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(self.model_name)
-        self.model = Wav2Vec2ForSequenceClassification.from_pretrained(self.model_name)
+        self.feature_extractor = AutoFeatureExtractor.from_pretrained(self.model_name)
+        self.model = AutoModelForAudioClassification.from_pretrained(self.model_name)
         self.model = self.model.to(self.device)
         self.model.eval()
         self.id2label = self.model.config.id2label

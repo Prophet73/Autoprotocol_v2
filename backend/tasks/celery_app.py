@@ -24,7 +24,7 @@ celery_app.conf.update(
 
     # Task routing
     task_routes={
-        "backend.tasks.transcription.*": {"queue": "transcription"},
+        "transcription.*": {"queue": "transcription"},
     },
 
     # Worker settings
