@@ -10,10 +10,7 @@ from datetime import datetime
 from enum import Enum
 
 # Импорт схем транскрипции
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from schemas.transcription import TranscriptionResult
+from backend.core.transcription import TranscriptionResult
 
 
 class ReportType(str, Enum):

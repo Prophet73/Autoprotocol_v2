@@ -40,3 +40,7 @@ nul
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Documents
+*.docx
+~$*

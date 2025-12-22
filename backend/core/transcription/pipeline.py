@@ -477,7 +477,7 @@ def build_transcription_result(
     Используется для передачи данных в домены.
     """
     # Ленивый импорт чтобы не ломать CLI если pydantic не установлен
-    from schemas.transcription import (
+    from .schemas import (
         TranscriptionResult, Segment, SpeakerProfile,
         ProcessingMetadata, Emotion
     )

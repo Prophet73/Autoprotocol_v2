@@ -7,12 +7,8 @@ import json
 from typing import Any, Optional
 from datetime import datetime
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
-from domains.base import BaseDomainService, DomainReport
-from schemas.transcription import TranscriptionResult
+from backend.domains.base import BaseDomainService, DomainReport
+from backend.core.transcription import TranscriptionResult
 from .schemas import (
     ConstructionReport,
     ActionItem,
