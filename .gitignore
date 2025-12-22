@@ -25,6 +25,8 @@ dist/
 
 # Output
 output/
+test_output/
+test_output2/
 *.wav
 *.mp3
 *.mp4
@@ -37,6 +39,11 @@ models/
 .DS_Store
 Thumbs.db
 nul
+
+# Images (screenshots, temp)
+*.png
+*.jpg
+*.jpeg
 
 # Jupyter
 .ipynb_checkpoints/
