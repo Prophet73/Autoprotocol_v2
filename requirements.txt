@@ -35,6 +35,15 @@ uvicorn[standard]
 python-multipart
 
 # =============================================================================
+# Database
+# =============================================================================
+sqlalchemy[asyncio]>=2.0.0
+aiosqlite  # Async SQLite driver for development
+asyncpg  # PostgreSQL async driver for production (optional)
+passlib[bcrypt]  # Password hashing
+python-jose[cryptography]  # JWT tokens
+
+# =============================================================================
 # Task Queue
 # =============================================================================
 celery[redis]>=5.3.0
@@ -55,6 +64,7 @@ pydantic-settings
 python-dotenv
 numpy
 tqdm
+psutil  # System monitoring for admin stats
 
 # =============================================================================
 # Development (optional)

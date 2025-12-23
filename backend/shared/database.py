@@ -1,0 +1,109 @@
+"""
+Database configuration and session management.
+
+Uses SQLAlchemy 2.0 async with SQLite for development
+and PostgreSQL for production.
+"""
+import os
+from typing import AsyncGenerator
+from contextlib import asynccontextmanager
+
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    AsyncEngine,
+    create_async_engine,
+    async_sessionmaker,
+)
+from sqlalchemy.orm import DeclarativeBase
+
+
+# Database URL from environment (default: SQLite for development)
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "sqlite+aiosqlite:////data/db/whisperx.db"
+)
+
+# Convert postgres:// to postgresql+asyncpg:// if needed
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://") and "asyncpg" not in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+
+class Base(DeclarativeBase):
+    """SQLAlchemy declarative base class."""
+    pass
+
+
+# Create async engine
+engine: AsyncEngine = create_async_engine(
+    DATABASE_URL,
+    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
+    future=True,
+)
+
+# Session factory
+async_session_factory = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """
+    FastAPI dependency for database session.
+
+    Usage:
+        @app.get("/users")
+        async def get_users(db: AsyncSession = Depends(get_db)):
+            ...
+    """
+    async with async_session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+@asynccontextmanager
+async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Context manager for database session (for use outside FastAPI).
+
+    Usage:
+        async with get_db_context() as db:
+            ...
+    """
+    async with async_session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+
+
+async def init_db() -> None:
+    """
+    Initialize database (create all tables).
+    Should be called on application startup.
+    """
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def close_db() -> None:
+    """
+    Close database connections.
+    Should be called on application shutdown.
+    """
+    await engine.dispose()

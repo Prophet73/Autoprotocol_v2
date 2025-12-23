@@ -10,7 +10,10 @@ celery_app = Celery(
     "whisperx_tasks",
     broker=REDIS_URL,
     backend=REDIS_URL,
-    include=["backend.tasks.transcription"],
+    include=[
+        "backend.tasks.transcription",
+        "backend.tasks.cleanup",
+    ],
 )
 
 # Celery configuration
@@ -25,6 +28,7 @@ celery_app.conf.update(
     # Task routing
     task_routes={
         "transcription.*": {"queue": "transcription"},
+        "cleanup.*": {"queue": "cleanup"},
     },
 
     # Worker settings
@@ -41,4 +45,23 @@ celery_app.conf.update(
     # Task tracking
     task_track_started=True,
     task_send_sent_event=True,
+
+    # Beat schedule for periodic tasks
+    beat_schedule={
+        "cleanup-audio-files-daily": {
+            "task": "cleanup.cleanup_old_audio_files",
+            "schedule": 86400.0,  # Every 24 hours
+            "args": (),
+        },
+        "cleanup-error-logs-weekly": {
+            "task": "cleanup.cleanup_old_error_logs",
+            "schedule": 604800.0,  # Every 7 days
+            "args": (30,),  # Keep 30 days
+        },
+        "cleanup-expired-jobs-hourly": {
+            "task": "cleanup.cleanup_expired_jobs",
+            "schedule": 3600.0,  # Every hour
+            "args": (),
+        },
+    },
 )

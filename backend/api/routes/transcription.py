@@ -17,8 +17,9 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
     JobResponse,
@@ -29,6 +30,8 @@ from ...core.storage import get_job_store, JobStore
 from ...core.storage.job_store import JobData
 from ...core.transcription.models import TranscriptionRequest, JobStatus
 from ...tasks.transcription import process_transcription_task
+from ...shared.database import get_db
+from ...domains.construction.project_service import ProjectService
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +56,14 @@ def get_store() -> JobStore:
 )
 async def create_transcription(
     background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
     file: UploadFile = File(..., description="Аудио или видео файл (WAV, MP3, MP4, MKV и др.)"),
     languages: str = Form(default="ru", description="Языки через запятую (ru, zh, en). Пример: ru,zh"),
     skip_diarization: bool = Form(default=False, description="Пропустить определение спикеров"),
     skip_translation: bool = Form(default=False, description="Пропустить перевод на русский"),
     skip_emotions: bool = Form(default=False, description="Пропустить анализ эмоций"),
+    # Project linkage (for construction domain)
+    project_code: Optional[str] = Form(default=None, description="4-значный код проекта для анонимной загрузки"),
     # Domain artifact options (ДПУ)
     generate_transcript: bool = Form(default=True, description="Создать транскрипт (transcript.docx)"),
     generate_tasks: bool = Form(default=False, description="Извлечь задачи через LLM (tasks.xlsx)"),
@@ -98,6 +104,21 @@ async def create_transcription(
     if not lang_list:
         lang_list = ["ru"]
 
+    # Validate project code if provided
+    project_id = None
+    tenant_id = None
+    if project_code:
+        project_service = ProjectService(db)
+        validation = await project_service.validate_code(project_code)
+        if not validation.valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid project code: {validation.message}"
+            )
+        project_id = validation.project_id
+        tenant_id = validation.tenant_id
+        logger.info(f"Job linked to project {project_id} via code {project_code}")
+
     # Create directories
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -121,6 +142,9 @@ async def create_transcription(
         updated_at=now,
         input_file=str(input_file),
         languages=lang_list,
+        project_id=project_id,
+        project_code=project_code,
+        tenant_id=tenant_id,
         skip_diarization=skip_diarization,
         skip_translation=skip_translation,
         skip_emotions=skip_emotions,

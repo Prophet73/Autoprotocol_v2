@@ -32,6 +32,11 @@ class JobData(BaseModel):
     input_file: str
     languages: List[str] = ["ru"]
 
+    # Project linkage (for construction domain)
+    project_id: Optional[int] = None
+    project_code: Optional[str] = None
+    tenant_id: Optional[int] = None
+
     # Processing options
     skip_diarization: bool = False
     skip_translation: bool = False

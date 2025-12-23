@@ -55,3 +55,4 @@ nul
 # Bundler output
 scripts/bundles/
 venv310/
+data/

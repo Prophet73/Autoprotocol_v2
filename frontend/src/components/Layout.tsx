@@ -77,9 +77,17 @@ export function Layout({ children }: LayoutProps) {
       {/* Footer - only visible after scroll */}
       <footer className="border-t border-slate-200 bg-white mt-16">
         <div className="max-w-6xl mx-auto px-4 py-4">
-          <p className="text-center text-sm text-slate-400">
-            SeverinAutoprotocol v1.0
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-slate-400">
+              SeverinAutoprotocol v1.0
+            </p>
+            <Link
+              to="/admin"
+              className="text-sm text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              Admin
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

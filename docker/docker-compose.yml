@@ -18,6 +18,7 @@ services:
       - uploads:/data/uploads
       - output:/data/output
       - models:/data/models
+      - db:/data/db
     deploy:
       resources:
         reservations:
@@ -92,3 +93,4 @@ volumes:
   output:
   models:
   redis_data:
+  db:

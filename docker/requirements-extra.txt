@@ -30,7 +30,18 @@ python-docx
 openpyxl  # Excel generation for tasks.xlsx
 
 # Data Validation & Utils
-pydantic>=2.0
+pydantic[email]>=2.0
 pydantic-settings
 python-dotenv
 PyYAML  # For loading prompts.yaml
+email-validator
+psutil  # System monitoring for admin stats
+
+# Database
+aiosqlite
+sqlalchemy[asyncio]
+
+# Auth
+python-jose[cryptography]
+bcrypt>=4.0.0,<5.0  # Pin to 4.x for passlib compatibility (MUST be before passlib)
+passlib[bcrypt]

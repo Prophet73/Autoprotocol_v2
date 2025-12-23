@@ -5,6 +5,7 @@ Provides REST API for:
 - Uploading files for transcription
 - Checking job status
 - Downloading results
+- Admin panel for user management, statistics, settings, and logs
 """
 import os
 import logging
@@ -14,6 +15,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import health, transcription
+from backend.admin.users import router as users_router
+from backend.admin.stats import router as stats_router
+from backend.admin.settings import router as settings_router
+from backend.admin.logs import router as logs_router
+from backend.admin.prompts import router as prompts_router
+from backend.admin.logs.middleware import ErrorLoggingMiddleware
+from backend.shared.database import init_db, close_db
+from backend.domains.construction import router as construction_router
+from backend.core.auth import router as auth_router
 
 # Configure logging
 logging.basicConfig(
@@ -26,10 +36,25 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    logger.info("Starting WhisperX Transcription Service...")
+    logger.info("Starting SeverinAutoprotocol Service...")
     logger.info(f"GPU available: {_check_gpu()}")
+
+    # Initialize database
+    try:
+        await init_db()
+        logger.info("Database initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+
     yield
+
+    # Cleanup
     logger.info("Shutting down...")
+    try:
+        await close_db()
+        logger.info("Database connections closed")
+    except Exception as e:
+        logger.error(f"Error closing database: {e}")
 
 
 def _check_gpu() -> bool:
@@ -43,9 +68,9 @@ def _check_gpu() -> bool:
 
 # Create FastAPI app
 app = FastAPI(
-    title="WhisperX API — Сервис транскрипции",
+    title="SeverinAutoprotocol API",
     description="""
-## Мультиязычный сервис транскрипции аудио/видео
+## Автоматизация протоколирования совещаний
 
 ### Возможности:
 - 🎤 **Транскрипция** — распознавание речи на русском, китайском, английском и других языках
@@ -64,11 +89,14 @@ app = FastAPI(
 - KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru — эмоции
 - Gemini 2.0 Flash — перевод и генерация отчётов
     """,
-    version="4.0.0",
+    version="2.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# Error logging middleware (must be added before CORS for proper ordering)
+app.add_middleware(ErrorLoggingMiddleware)
 
 # CORS middleware
 app.add_middleware(
@@ -82,14 +110,25 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router)
 app.include_router(transcription.router)
+app.include_router(auth_router.router)
+
+# Admin routers (all under /api/admin prefix)
+app.include_router(users_router.router, prefix="/api/admin")
+app.include_router(stats_router.router, prefix="/api/admin")
+app.include_router(settings_router.router, prefix="/api/admin")
+app.include_router(logs_router.router, prefix="/api/admin")
+app.include_router(prompts_router.router, prefix="/api/admin")
+
+# Domain routers
+app.include_router(construction_router.router, prefix="/api/domains")
 
 
 @app.get("/")
 async def root():
     """Root endpoint."""
     return {
-        "service": "WhisperX Transcription API",
-        "version": "v4",
+        "service": "SeverinAutoprotocol API",
+        "version": "v2",
         "docs": "/docs",
     }
 

@@ -25,7 +25,7 @@ RUN /venv/bin/python -m pip install --no-cache-dir -r requirements-extra.txt
 COPY backend/ /app/backend/
 
 # Create data directories
-RUN mkdir -p /data/uploads /data/output /data/models && \
+RUN mkdir -p /data/uploads /data/output /data/models /data/db && \
     chmod -R 777 /data
 
 # Set environment variables
