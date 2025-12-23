@@ -366,3 +366,108 @@ export const projectsApi = {
     return response.data;
   },
 };
+
+// =============================================================================
+// Prompts API
+// =============================================================================
+
+export interface PromptTemplate {
+  id: number;
+  name: string;
+  slug: string;
+  domain: string;
+  description: string | null;
+  system_prompt: string;
+  user_prompt_template: string;
+  response_schema: Record<string, unknown> | null;
+  is_active: boolean;
+  is_default: boolean;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+export interface PromptTemplateListResponse {
+  templates: PromptTemplate[];
+  total: number;
+}
+
+export interface CreatePromptTemplateRequest {
+  name: string;
+  slug: string;
+  domain: string;
+  description?: string;
+  system_prompt: string;
+  user_prompt_template: string;
+  response_schema?: Record<string, unknown>;
+  is_default?: boolean;
+}
+
+export interface UpdatePromptTemplateRequest {
+  name?: string;
+  description?: string;
+  system_prompt?: string;
+  user_prompt_template?: string;
+  response_schema?: Record<string, unknown>;
+  is_active?: boolean;
+  is_default?: boolean;
+}
+
+export interface ValidateSchemaResponse {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  supported_by_gemini: boolean;
+}
+
+export interface DomainInfo {
+  name: string;
+  template_count: number;
+}
+
+export const promptsApi = {
+  list: async (params?: { domain?: string; is_active?: boolean; skip?: number; limit?: number }): Promise<PromptTemplateListResponse> => {
+    const response = await adminApi.get('/api/admin/prompts/templates', { params });
+    return response.data;
+  },
+
+  get: async (id: number): Promise<PromptTemplate> => {
+    const response = await adminApi.get(`/api/admin/prompts/templates/${id}`);
+    return response.data;
+  },
+
+  getBySlug: async (slug: string): Promise<PromptTemplate> => {
+    const response = await adminApi.get(`/api/admin/prompts/templates/slug/${slug}`);
+    return response.data;
+  },
+
+  create: async (data: CreatePromptTemplateRequest): Promise<PromptTemplate> => {
+    const response = await adminApi.post('/api/admin/prompts/templates', data);
+    return response.data;
+  },
+
+  update: async (id: number, data: UpdatePromptTemplateRequest): Promise<PromptTemplate> => {
+    const response = await adminApi.patch(`/api/admin/prompts/templates/${id}`, data);
+    return response.data;
+  },
+
+  delete: async (id: number): Promise<void> => {
+    await adminApi.delete(`/api/admin/prompts/templates/${id}`);
+  },
+
+  validateSchema: async (schema: Record<string, unknown>): Promise<ValidateSchemaResponse> => {
+    const response = await adminApi.post('/api/admin/prompts/validate-schema', { schema });
+    return response.data;
+  },
+
+  getDomains: async (): Promise<{ domains: DomainInfo[] }> => {
+    const response = await adminApi.get('/api/admin/prompts/domains');
+    return response.data;
+  },
+
+  getSchemaTemplates: async (): Promise<{ templates: Array<{ id: string; name: string; description: string; domain: string; schema: Record<string, unknown> }> }> => {
+    const response = await adminApi.get('/api/admin/prompts/schema-templates');
+    return response.data;
+  },
+};
