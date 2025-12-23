@@ -155,7 +155,8 @@ class StatsService:
         try:
             job_store = get_job_store()
             redis_connected = job_store.health_check()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Redis health check failed: {e}")
             redis_connected = False
 
         # Check GPU
@@ -187,14 +188,16 @@ class StatsService:
         try:
             job_store = get_job_store()
             redis_ok = job_store.health_check()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Redis health check failed: {e}")
             redis_ok = False
 
         # Database check
         try:
             await self.db.execute(select(1))
             db_ok = True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Database health check failed: {e}")
             db_ok = False
 
         # GPU check
@@ -228,5 +231,6 @@ class StatsService:
             # Ping the broker
             celery_app.control.ping(timeout=1.0)
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Celery health check failed: {e}")
             return False

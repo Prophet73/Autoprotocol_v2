@@ -299,7 +299,8 @@ class JobStore:
         """
         try:
             return self.redis.ping()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Redis ping failed: {e}")
             return False
 
 

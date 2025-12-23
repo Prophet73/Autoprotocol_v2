@@ -23,14 +23,14 @@ from .schemas import (
 )
 
 
-router = APIRouter(prefix="/users", tags=["Admin - Users"])
+router = APIRouter(prefix="/users", tags=["Админ - Пользователи"])
 
 
 @router.get(
     "/",
     response_model=UserListResponse,
-    summary="List all users",
-    description="Get paginated list of all users with optional role/domain filtering."
+    summary="Список пользователей",
+    description="Получение списка пользователей с пагинацией и фильтрацией по роли/домену."
 )
 async def list_users(
     current_user: SuperUser,
@@ -57,8 +57,8 @@ async def list_users(
 @router.get(
     "/{user_id}",
     response_model=UserResponse,
-    summary="Get user by ID",
-    description="Get detailed information about a specific user."
+    summary="Получить пользователя",
+    description="Получение детальной информации о пользователе по ID."
 )
 async def get_user(
     user_id: int,
@@ -80,8 +80,8 @@ async def get_user(
     "/",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create new user",
-    description="Create a new user account with specified role and domain."
+    summary="Создать пользователя",
+    description="Создание нового пользователя с указанной ролью и доменом."
 )
 async def create_user(
     request: CreateUserRequest,
@@ -107,8 +107,8 @@ async def create_user(
 @router.post(
     "/assign-role",
     response_model=AssignRoleResponse,
-    summary="Assign role to user",
-    description="Assign a role and optionally a domain to a user."
+    summary="Назначить роль",
+    description="Назначение роли и домена пользователю."
 )
 async def assign_role(
     request: AssignRoleRequest,
@@ -138,8 +138,8 @@ async def assign_role(
 @router.patch(
     "/{user_id}",
     response_model=UserResponse,
-    summary="Update user",
-    description="Update user details (partial update)."
+    summary="Обновить пользователя",
+    description="Обновление данных пользователя (частичное)."
 )
 async def update_user(
     user_id: int,
@@ -162,8 +162,8 @@ async def update_user(
 @router.delete(
     "/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete user",
-    description="Permanently delete a user account."
+    summary="Удалить пользователя",
+    description="Безвозвратное удаление аккаунта пользователя."
 )
 async def delete_user(
     user_id: int,

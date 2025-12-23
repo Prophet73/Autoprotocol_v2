@@ -16,14 +16,14 @@ from .service import ErrorLogService
 from .schemas import ErrorLogResponse, ErrorLogListResponse, ErrorLogSummary
 
 
-router = APIRouter(prefix="/logs", tags=["Admin - Error Logs"])
+router = APIRouter(prefix="/logs", tags=["Админ - Логи ошибок"])
 
 
 @router.get(
     "/",
     response_model=ErrorLogListResponse,
-    summary="List error logs",
-    description="Get paginated list of error logs with optional filtering."
+    summary="Список логов ошибок",
+    description="Получение логов ошибок с пагинацией и фильтрацией."
 )
 async def list_logs(
     current_user: SuperUser,
@@ -56,8 +56,8 @@ async def list_logs(
 @router.get(
     "/summary",
     response_model=ErrorLogSummary,
-    summary="Get error log summary",
-    description="Get aggregated error statistics."
+    summary="Сводка по ошибкам",
+    description="Агрегированная статистика ошибок."
 )
 async def get_summary(
     current_user: SuperUser,
@@ -78,8 +78,8 @@ async def get_summary(
 @router.get(
     "/{log_id}",
     response_model=ErrorLogResponse,
-    summary="Get error log by ID",
-    description="Get detailed information about a specific error log."
+    summary="Получить лог ошибки",
+    description="Получение детальной информации о конкретной ошибке."
 )
 async def get_log(
     log_id: int,
@@ -110,8 +110,8 @@ async def get_log(
 
 @router.delete(
     "/cleanup",
-    summary="Delete old error logs",
-    description="Delete error logs older than specified number of days."
+    summary="Очистить старые логи",
+    description="Удаление логов ошибок старше указанного количества дней."
 )
 async def cleanup_logs(
     current_user: SuperUser,

@@ -205,7 +205,8 @@ class EmotionAnalyzer:
                         duration=duration
                     )
                     batch_audio.append(audio)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Could not load audio segment for emotion analysis: {e}")
                     batch_audio.append(None)
 
             # Process valid audio

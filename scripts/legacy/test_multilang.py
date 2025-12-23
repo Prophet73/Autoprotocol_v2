@@ -5,6 +5,7 @@
 Сохраняет результаты в TXT, JSON и DOCX
 """
 
+import os
 import sys
 import json
 from pathlib import Path
@@ -14,10 +15,17 @@ from datetime import datetime
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-INPUT_FILE = r"c:\qq_project\dev\WhisperX\2025-12-02_совещание Кравт, Северин, Powerchina_Бытов.городок ПОС.mp4"
-OUTPUT_DIR = PROJECT_ROOT / "output"
+# Используем переменную окружения или аргумент командной строки
+INPUT_FILE = os.environ.get("TEST_INPUT_FILE") or (sys.argv[1] if len(sys.argv) > 1 else None)
+OUTPUT_DIR = Path(os.environ.get("TEST_OUTPUT_DIR", PROJECT_ROOT / "output"))
 
 if __name__ == "__main__":
+    # Проверяем наличие входного файла
+    if not INPUT_FILE:
+        print("Использование: python test_multilang.py <путь_к_файлу>")
+        print("Или установите переменную окружения TEST_INPUT_FILE")
+        sys.exit(1)
+
     print("=" * 60)
     print("ТЕСТ: Мультиязычное совещание")
     print(f"Файл: {INPUT_FILE}")

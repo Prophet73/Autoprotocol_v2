@@ -26,7 +26,7 @@ from .dependencies import (
 )
 
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
+router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
 
 # =============================================================================
@@ -68,8 +68,8 @@ class RegisterRequest(BaseModel):
 @router.post(
     "/login",
     response_model=Token,
-    summary="Login",
-    description="Get JWT access token using email and password."
+    summary="Вход в систему",
+    description="Получение JWT токена по email и паролю."
 )
 async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
@@ -118,8 +118,8 @@ async def login(
     "/register",
     response_model=UserInfo,
     status_code=status.HTTP_201_CREATED,
-    summary="Register",
-    description="Create a new user account."
+    summary="Регистрация",
+    description="Создание нового аккаунта пользователя."
 )
 async def register(
     data: RegisterRequest,
@@ -158,8 +158,8 @@ async def register(
 @router.get(
     "/me",
     response_model=UserInfo,
-    summary="Get current user",
-    description="Get information about the currently authenticated user."
+    summary="Текущий пользователь",
+    description="Получение информации о текущем авторизованном пользователе."
 )
 async def get_me(current_user: CurrentUser) -> UserInfo:
     """Get current user info."""

@@ -1,57 +1,75 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Инструкции для Claude Code при работе с этим репозиторием.
 
-## Project Overview
+## Обзор проекта
 
-WhisperX Pipeline - production-ready audio/video transcription service with modular backend architecture. Features 7-stage processing pipeline: audio extraction, VAD, multi-language transcription (WhisperX), speaker diarization (pyannote), translation (Gemini), emotion analysis, and report generation.
+**SeverinAutoprotocol** — production-ready сервис для транскрипции аудио/видео с модульной архитектурой бэкенда. 7-этапный пайплайн: извлечение аудио, VAD, мультиязычная транскрипция (WhisperX), диаризация (pyannote), перевод (Gemini), анализ эмоций и генерация отчётов.
 
-**Key update**: Emotion analysis now uses KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru (90% accuracy) instead of aniemore to resolve dependency conflicts with WhisperX.
+## Структура проекта
 
-## Commands
+```
+WhisperX/
+├── backend/              # FastAPI + Celery бэкенд
+│   ├── api/              # REST API маршруты
+│   ├── admin/            # Админ-панель (users, stats, logs, prompts)
+│   ├── core/             # Ядро: транскрипция, хранилище, авторизация
+│   ├── domains/          # Доменные сервисы (construction)
+│   ├── shared/           # Общие модули (database, models)
+│   └── tasks/            # Celery задачи
+├── frontend/             # React + TypeScript + Vite
+├── docker/               # Docker конфигурации
+├── docs/                 # Документация API
+├── scripts/              # Утилиты и legacy-скрипты
+├── _test_media/          # Тестовые медиафайлы
+├── data/                 # Runtime данные (uploads, output, DB)
+└── venv310/              # Python 3.10 виртуальное окружение
+```
 
-### Development
+## Команды
+
+### Разработка
 ```bash
-# Run API server
+# Запуск API сервера
 python -m backend.api.main
 
-# Run Celery worker (single concurrency for GPU)
+# Запуск Celery worker (одна задача из-за GPU)
 celery -A backend.tasks.celery_app worker -Q transcription -c 1
 
-# Run frontend (React + Vite)
+# Запуск фронтенда
 cd frontend && npm run dev
 ```
 
 ### Docker
 ```bash
-# Start full stack (API + Worker + Redis)
+# Запуск всего стека (API + Worker + Redis)
 docker-compose -f docker/docker-compose.yml up -d
 
-# Include Flower monitoring dashboard
+# С мониторингом Flower
 docker-compose -f docker/docker-compose.yml --profile monitoring up -d
 
-# View worker logs
+# Логи воркера
 docker-compose -f docker/docker-compose.yml logs -f worker
 
-# Rebuild after code changes
+# Пересборка
 docker-compose -f docker/docker-compose.yml build --no-cache
 ```
 
-### Setup
+### Установка
 ```bash
 # Windows
-python -m venv venv && .\venv\Scripts\Activate.ps1
+python -m venv venv310 && .\venv310\Scripts\Activate.ps1
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 
-# Required .env
-HUGGINGFACE_TOKEN=hf_xxx   # Required for pyannote diarization
-GEMINI_API_KEY=AIzaSy...   # Optional, for translation stage
+# Необходимые переменные .env
+HUGGINGFACE_TOKEN=hf_xxx   # Обязательно для pyannote
+GEMINI_API_KEY=AIzaSy...   # Для перевода и генерации отчётов
 ```
 
-## Architecture
+## Архитектура
 
-### 7-Stage Pipeline (`backend/core/transcription/pipeline.py`)
+### 7-этапный пайплайн (`backend/core/transcription/pipeline.py`)
 
 ```
 AudioExtractor → VADProcessor → MultilingualTranscriber → DiarizationProcessor
@@ -59,27 +77,27 @@ AudioExtractor → VADProcessor → MultilingualTranscriber → DiarizationProce
                 ReportGenerator ← EmotionAnalyzer ← GeminiTranslator
 ```
 
-Each stage in `backend/core/transcription/stages/`:
-- `audio.py` - FFmpeg extraction to 16kHz WAV
-- `vad.py` - Silero VAD for speech segmentation
-- `transcribe.py` - WhisperX with multi-language detection and hallucination filtering
-- `diarize.py` - pyannote speaker identification
-- `translate.py` - Gemini API for non-Russian to Russian translation
-- `emotion.py` - KELONMYOSA wav2vec2 Russian emotion recognition (90% accuracy)
-- `report.py` - Word + TXT report generation with speaker profiles
+Каждый этап в `backend/core/transcription/stages/`:
+- `audio.py` — FFmpeg извлечение в 16kHz WAV
+- `vad.py` — Silero VAD сегментация речи
+- `transcribe.py` — WhisperX с детекцией языка и фильтрацией галлюцинаций
+- `diarize.py` — pyannote идентификация спикеров
+- `translate.py` — Gemini API перевод на русский
+- `emotion.py` — KELONMYOSA wav2vec2 анализ эмоций (90% точность)
+- `report.py` — Word + TXT генерация отчётов
 
-**Key pattern**: Lazy initialization of models to conserve GPU memory. Each processor loads its model only when `process()` is called.
+**Ключевой паттерн**: Lazy-загрузка моделей для экономии GPU памяти.
 
-### Models Used
+### Используемые модели
 
-| Stage | Model | Description |
-|-------|-------|-------------|
-| Transcription | WhisperX large-v3 | Multi-language ASR |
-| Diarization | pyannote/speaker-diarization-3.1 | Speaker identification |
-| Emotion | KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru | 90% accuracy, 5 emotions |
-| Translation | Gemini 2.0 Flash | Context-aware translation |
+| Этап | Модель | Описание |
+|------|--------|----------|
+| Транскрипция | WhisperX large-v3 | Мультиязычный ASR |
+| Диаризация | pyannote/speaker-diarization-3.1 | Идентификация спикеров |
+| Эмоции | KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru | 90% точность, 5 эмоций |
+| Перевод | Gemini 2.0 Flash | Контекстный перевод |
 
-### Data Flow (Segment Evolution)
+### Эволюция сегментов
 
 ```
 SegmentBase → VADSegment → TranscribedSegment → DiarizedSegment
@@ -87,9 +105,7 @@ SegmentBase → VADSegment → TranscribedSegment → DiarizedSegment
                                               TranslatedSegment → EmotionSegment → FinalSegment
 ```
 
-Models in `backend/core/transcription/models.py`. Each stage adds fields to segments.
-
-### Service Architecture
+### Архитектура сервиса
 
 ```
 Frontend (React)          Backend (FastAPI)
@@ -111,40 +127,53 @@ localhost:3000     →      localhost:8000
                          └─────────┘
 ```
 
-### API Endpoints (http://localhost:8000/docs)
+## API эндпоинты (http://localhost:8000/docs)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/transcribe` | Upload file, start transcription |
-| GET | `/transcribe/{id}/status` | Get job status & progress |
-| GET | `/transcribe/{id}` | Get completed job result |
-| GET | `/transcribe/{id}/download/{type}` | Download result file |
-| GET | `/transcribe` | List recent jobs |
-| DELETE | `/transcribe/{id}` | Cancel job |
-| GET | `/health` | Service health check |
+### Транскрипция
 
-### Domain Services (`backend/domains/`)
+| Метод | Эндпоинт | Описание |
+|-------|----------|----------|
+| POST | `/transcribe` | Загрузка файла и запуск транскрипции |
+| GET | `/transcribe/{id}/status` | Статус и прогресс задачи |
+| GET | `/transcribe/{id}` | Результат завершённой задачи |
+| GET | `/transcribe/{id}/download/{type}` | Скачивание файла результата |
+| GET | `/transcribe` | Список последних задач |
+| DELETE | `/transcribe/{id}` | Отмена задачи |
 
-Abstract base pattern for domain-specific LLM reports. Currently implemented: `ConstructionService` with report types: weekly_summary, compliance_check, action_items, issues_tracker.
+### Служебные
 
-Extend by inheriting `BaseDomainService` and implementing `get_system_prompt()`, `get_report_prompt()`, `parse_llm_response()`.
+| Метод | Эндпоинт | Описание |
+|-------|----------|----------|
+| GET | `/health` | Проверка здоровья и GPU |
+| GET | `/ready` | Kubernetes readiness probe |
+| GET | `/live` | Kubernetes liveness probe |
 
-## Configuration
+### Админ-панель (`/api/admin/`)
 
-Pydantic config in `backend/core/transcription/config.py`:
-- `PipelineConfig` contains nested: `ModelConfig`, `VADConfig`, `QualityConfig`, `TranslationConfig`, `LanguageConfig`, `EmotionConfig`
-- All support env var overrides (e.g., `WHISPER_MODEL`, `BATCH_SIZE`, `VAD_THRESHOLD`)
+| Метод | Эндпоинт | Описание |
+|-------|----------|----------|
+| GET/POST | `/users` | Управление пользователями |
+| GET | `/stats` | Статистика системы |
+| GET/PUT | `/settings` | Настройки |
+| GET | `/logs` | Логи ошибок |
+| GET/POST | `/prompts` | Управление промптами |
 
-### Emotion Model Configuration
-Default model: `KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru`
-- 90% accuracy on DUSHA dataset
-- Emotions: neutral, positive (happiness), angry (anger), sad (sadness), other
-- No dependency conflicts with WhisperX (uses transformers >=4.48, numpy >=2.0)
+## Конфигурация
 
-## Critical Implementation Notes
+Pydantic конфиг в `backend/core/transcription/config.py`:
+- `PipelineConfig` — вложенные: `ModelConfig`, `VADConfig`, `QualityConfig`, `TranslationConfig`, `LanguageConfig`, `EmotionConfig`
+- Все поддерживают переопределение через env vars: `WHISPER_MODEL`, `BATCH_SIZE`, `VAD_THRESHOLD`
 
-### PyTorch 2.8+ Compatibility
-All entry points must include this patch before loading models:
+### Конфигурация эмоций
+Модель: `KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru`
+- 90% точность на DUSHA dataset
+- Эмоции: neutral, positive, angry, sad, other
+- Нет конфликтов зависимостей с WhisperX
+
+## Важные заметки по реализации
+
+### Совместимость с PyTorch 2.8+
+Все точки входа должны включать патч:
 ```python
 _original_torch_load = torch.load
 def _patched_torch_load(*args, **kwargs):
@@ -153,51 +182,38 @@ def _patched_torch_load(*args, **kwargs):
 torch.load = _patched_torch_load
 ```
 
-### GPU Memory Management
-After each pipeline stage, call:
+### Управление GPU памятью
+После каждого этапа пайплайна:
 ```python
 torch.cuda.empty_cache()
 gc.collect()
 ```
 
-### Celery Worker Concurrency
-Must be `-c 1` (single task) due to GPU memory constraints. Configured in `backend/tasks/celery_app.py`.
+### Celery Worker
+Обязательно `-c 1` (одна задача) из-за GPU памяти.
 
-### Hallucination Filtering
-`MultilingualTranscriber` includes pattern-based filtering for common ASR hallucinations (repetitive phrases, subtitles artifacts). Patterns defined in `config.py`.
+### Фильтрация галлюцинаций
+`MultilingualTranscriber` включает pattern-фильтрацию распространённых ASR галлюцинаций. Паттерны в `config.py`.
 
-### Why KELONMYOSA instead of Aniemore?
-Aniemore has hard dependency conflicts:
-- Requires `transformers==4.26.1` (WhisperX needs >=4.48)
-- Requires `numpy<2.0` (WhisperX needs >=2.0)
-- Requires Python <3.12 (project uses 3.11+)
+### Почему KELONMYOSA вместо Aniemore?
+Aniemore имеет жёсткие конфликты зависимостей:
+- Требует `transformers==4.26.1` (WhisperX нужен >=4.48)
+- Требует `numpy<2.0` (WhisperX нужен >=2.0)
 
-KELONMYOSA model uses the same wav2vec2 architecture but is loaded directly via transformers, avoiding all conflicts.
+## Выходные файлы
 
-## API Schemas
+Пайплайн генерирует в output директорию:
+- `transcript_YYYYMMDD_HHMMSS.docx` — Word отчёт с профилями спикеров
+- `protocol_YYYYMMDD_HHMMSS.txt` — текстовая версия
+- `result_YYYYMMDD_HHMMSS.json` — полные структурированные данные
 
-Request/response models in `backend/api/schemas.py` and `backend/core/transcription/schemas.py`.
+## Требования
 
-Key request parameters for `/transcribe`:
-- `file` - Audio/video file
-- `languages` - Comma-separated (e.g., "ru,zh,en")
-- `skip_diarization`, `skip_translation`, `skip_emotions` - Skip stages
-- `generate_transcript`, `generate_tasks`, `generate_report`, `generate_analysis` - Artifact options
+- Python 3.10+, NVIDIA GPU (8+ ГБ VRAM), FFmpeg в PATH
+- HuggingFace токен с доступом к pyannote
+- Node.js 18+ для фронтенда
 
-## File Outputs
-
-Pipeline generates to output directory:
-- `transcript_YYYYMMDD_HHMMSS.docx` - Word report with speaker profiles, emotion stats, timestamped transcript
-- `protocol_YYYYMMDD_HHMMSS.txt` - Plain text version
-- `result_YYYYMMDD_HHMMSS.json` - Full structured data
-
-## Requirements
-
-- Python 3.10+, NVIDIA GPU (8+ GB VRAM), FFmpeg in PATH
-- HuggingFace token with pyannote access (https://huggingface.co/pyannote/speaker-diarization-3.1)
-- Node.js 18+ for frontend development
-
-## Frontend
+## Фронтенд
 
 React + TypeScript + Vite + Tailwind CSS
 
@@ -207,8 +223,9 @@ npm install
 npm run dev  # http://localhost:3000
 ```
 
-Features:
-- File upload with drag & drop
-- Real-time job progress
-- Job history
-- Result download
+Возможности:
+- Drag & drop загрузка файлов
+- Real-time прогресс задач
+- История задач
+- Скачивание результатов
+- Админ-панель с авторизацией

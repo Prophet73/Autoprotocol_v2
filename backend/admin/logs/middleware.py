@@ -93,8 +93,8 @@ class ErrorLoggingMiddleware(BaseHTTPMiddleware):
                     body = await request.body()
                     if len(body) < 5000:  # Limit body size
                         request_body = body.decode("utf-8", errors="ignore")
-            except Exception:
-                pass  # Ignore body read errors
+            except Exception as e:
+                logger.debug(f"Could not read request body for error log: {e}")
 
             # Save to database
             async with get_db_context() as db:

@@ -15,19 +15,19 @@ from .service import StatsService
 from .schemas import GlobalStatsResponse, SystemHealthResponse
 
 
-router = APIRouter(prefix="/stats", tags=["Admin - Statistics"])
+router = APIRouter(prefix="/stats", tags=["Админ - Статистика"])
 
 
 @router.get(
     "/global",
     response_model=GlobalStatsResponse,
-    summary="Get global system statistics",
+    summary="Глобальная статистика",
     description="""
-Get comprehensive system statistics including:
-- Total users count and breakdown by role/domain
-- Transcription jobs grouped by status (pending, processing, completed, failed)
-- Total storage usage in bytes/MB/GB
-- System health indicators
+Комплексная статистика системы:
+- Количество пользователей по ролям и доменам
+- Задачи транскрипции по статусам (ожидание, обработка, завершено, ошибка)
+- Использование хранилища
+- Индикаторы здоровья системы
 """
 )
 async def get_global_stats(
@@ -52,8 +52,8 @@ async def get_global_stats(
 @router.get(
     "/health",
     response_model=SystemHealthResponse,
-    summary="Get system health status",
-    description="Check the health of all system components including Redis, database, GPU, and Celery."
+    summary="Здоровье системы",
+    description="Проверка состояния всех компонентов: Redis, база данных, GPU, Celery."
 )
 async def get_system_health(
     current_user: SuperUser,

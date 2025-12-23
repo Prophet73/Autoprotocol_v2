@@ -1,10 +1,10 @@
 """
-Construction domain router.
+Роутер домена строительства.
 
-Endpoints for:
-- Project management (CRUD)
-- Project code validation (public)
-- Manager dashboard (calendar, project stats)
+Эндпоинты для:
+- Управление проектами (CRUD)
+- Валидация кода проекта (публичный)
+- Дашборд менеджера (календарь, статистика проектов)
 """
 from datetime import datetime
 from typing import Annotated, Optional, List
@@ -27,7 +27,7 @@ from .project_schemas import (
 )
 
 
-router = APIRouter(prefix="/construction", tags=["Construction Domain"])
+router = APIRouter(prefix="/construction", tags=["Домен - Строительство"])
 
 
 # =============================================================================
@@ -38,15 +38,15 @@ router = APIRouter(prefix="/construction", tags=["Construction Domain"])
     "/projects",
     response_model=ProjectResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create new project",
-    description="Create a new construction project with auto-generated 4-digit code."
+    summary="Создать проект",
+    description="Создание нового строительного проекта с автогенерацией 4-значного кода."
 )
 async def create_project(
     data: ProjectCreate,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ProjectResponse:
-    """Create a new construction project."""
+    """Создание нового строительного проекта."""
     service = ProjectService(db)
 
     # Use user's tenant if not specified
@@ -72,17 +72,17 @@ async def create_project(
 @router.get(
     "/projects",
     response_model=ProjectListResponse,
-    summary="List projects",
-    description="Get list of construction projects with filtering."
+    summary="Список проектов",
+    description="Получение списка строительных проектов с фильтрацией."
 )
 async def list_projects(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-    is_active: Optional[bool] = Query(None, description="Filter by active status"),
+    is_active: Optional[bool] = Query(None, description="Фильтр по статусу активности"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
 ) -> ProjectListResponse:
-    """List construction projects."""
+    """Список строительных проектов."""
     service = ProjectService(db)
 
     # Filter by user's tenant unless superuser
@@ -99,15 +99,15 @@ async def list_projects(
 @router.get(
     "/projects/{project_id}",
     response_model=ProjectResponse,
-    summary="Get project by ID",
-    description="Get detailed information about a specific project."
+    summary="Получить проект по ID",
+    description="Получение детальной информации о конкретном проекте."
 )
 async def get_project(
     project_id: int,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ProjectResponse:
-    """Get project by ID."""
+    """Получить проект по ID."""
     service = ProjectService(db)
     project = await service.get_project(project_id)
 
@@ -144,8 +144,8 @@ async def get_project(
 @router.patch(
     "/projects/{project_id}",
     response_model=ProjectResponse,
-    summary="Update project",
-    description="Update project details."
+    summary="Обновить проект",
+    description="Обновление данных проекта."
 )
 async def update_project(
     project_id: int,
@@ -153,7 +153,7 @@ async def update_project(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ProjectResponse:
-    """Update a project."""
+    """Обновление проекта."""
     service = ProjectService(db)
 
     # Check project exists and access
@@ -191,15 +191,15 @@ async def update_project(
 @router.post(
     "/projects/{project_id}/archive",
     response_model=dict,
-    summary="Archive project",
-    description="Archive a project (set is_active=False)."
+    summary="Архивировать проект",
+    description="Архивация проекта (установка is_active=False)."
 )
 async def archive_project(
     project_id: int,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    """Archive a project."""
+    """Архивация проекта."""
     service = ProjectService(db)
 
     # Check project exists and access
@@ -223,15 +223,15 @@ async def archive_project(
 @router.delete(
     "/projects/{project_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete project",
-    description="Permanently delete a project and all associated reports."
+    summary="Удалить проект",
+    description="Безвозвратное удаление проекта и всех связанных отчётов."
 )
 async def delete_project(
     project_id: int,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
-    """Delete a project."""
+    """Удаление проекта."""
     service = ProjectService(db)
 
     # Check project exists and access
@@ -258,18 +258,18 @@ async def delete_project(
 @router.get(
     "/validate-code/{code}",
     response_model=ProjectCodeValidation,
-    summary="Validate project code",
-    description="Validate a 4-digit project code for anonymous upload. Public endpoint."
+    summary="Проверить код проекта",
+    description="Валидация 4-значного кода проекта для анонимной загрузки. Публичный эндпоинт."
 )
 async def validate_project_code(
     code: str = Path(..., min_length=4, max_length=4, pattern="^[0-9]{4}$"),
     db: Annotated[AsyncSession, Depends(get_db)] = None,
 ) -> ProjectCodeValidation:
     """
-    Validate a project code for anonymous upload.
+    Валидация кода проекта для анонимной загрузки.
 
-    This is a PUBLIC endpoint - no authentication required.
-    Used by the uploader UI to validate codes before file upload.
+    Это ПУБЛИЧНЫЙ эндпоинт - авторизация не требуется.
+    Используется интерфейсом загрузчика для проверки кодов перед загрузкой файла.
     """
     service = ProjectService(db)
     return await service.validate_code(code)
@@ -282,21 +282,21 @@ async def validate_project_code(
 @router.get(
     "/dashboard/projects",
     response_model=ProjectDashboardResponse,
-    summary="Get projects dashboard",
-    description="Get projects with status summary for manager dashboard."
+    summary="Дашборд проектов",
+    description="Получение проектов со сводкой статусов для дашборда менеджера."
 )
 async def get_dashboard_projects(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-    my_projects_only: bool = Query(False, description="Only show projects I manage"),
+    my_projects_only: bool = Query(False, description="Показать только мои проекты"),
 ) -> ProjectDashboardResponse:
     """
-    Get projects dashboard with statistics.
+    Дашборд проектов со статистикой.
 
-    Returns list of projects with:
-    - Report counts by status
-    - Open risks count
-    - Last report date
+    Возвращает список проектов с:
+    - Количеством отчётов по статусам
+    - Количеством открытых рисков
+    - Датой последнего отчёта
     """
     service = ProjectService(db)
 
@@ -312,24 +312,24 @@ async def get_dashboard_projects(
 @router.get(
     "/dashboard/calendar",
     response_model=CalendarResponse,
-    summary="Get calendar events",
-    description="Get reports as calendar events for user's assigned projects."
+    summary="События календаря",
+    description="Получение отчётов как событий календаря для проектов пользователя."
 )
 async def get_calendar_events(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     project_ids: Optional[str] = Query(
         None,
-        description="Comma-separated project IDs to filter"
+        description="ID проектов через запятую для фильтрации"
     ),
-    start_date: Optional[datetime] = Query(None, description="Filter by start date"),
-    end_date: Optional[datetime] = Query(None, description="Filter by end date"),
+    start_date: Optional[datetime] = Query(None, description="Фильтр по начальной дате"),
+    end_date: Optional[datetime] = Query(None, description="Фильтр по конечной дате"),
 ) -> CalendarResponse:
     """
-    Get calendar events (reports) for specified projects.
+    Получение событий календаря (отчётов) для указанных проектов.
 
-    If no project_ids provided, shows events for all projects
-    the user manages.
+    Если project_ids не указаны, показываются события для всех
+    проектов, которыми управляет пользователь.
     """
     service = ProjectService(db)
 

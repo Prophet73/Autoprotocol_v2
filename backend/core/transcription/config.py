@@ -2,11 +2,14 @@
 Configuration for transcription pipeline.
 All parameters can be overridden via environment variables.
 """
+import logging
 import os
 from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load .env from project root
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
@@ -163,8 +166,8 @@ def _load_hallucination_patterns() -> List[str]:
         patterns = get_hallucination_patterns()
         if patterns:
             return patterns
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Could not load hallucination patterns from config, using defaults: {e}")
 
     # Fallback defaults
     return [

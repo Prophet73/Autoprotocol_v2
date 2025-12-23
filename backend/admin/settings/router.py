@@ -21,14 +21,14 @@ from .schemas import (
 )
 
 
-router = APIRouter(prefix="/settings", tags=["Admin - Settings"])
+router = APIRouter(prefix="/settings", tags=["Админ - Настройки"])
 
 
 @router.get(
     "/",
     response_model=SettingListResponse,
-    summary="List all settings",
-    description="Get all system settings with their current values."
+    summary="Список настроек",
+    description="Получение всех системных настроек с текущими значениями."
 )
 async def list_settings(
     current_user: SuperUser,
@@ -44,8 +44,8 @@ async def list_settings(
 @router.get(
     "/{key}",
     response_model=SettingResponse,
-    summary="Get setting by key",
-    description="Get a specific system setting by its key."
+    summary="Получить настройку",
+    description="Получение конкретной настройки по ключу."
 )
 async def get_setting(
     key: str,
@@ -67,8 +67,8 @@ async def get_setting(
     "/",
     response_model=SettingResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create new setting",
-    description="Create a new system setting."
+    summary="Создать настройку",
+    description="Создание новой системной настройки."
 )
 async def create_setting(
     request: CreateSettingRequest,
@@ -93,8 +93,8 @@ async def create_setting(
 @router.put(
     "/{key}",
     response_model=SettingResponse,
-    summary="Update setting",
-    description="Update an existing system setting value."
+    summary="Обновить настройку",
+    description="Обновление значения существующей настройки."
 )
 async def update_setting(
     key: str,
@@ -121,8 +121,8 @@ async def update_setting(
 @router.delete(
     "/{key}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete setting",
-    description="Delete a system setting."
+    summary="Удалить настройку",
+    description="Удаление системной настройки."
 )
 async def delete_setting(
     key: str,
@@ -142,8 +142,8 @@ async def delete_setting(
 @router.post(
     "/bulk",
     response_model=SettingListResponse,
-    summary="Bulk update settings",
-    description="Update multiple settings at once."
+    summary="Массовое обновление",
+    description="Обновление нескольких настроек одновременно."
 )
 async def bulk_update_settings(
     request: SettingBulkUpdateRequest,
@@ -165,8 +165,8 @@ async def bulk_update_settings(
 @router.post(
     "/initialize",
     response_model=dict,
-    summary="Initialize default settings",
-    description="Create default settings if they don't exist."
+    summary="Инициализация настроек",
+    description="Создание настроек по умолчанию, если они не существуют."
 )
 async def initialize_defaults(
     current_user: SuperUser,

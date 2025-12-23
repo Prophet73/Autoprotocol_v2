@@ -468,7 +468,8 @@ class SchemaGeneratorService:
         """Generate an example output based on schema."""
         try:
             return self._generate_example_value(schema)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to generate example output from schema: {e}")
             return None
 
     def _generate_example_value(self, schema: Dict[str, Any]) -> Any:

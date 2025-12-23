@@ -29,7 +29,7 @@ from .schemas import (
 )
 
 
-router = APIRouter(prefix="/prompts", tags=["Admin - Prompts & Schemas"])
+router = APIRouter(prefix="/prompts", tags=["Админ - Промпты и схемы"])
 
 
 # =============================================================================
@@ -39,8 +39,8 @@ router = APIRouter(prefix="/prompts", tags=["Admin - Prompts & Schemas"])
 @router.get(
     "/templates",
     response_model=PromptTemplateListResponse,
-    summary="List prompt templates",
-    description="Get all prompt templates with optional filtering by domain."
+    summary="Список шаблонов промптов",
+    description="Получение всех шаблонов промптов с фильтрацией по домену."
 )
 async def list_templates(
     current_user: SuperUser,
@@ -63,7 +63,7 @@ async def list_templates(
 @router.get(
     "/templates/{template_id}",
     response_model=PromptTemplateResponse,
-    summary="Get prompt template by ID",
+    summary="Получить шаблон по ID",
 )
 async def get_template(
     template_id: int,
@@ -84,7 +84,7 @@ async def get_template(
 @router.get(
     "/templates/slug/{slug}",
     response_model=PromptTemplateResponse,
-    summary="Get prompt template by slug",
+    summary="Получить шаблон по slug",
 )
 async def get_template_by_slug(
     slug: str,
@@ -106,8 +106,8 @@ async def get_template_by_slug(
     "/templates",
     response_model=PromptTemplateResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create prompt template",
-    description="Create a new prompt template with optional JSON Schema."
+    summary="Создать шаблон промпта",
+    description="Создание нового шаблона с опциональной JSON Schema."
 )
 async def create_template(
     data: PromptTemplateCreate,
@@ -132,7 +132,7 @@ async def create_template(
 @router.patch(
     "/templates/{template_id}",
     response_model=PromptTemplateResponse,
-    summary="Update prompt template",
+    summary="Обновить шаблон промпта",
 )
 async def update_template(
     template_id: int,
@@ -154,7 +154,7 @@ async def update_template(
 @router.delete(
     "/templates/{template_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete prompt template",
+    summary="Удалить шаблон промпта",
 )
 async def delete_template(
     template_id: int,
@@ -178,21 +178,21 @@ async def delete_template(
 @router.post(
     "/generate-schema",
     response_model=GeneratedSchemaResponse,
-    summary="Generate JSON Schema from description",
+    summary="Сгенерировать JSON Schema",
     description="""
-Use AI to generate a JSON Schema from natural language description.
+Генерация JSON Schema из текстового описания с помощью AI.
 
-**Example request:**
+**Пример запроса:**
 ```json
 {
-    "description": "I need a report with list of tasks, each having title,
-                    responsible person, deadline, and priority (high/medium/low)",
+    "description": "Мне нужен отчёт со списком задач, каждая с заголовком,
+                    ответственным, дедлайном и приоритетом (высокий/средний/низкий)",
     "output_type": "report",
     "include_metadata": true
 }
 ```
 
-The AI will analyze the description and generate a Gemini-compatible JSON Schema.
+AI проанализирует описание и сгенерирует JSON Schema, совместимую с Gemini.
 """
 )
 async def generate_schema(
@@ -223,8 +223,8 @@ async def generate_schema(
 @router.post(
     "/validate-schema",
     response_model=ValidateSchemaResponse,
-    summary="Validate JSON Schema for Gemini compatibility",
-    description="Check if a JSON Schema is compatible with Gemini structured output."
+    summary="Валидация JSON Schema",
+    description="Проверка совместимости JSON Schema со структурированным выводом Gemini."
 )
 async def validate_schema(
     request: ValidateSchemaRequest,
@@ -242,8 +242,8 @@ async def validate_schema(
 @router.get(
     "/schema-templates",
     response_model=SchemaTemplatesResponse,
-    summary="List pre-built schema templates",
-    description="Get all available pre-built schema templates."
+    summary="Список шаблонов схем",
+    description="Получение всех доступных готовых шаблонов схем."
 )
 async def list_schema_templates(
     current_user: SuperUser,
@@ -255,8 +255,8 @@ async def list_schema_templates(
 
 @router.get(
     "/schema-templates/{template_id}",
-    summary="Get pre-built schema template",
-    description="Get a specific pre-built schema template."
+    summary="Получить шаблон схемы",
+    description="Получение конкретного готового шаблона схемы."
 )
 async def get_schema_template(
     template_id: str,
@@ -283,8 +283,8 @@ async def get_schema_template(
 
 @router.get(
     "/domains",
-    summary="List available domains",
-    description="Get list of available domains for prompt templates."
+    summary="Список доменов",
+    description="Получение списка доступных доменов для шаблонов промптов."
 )
 async def list_domains(
     current_user: SuperUser,
