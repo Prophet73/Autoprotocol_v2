@@ -54,6 +54,7 @@ class ProjectCodeValidation(BaseModel):
     project_id: Optional[int] = None
     project_name: Optional[str] = None
     tenant_id: Optional[int] = None
+    domain_type: Optional[str] = None  # 'construction', 'hr', etc.
     message: str = ""
 
 

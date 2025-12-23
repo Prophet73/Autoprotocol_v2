@@ -196,3 +196,49 @@ class BaseDomainService(ABC):
     def validate_report_type(self, report_type: str) -> bool:
         """Проверяет что тип отчёта поддерживается доменом"""
         return report_type in self.REPORT_TYPES
+
+    async def get_dashboard_data(
+        self,
+        project_ids: list[int],
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None
+    ) -> dict[str, Any]:
+        """
+        Получает агрегированные данные для Boss Dashboard.
+
+        Args:
+            project_ids: Список ID проектов
+            date_from: Начальная дата фильтра
+            date_to: Конечная дата фильтра
+
+        Returns:
+            Dict с агрегированной статистикой и таймлайном
+        """
+        # Базовая реализация - переопределяется в наследниках
+        return {
+            "total_reports": 0,
+            "by_project": {},
+            "timeline": [],
+            "speaker_stats": {}
+        }
+
+    async def save_report_to_db(
+        self,
+        job_id: str,
+        project_id: int,
+        result: DomainReport,
+        guest_uid: Optional[str] = None,
+        uploader_id: Optional[int] = None,
+    ) -> None:
+        """
+        Сохраняет отчёт в базу данных.
+        Переопределяется в наследниках для специфичной логики.
+
+        Args:
+            job_id: ID задачи транскрипции
+            project_id: ID проекта
+            result: Результат генерации отчёта
+            guest_uid: UUID гостя (для анонимных загрузок)
+            uploader_id: ID пользователя-загрузчика
+        """
+        pass  # Реализуется в конкретных доменах

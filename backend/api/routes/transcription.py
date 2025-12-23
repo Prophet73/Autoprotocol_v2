@@ -17,7 +17,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Header, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +32,8 @@ from ...core.transcription.models import TranscriptionRequest, JobStatus
 from ...tasks.transcription import process_transcription_task
 from ...shared.database import get_db
 from ...domains.construction.project_service import ProjectService
+from ...core.auth.dependencies import get_optional_user
+from ...shared.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,7 @@ def get_store() -> JobStore:
 async def create_transcription(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
     file: UploadFile = File(..., description="Аудио или видео файл (WAV, MP3, MP4, MKV и др.)"),
     languages: str = Form(default="ru", description="Языки через запятую (ru, zh, en). Пример: ru,zh"),
     skip_diarization: bool = Form(default=False, description="Пропустить определение спикеров"),
@@ -64,11 +67,15 @@ async def create_transcription(
     skip_emotions: bool = Form(default=False, description="Пропустить анализ эмоций"),
     # Project linkage (for construction domain)
     project_code: Optional[str] = Form(default=None, description="4-значный код проекта для анонимной загрузки"),
+    # Guest ID for anonymous users (from X-Guest-ID header)
+    x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-ID", description="UUID гостя для анонимной загрузки"),
     # Domain artifact options (ДПУ)
     generate_transcript: bool = Form(default=True, description="Создать транскрипт (transcript.docx)"),
     generate_tasks: bool = Form(default=False, description="Извлечь задачи через LLM (tasks.xlsx)"),
     generate_report: bool = Form(default=False, description="Создать отчёт через LLM (report.docx)"),
     generate_analysis: bool = Form(default=False, description="Создать аналитику через LLM (analysis.docx)"),
+    # Email notification
+    notify_emails: Optional[str] = Form(default=None, description="Email адреса для уведомления (через запятую)"),
 ):
     """
     ## Загрузка файла и запуск транскрипции
@@ -107,6 +114,7 @@ async def create_transcription(
     # Validate project code if provided
     project_id = None
     tenant_id = None
+    domain_type = None
     if project_code:
         project_service = ProjectService(db)
         validation = await project_service.validate_code(project_code)
@@ -117,7 +125,13 @@ async def create_transcription(
             )
         project_id = validation.project_id
         tenant_id = validation.tenant_id
+        domain_type = getattr(validation, 'domain_type', 'construction')
         logger.info(f"Job linked to project {project_id} via code {project_code}")
+
+    # Determine uploader identity
+    uploader_id = current_user.id if current_user else None
+    # Use guest_uid only for anonymous users
+    guest_uid = x_guest_id if not current_user else None
 
     # Create directories
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -135,6 +149,11 @@ async def create_transcription(
 
     # Create job record in Redis
     now = datetime.now()
+    # Parse notify emails
+    notify_emails_list = []
+    if notify_emails:
+        notify_emails_list = [e.strip() for e in notify_emails.split(",") if e.strip() and "@" in e]
+
     job_data = JobData(
         job_id=job_id,
         status=JobStatus.PENDING,
@@ -145,6 +164,9 @@ async def create_transcription(
         project_id=project_id,
         project_code=project_code,
         tenant_id=tenant_id,
+        domain_type=domain_type,
+        guest_uid=guest_uid,
+        uploader_id=uploader_id,
         skip_diarization=skip_diarization,
         skip_translation=skip_translation,
         skip_emotions=skip_emotions,
@@ -152,6 +174,7 @@ async def create_transcription(
         generate_tasks=generate_tasks,
         generate_report=generate_report,
         generate_analysis=generate_analysis,
+        notify_emails=notify_emails_list,
     )
 
     store.create(job_data)
@@ -175,6 +198,13 @@ async def create_transcription(
             skip_translation=skip_translation,
             skip_emotions=skip_emotions,
             artifact_options=artifact_options,
+            # Domain-specific parameters
+            project_id=project_id,
+            domain_type=domain_type,
+            guest_uid=guest_uid,
+            uploader_id=uploader_id,
+            # Email notification
+            notify_emails=notify_emails_list,
         )
         logger.info(f"Job {job_id} queued to Celery")
     except Exception as e:
@@ -190,6 +220,7 @@ async def create_transcription(
             skip_translation=skip_translation,
             skip_emotions=skip_emotions,
             artifact_options=artifact_options,
+            notify_emails=notify_emails_list,
         )
 
     return JobResponse(
@@ -327,17 +358,43 @@ async def download_result(job_id: str, file_type: str):
     summary="Список задач",
     description="Возвращает список последних задач с базовой информацией.",
 )
-async def list_jobs(limit: int = 50):
+async def list_jobs(
+    limit: int = Query(default=50, le=100, description="Максимальное количество задач"),
+    x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-ID", description="UUID гостя для фильтрации"),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
     """
     ## История задач
 
     Возвращает список последних задач, отсортированных по дате создания.
 
+    **Фильтрация:**
+    - Авторизованные пользователи видят свои задачи
+    - Гости (с X-Guest-ID) видят только свои задачи
+    - Без идентификации — пустой список
+
     Параметры:
     - **limit** — максимальное количество (по умолчанию 50)
     """
     store = get_store()
-    jobs = store.list_jobs(limit=limit)
+    all_jobs = store.list_jobs(limit=limit * 2)  # Fetch more to filter
+
+    # Filter based on user/guest identity
+    if current_user:
+        # Authenticated user - filter by uploader_id
+        jobs = [
+            job for job in all_jobs
+            if getattr(job, 'uploader_id', None) == current_user.id
+        ][:limit]
+    elif x_guest_id:
+        # Guest - filter by guest_uid
+        jobs = [
+            job for job in all_jobs
+            if getattr(job, 'guest_uid', None) == x_guest_id
+        ][:limit]
+    else:
+        # No identity - return empty list
+        jobs = []
 
     return {
         "jobs": [
@@ -348,6 +405,7 @@ async def list_jobs(limit: int = 50):
                 "source_file": Path(job.input_file).name,
                 "progress_percent": job.progress_percent,
                 "message": job.message,
+                "project_code": getattr(job, 'project_code', None),
             }
             for job in jobs
         ]
@@ -407,6 +465,7 @@ async def run_transcription_background(
     skip_translation: bool,
     skip_emotions: bool,
     artifact_options: dict = None,
+    notify_emails: list = None,
 ):
     """Background task for transcription (fallback when Celery unavailable)."""
     from ...core.transcription.pipeline import TranscriptionPipeline
@@ -472,6 +531,24 @@ async def run_transcription_background(
         )
 
         logger.info(f"Job {job_id} completed successfully")
+
+        # Send email notification if emails are provided
+        if notify_emails:
+            try:
+                from ...core.email.service import send_report_email
+
+                job_data = store.get(job_id)
+                project_name = getattr(job_data, 'project_code', None)
+
+                send_report_email(
+                    recipients=notify_emails,
+                    job_id=job_id,
+                    project_name=project_name,
+                    output_files=output_files,
+                )
+                logger.info(f"Email notification sent to {notify_emails}")
+            except Exception as e:
+                logger.error(f"Email notification failed (non-fatal): {e}")
 
     except Exception as e:
         logger.exception(f"Job {job_id} failed: {e}")

@@ -107,13 +107,20 @@ class ConstructionProject(Base):
         lazy="selectin",
         cascade="all, delete-orphan"
     )
+    # Many-to-many relationship for multiple managers
+    managers: Mapped[List["User"]] = relationship(
+        "User",
+        secondary="project_managers",
+        lazy="selectin",
+        backref="managed_projects"
+    )
 
     def __repr__(self) -> str:
         return f"<ConstructionProject(id={self.id}, name='{self.name}', code='{self.project_code}')>"
 
 
-# Import User for type hints
-from backend.shared.models import User
+# Import User and project_managers for relationships
+from backend.shared.models import User, project_managers
 
 
 class ReportStatus(str):
@@ -179,6 +186,13 @@ class ConstructionReportDB(Base):
     uploaded_by_id: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    # Guest UID for anonymous users (stored in localStorage on frontend)
+    guest_uid: Mapped[Optional[str]] = mapped_column(
+        String(64),
         nullable=True,
         index=True
     )

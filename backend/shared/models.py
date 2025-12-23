@@ -16,11 +16,23 @@ from sqlalchemy import (
     Text,
     Integer,
     ForeignKey,
+    Table,
+    Column,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+
+
+# Many-to-many association table for project managers
+project_managers = Table(
+    'project_managers',
+    Base.metadata,
+    Column('project_id', Integer, ForeignKey('construction_projects.id', ondelete='CASCADE'), primary_key=True),
+    Column('user_id', Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True),
+    Column('assigned_at', DateTime(timezone=True), server_default=func.now())
+)
 
 
 class UserRole(str, Enum):
@@ -94,6 +106,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    username: Mapped[Optional[str]] = mapped_column(String(100), unique=True, index=True, nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 

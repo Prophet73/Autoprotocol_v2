@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-interface User {
+export interface User {
   id: number;
   email: string;
+  username: string | null;
   full_name: string | null;
   role: string;
   domain: string | null;

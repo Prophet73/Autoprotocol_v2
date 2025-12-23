@@ -50,6 +50,7 @@ export interface LoginResponse {
 export interface UserInfo {
   id: number;
   email: string;
+  username: string | null;
   full_name: string | null;
   role: string;
   domain: string | null;

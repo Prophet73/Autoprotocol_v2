@@ -64,7 +64,7 @@ export function DownloadCard({ jobId, outputFiles }: DownloadCardProps) {
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      {files.map(([fileType, filePath]) => {
+      {files.map(([fileType]) => {
         const config = fileConfig[fileType] || {
           label: fileType,
           icon: FileText,
@@ -72,7 +72,6 @@ export function DownloadCard({ jobId, outputFiles }: DownloadCardProps) {
           desc: 'Файл',
         };
         const Icon = config.icon;
-        const fileName = filePath.split(/[\\/]/).pop() || filePath;
 
         return (
           <a

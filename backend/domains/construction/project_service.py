@@ -9,11 +9,12 @@ Provides business logic for:
 from datetime import datetime
 from typing import Optional, List
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, insert, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .models import ConstructionProject, ConstructionReportDB, ReportStatus
+from backend.shared.models import User, project_managers
 from .project_schemas import (
     ProjectCreate,
     ProjectUpdate,
@@ -245,8 +246,144 @@ class ProjectService:
             project_id=project.id,
             project_name=project.name,
             tenant_id=project.tenant_id,
+            domain_type="construction",  # Domain type for routing
             message="Valid project code."
         )
+
+    async def assign_manager(self, project_id: int, user_id: int) -> bool:
+        """
+        Assign a user as manager to a project.
+
+        Args:
+            project_id: Project ID
+            user_id: User ID to assign
+
+        Returns:
+            True if assigned successfully
+        """
+        try:
+            # Check user exists
+            user_result = await self.db.execute(
+                select(User).where(User.id == user_id)
+            )
+            if not user_result.scalar_one_or_none():
+                return False
+
+            # Check if already assigned
+            existing = await self.db.execute(
+                select(project_managers).where(
+                    and_(
+                        project_managers.c.project_id == project_id,
+                        project_managers.c.user_id == user_id
+                    )
+                )
+            )
+            if existing.first():
+                return False  # Already assigned
+
+            # Insert assignment
+            await self.db.execute(
+                insert(project_managers).values(
+                    project_id=project_id,
+                    user_id=user_id
+                )
+            )
+            await self.db.commit()
+            return True
+        except Exception:
+            await self.db.rollback()
+            return False
+
+    async def remove_manager(self, project_id: int, user_id: int) -> bool:
+        """
+        Remove a user from project managers.
+
+        Args:
+            project_id: Project ID
+            user_id: User ID to remove
+
+        Returns:
+            True if removed successfully
+        """
+        try:
+            result = await self.db.execute(
+                delete(project_managers).where(
+                    and_(
+                        project_managers.c.project_id == project_id,
+                        project_managers.c.user_id == user_id
+                    )
+                )
+            )
+            await self.db.commit()
+            return result.rowcount > 0
+        except Exception:
+            await self.db.rollback()
+            return False
+
+    async def get_manager_projects(
+        self,
+        manager_id: int,
+        is_active: Optional[bool] = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> ProjectListResponse:
+        """
+        Get projects where user is assigned as manager (via many-to-many).
+
+        Args:
+            manager_id: User ID of the manager
+            is_active: Filter by active status
+            skip: Pagination offset
+            limit: Pagination limit
+
+        Returns:
+            List of projects
+        """
+        # Build query joining with project_managers table
+        query = (
+            select(ConstructionProject)
+            .options(selectinload(ConstructionProject.manager))
+            .join(
+                project_managers,
+                ConstructionProject.id == project_managers.c.project_id
+            )
+            .where(project_managers.c.user_id == manager_id)
+        )
+
+        if is_active is not None:
+            query = query.where(ConstructionProject.is_active == is_active)
+
+        # Get total count
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        # Get paginated results
+        query = query.offset(skip).limit(limit).order_by(
+            ConstructionProject.created_at.desc()
+        )
+        result = await self.db.execute(query)
+        projects = result.scalars().all()
+
+        # Build response with report counts
+        project_responses = []
+        for project in projects:
+            report_count = await self._get_report_count(project.id)
+            project_responses.append(ProjectResponse(
+                id=project.id,
+                name=project.name,
+                description=project.description,
+                project_code=project.project_code,
+                tenant_id=project.tenant_id,
+                manager_id=project.manager_id,
+                manager_name=project.manager.full_name if project.manager else None,
+                is_active=project.is_active,
+                report_count=report_count,
+                created_at=project.created_at,
+                updated_at=project.updated_at,
+            ))
+
+        return ProjectListResponse(projects=project_responses, total=total)
 
     async def get_dashboard_projects(
         self,

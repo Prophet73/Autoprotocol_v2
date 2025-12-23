@@ -36,6 +36,11 @@ class JobData(BaseModel):
     project_id: Optional[int] = None
     project_code: Optional[str] = None
     tenant_id: Optional[int] = None
+    domain_type: Optional[str] = None  # 'construction', 'hr', etc.
+
+    # User/Guest identity
+    guest_uid: Optional[str] = None  # UUID for anonymous users
+    uploader_id: Optional[int] = None  # User ID for authenticated users
 
     # Processing options
     skip_diarization: bool = False
@@ -47,6 +52,9 @@ class JobData(BaseModel):
     generate_tasks: bool = False
     generate_report: bool = False
     generate_analysis: bool = False
+
+    # Email notification
+    notify_emails: List[str] = []
 
     # Progress
     current_stage: Optional[str] = None

@@ -111,6 +111,60 @@ def _run_domain_generators(
     return output_files
 
 
+def _save_domain_report(
+    job_id: str,
+    result,
+    project_id: int,
+    domain_type: str,
+    guest_uid: Optional[str] = None,
+    uploader_id: Optional[int] = None,
+) -> None:
+    """
+    Save domain-specific report to database after transcription.
+
+    Args:
+        job_id: Job identifier
+        result: TranscriptionResult from pipeline
+        project_id: Project ID
+        domain_type: Domain type ('construction', 'hr', etc.)
+        guest_uid: Guest UUID for anonymous uploads
+        uploader_id: User ID for authenticated uploads
+    """
+    import asyncio
+    from ..shared.database import async_session_factory
+    from ..domains.factory import DomainServiceFactory
+
+    async def _async_save():
+        async with async_session_factory() as db:
+            try:
+                # Create domain service via factory
+                service = DomainServiceFactory.create(domain_type)
+
+                # Generate simple report (no LLM for now)
+                report = service.generate_report_simple(result)
+
+                # Save to database
+                await service.save_report_to_db(
+                    db=db,
+                    job_id=job_id,
+                    project_id=project_id,
+                    report=report,
+                    guest_uid=guest_uid,
+                    uploader_id=uploader_id,
+                )
+
+                await db.commit()
+                logger.info(f"Domain report saved for job {job_id}, project {project_id}")
+
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Failed to save domain report for job {job_id}: {e}")
+                raise
+
+    # Run async function in sync context
+    asyncio.run(_async_save())
+
+
 @celery_app.task(
     bind=True,
     name="transcription.process",
@@ -128,6 +182,13 @@ def process_transcription_task(
     skip_translation: bool = False,
     skip_emotions: bool = False,
     artifact_options: Optional[dict] = None,
+    # Domain linkage parameters
+    project_id: Optional[int] = None,
+    domain_type: Optional[str] = None,
+    guest_uid: Optional[str] = None,
+    uploader_id: Optional[int] = None,
+    # Email notification
+    notify_emails: Optional[List[str]] = None,
 ) -> dict:
     """
     Celery task for transcription processing.
@@ -218,6 +279,22 @@ def process_transcription_task(
                 if files:
                     output_files[artifact_type] = str(files[0])
 
+        # Save domain report to database if project is linked
+        if domain_type and project_id:
+            progress_callback("domain_report", 99, "Saving report to database...")
+            try:
+                _save_domain_report(
+                    job_id=job_id,
+                    result=result,
+                    project_id=project_id,
+                    domain_type=domain_type,
+                    guest_uid=guest_uid,
+                    uploader_id=uploader_id,
+                )
+            except Exception as e:
+                logger.error(f"Domain report save failed (non-fatal): {e}")
+                # Don't fail the whole job if domain report fails
+
         # Mark completed in Redis
         store.complete(
             job_id=job_id,
@@ -228,6 +305,27 @@ def process_transcription_task(
         )
 
         logger.info(f"Job {job_id} completed successfully")
+
+        # Send email notification if emails are provided
+        if notify_emails:
+            progress_callback("email_notification", 100, "Sending email notification...")
+            try:
+                from ..core.email.service import send_report_email
+
+                # Get project name from job store for email subject
+                job_data = store.get(job_id)
+                project_name = getattr(job_data, 'project_code', None)
+
+                send_report_email(
+                    recipients=notify_emails,
+                    job_id=job_id,
+                    project_name=project_name,
+                    output_files=output_files,
+                )
+                logger.info(f"Email notification sent to {notify_emails}")
+            except Exception as e:
+                logger.error(f"Email notification failed (non-fatal): {e}")
+                # Don't fail the job if email fails
 
         return {
             "job_id": job_id,

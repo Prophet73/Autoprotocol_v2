@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { UploadPage } from './pages/UploadPage';
 import { JobPage } from './pages/JobPage';
 import { HistoryPage } from './pages/HistoryPage';
+import { ManagerDashboardPage } from './pages/ManagerDashboardPage';
 
 // Admin imports
 import LoginPage from './pages/admin/LoginPage';
@@ -15,6 +16,7 @@ import SettingsPage from './pages/admin/SettingsPage';
 import ProjectsPage from './pages/admin/ProjectsPage';
 import LogsPage from './pages/admin/LogsPage';
 import PromptStudioPage from './pages/admin/PromptStudioPage';
+import SSOCallbackPage from './pages/SSOCallbackPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,6 +39,21 @@ function App() {
 
           {/* Admin login */}
           <Route path="/login" element={<LoginPage />} />
+
+          {/* SSO callback */}
+          <Route path="/auth/callback" element={<SSOCallbackPage />} />
+
+          {/* Manager dashboard (requires manager role) */}
+          <Route
+            path="/dashboard"
+            element={
+              <AuthGuard requiredRole="manager">
+                <Layout>
+                  <ManagerDashboardPage />
+                </Layout>
+              </AuthGuard>
+            }
+          />
 
           {/* Protected admin routes */}
           <Route

@@ -7,20 +7,18 @@ interface FileDropzoneProps {
   onClear: () => void;
 }
 
+// All FFmpeg supported audio/video formats
 const ACCEPTED_TYPES = [
-  'audio/mpeg',
-  'audio/mp3',
-  'audio/wav',
-  'audio/x-wav',
-  'audio/m4a',
-  'audio/x-m4a',
-  'video/mp4',
-  'video/mpeg',
-  'video/quicktime',
-  'video/x-msvideo',
+  // Audio
+  'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/m4a', 'audio/x-m4a',
+  'audio/aac', 'audio/ogg', 'audio/flac', 'audio/x-flac', 'audio/webm', 'audio/opus',
+  'audio/amr', 'audio/3gpp', 'audio/aiff', 'audio/x-aiff', 'audio/wma', 'audio/x-ms-wma',
+  // Video
+  'video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/webm',
+  'video/x-matroska', 'video/x-flv', 'video/3gpp', 'video/x-ms-wmv', 'video/ogg',
 ];
 
-const ACCEPTED_EXTENSIONS = '.mp3,.mp4,.wav,.m4a,.mpeg,.mov,.avi';
+const ACCEPTED_EXTENSIONS = '.mp3,.mp4,.wav,.m4a,.mpeg,.mov,.avi,.mkv,.webm,.flv,.ogg,.opus,.flac,.aac,.wma,.wmv,.3gp,.amr,.aiff,.ts,.mts,.m2ts';
 
 export function FileDropzone({ onFileSelect, selectedFile, onClear }: FileDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -103,7 +101,7 @@ export function FileDropzone({ onFileSelect, selectedFile, onClear }: FileDropzo
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={`
-        block w-full border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all
+        block w-full border-2 border-dashed rounded-xl py-4 px-6 text-center cursor-pointer transition-all
         ${isDragging
           ? 'border-emerald-400 bg-emerald-50'
           : 'border-slate-300 hover:border-emerald-400 hover:bg-slate-50'
@@ -117,19 +115,22 @@ export function FileDropzone({ onFileSelect, selectedFile, onClear }: FileDropzo
         className="hidden"
       />
 
-      <div className={`
-        mx-auto w-14 h-14 rounded-full flex items-center justify-center mb-4
-        ${isDragging ? 'bg-emerald-100' : 'bg-slate-100'}
-      `}>
-        <Upload className={`w-6 h-6 ${isDragging ? 'text-emerald-600' : 'text-slate-400'}`} />
+      <div className="flex items-center justify-center gap-3">
+        <div className={`
+          w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0
+          ${isDragging ? 'bg-emerald-100' : 'bg-slate-100'}
+        `}>
+          <Upload className={`w-5 h-5 ${isDragging ? 'text-emerald-600' : 'text-slate-400'}`} />
+        </div>
+        <div className="text-left">
+          <p className="text-sm font-medium text-slate-700">
+            {isDragging ? 'Отпустите файл' : 'Перетащите файл или нажмите для выбора'}
+          </p>
+          <p className="text-xs text-slate-500">
+            MP4, MKV, AVI, MOV, WebM, FLV, MP3, WAV, M4A, AAC, FLAC, OGG, WMA и др. • до 2 ГБ
+          </p>
+        </div>
       </div>
-
-      <p className="text-base font-medium text-slate-700 mb-1">
-        {isDragging ? 'Отпустите файл' : 'Перетащите файл или нажмите для выбора'}
-      </p>
-      <p className="text-sm text-slate-500">
-        MP4, MP3, WAV, M4A • до 2 ГБ
-      </p>
     </label>
   );
 }

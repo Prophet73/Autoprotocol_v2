@@ -252,6 +252,102 @@ async def delete_project(
 
 
 # =============================================================================
+# Manager Assignment Endpoints
+# =============================================================================
+
+@router.post(
+    "/projects/{project_id}/managers/{user_id}",
+    response_model=dict,
+    summary="Назначить менеджера на проект",
+    description="Добавление пользователя в список менеджеров проекта."
+)
+async def assign_manager(
+    project_id: int,
+    user_id: int,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Назначить менеджера на проект."""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can assign managers"
+        )
+
+    service = ProjectService(db)
+    project = await service.get_project(project_id)
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project with id {project_id} not found"
+        )
+
+    success = await service.assign_manager(project_id, user_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to assign manager. User may not exist or is already assigned."
+        )
+
+    return {"message": f"Manager {user_id} assigned to project {project_id}"}
+
+
+@router.delete(
+    "/projects/{project_id}/managers/{user_id}",
+    response_model=dict,
+    summary="Удалить менеджера с проекта",
+    description="Удаление пользователя из списка менеджеров проекта."
+)
+async def remove_manager(
+    project_id: int,
+    user_id: int,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Удалить менеджера с проекта."""
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can remove managers"
+        )
+
+    service = ProjectService(db)
+    success = await service.remove_manager(project_id, user_id)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to remove manager. Assignment may not exist."
+        )
+
+    return {"message": f"Manager {user_id} removed from project {project_id}"}
+
+
+@router.get(
+    "/my-projects",
+    response_model=ProjectListResponse,
+    summary="Мои проекты",
+    description="Получение списка проектов, на которых текущий пользователь назначен менеджером."
+)
+async def get_my_projects(
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    is_active: Optional[bool] = Query(None, description="Фильтр по статусу активности"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+) -> ProjectListResponse:
+    """Получить проекты текущего менеджера."""
+    service = ProjectService(db)
+    return await service.get_manager_projects(
+        manager_id=current_user.id,
+        is_active=is_active,
+        skip=skip,
+        limit=limit,
+    )
+
+
+# =============================================================================
 # Public Endpoints (for anonymous upload)
 # =============================================================================
 

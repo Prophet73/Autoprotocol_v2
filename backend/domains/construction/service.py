@@ -4,11 +4,16 @@
 """
 
 import json
-from typing import Any, Optional
+from typing import Any, Optional, List
 from datetime import datetime
+from collections import defaultdict
+
+from sqlalchemy import select, func, and_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domains.base import BaseDomainService, DomainReport
 from backend.core.transcription import TranscriptionResult
+from .models import ConstructionReportDB, ConstructionProject, ReportStatus
 from .schemas import (
     ConstructionReport,
     ActionItem,
@@ -243,3 +248,132 @@ class ConstructionService(BaseDomainService):
             participants=[sp.speaker_id for sp in transcription.speakers],
             source_file=transcription.metadata.source_file
         )
+
+    # === Dashboard и сохранение в БД ===
+
+    async def get_dashboard_data(
+        self,
+        db: AsyncSession,
+        project_ids: List[int],
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None
+    ) -> dict[str, Any]:
+        """
+        Получает агрегированные данные для Boss Dashboard.
+
+        Args:
+            db: Сессия БД
+            project_ids: Список ID проектов
+            date_from: Начальная дата фильтра
+            date_to: Конечная дата фильтра
+
+        Returns:
+            Dict с агрегированной статистикой
+        """
+        # Базовый запрос
+        query = select(ConstructionReportDB).where(
+            ConstructionReportDB.project_id.in_(project_ids),
+            ConstructionReportDB.status == ReportStatus.COMPLETED
+        )
+
+        if date_from:
+            query = query.where(ConstructionReportDB.created_at >= date_from)
+        if date_to:
+            query = query.where(ConstructionReportDB.created_at <= date_to)
+
+        result = await db.execute(query)
+        reports = result.scalars().all()
+
+        # Агрегация по проектам
+        by_project = defaultdict(lambda: {
+            "total": 0,
+            "reports": []
+        })
+
+        timeline = []
+        speaker_stats = defaultdict(lambda: {
+            "total_time": 0,
+            "appearances": 0,
+            "emotions": defaultdict(int)
+        })
+
+        for report in reports:
+            # По проектам
+            by_project[report.project_id]["total"] += 1
+            by_project[report.project_id]["reports"].append({
+                "id": report.id,
+                "title": report.title,
+                "created_at": report.created_at.isoformat() if report.created_at else None
+            })
+
+            # Таймлайн
+            timeline.append({
+                "id": report.id,
+                "project_id": report.project_id,
+                "title": report.title,
+                "meeting_date": report.meeting_date.isoformat() if report.meeting_date else None,
+                "created_at": report.created_at.isoformat() if report.created_at else None
+            })
+
+            # Статистика спикеров из result_json
+            if report.result_json and "speaker_profiles" in report.result_json:
+                for speaker in report.result_json["speaker_profiles"]:
+                    speaker_id = speaker.get("speaker_id", "unknown")
+                    speaker_stats[speaker_id]["appearances"] += 1
+                    speaker_stats[speaker_id]["total_time"] += speaker.get("total_time", 0)
+                    if "dominant_emotion" in speaker:
+                        emotion = speaker["dominant_emotion"].get("label", "neutral")
+                        speaker_stats[speaker_id]["emotions"][emotion] += 1
+
+        # Сортировка таймлайна по дате
+        timeline.sort(key=lambda x: x["created_at"] or "", reverse=True)
+
+        return {
+            "total_reports": len(reports),
+            "by_project": dict(by_project),
+            "timeline": timeline[:50],  # Последние 50
+            "speaker_stats": dict(speaker_stats)
+        }
+
+    async def save_report_to_db(
+        self,
+        db: AsyncSession,
+        job_id: str,
+        project_id: int,
+        report: ConstructionReport,
+        guest_uid: Optional[str] = None,
+        uploader_id: Optional[int] = None,
+    ) -> ConstructionReportDB:
+        """
+        Сохраняет отчёт стройконтроля в базу данных.
+
+        Args:
+            db: Сессия БД
+            job_id: ID задачи транскрипции
+            project_id: ID проекта
+            report: Результат генерации отчёта
+            guest_uid: UUID гостя (для анонимных загрузок)
+            uploader_id: ID пользователя-загрузчика
+
+        Returns:
+            Созданная запись ConstructionReportDB
+        """
+        db_report = ConstructionReportDB(
+            job_id=job_id,
+            project_id=project_id,
+            guest_uid=guest_uid,
+            uploaded_by_id=uploader_id,
+            report_type=report.report_type,
+            title=report.title,
+            summary=report.summary,
+            status=ReportStatus.COMPLETED,
+            meeting_date=report.meeting_date,
+            result_json=report.model_dump(mode="json"),
+            completed_at=datetime.now()
+        )
+
+        db.add(db_report)
+        await db.flush()
+        await db.refresh(db_report)
+
+        return db_report
