@@ -1,11 +1,12 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Mic2, Upload, History, Activity, LogIn, User, LogOut, LayoutDashboard, Settings } from 'lucide-react';
+import { Upload, History, Activity, LogIn, User, LogOut, LayoutDashboard, Settings, Grid3X3 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '../stores/authStore';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
+
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
@@ -36,15 +37,25 @@ export function Layout({ children }: LayoutProps) {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-6xl mx-auto px-4">
           <div className="flex items-center justify-between h-14">
-            {/* Logo */}
-            <Link to="/" className="flex items-center gap-2 group">
-              <div className="p-1.5 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg shadow-lg shadow-emerald-500/25 group-hover:shadow-emerald-500/40 transition-shadow">
-                <Mic2 className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold text-slate-800">Severin<span className="text-emerald-600">Autoprotocol</span></h1>
-              </div>
-            </Link>
+            {/* Logo + Hub Link */}
+            <div className="flex items-center gap-3">
+              {/* Hub Apps Button */}
+              <a
+                href="https://ai-hub.svrd.ru/apps"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-[#E52713] hover:bg-red-50 transition-all"
+                title="Все приложения"
+              >
+                <Grid3X3 className="w-5 h-5" />
+              </a>
+
+              {/* Logo */}
+              <Link to="/" className="flex items-center gap-2 group">
+                <img src="/severin-logo.png" alt="Severin" className="w-8 h-8" />
+                <div>
+                  <h1 className="text-lg font-bold text-slate-800">Severin<span className="text-[#E52713]">Autoprotocol</span></h1>
+                </div>
+              </Link>
+            </div>
 
             {/* Navigation */}
             <nav className="flex items-center gap-1">
@@ -55,7 +66,7 @@ export function Layout({ children }: LayoutProps) {
                   className={clsx(
                     'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
                     isActive(path)
-                      ? 'bg-emerald-50 text-emerald-600'
+                      ? 'bg-red-50 text-[#E52713]'
                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   )}
                 >

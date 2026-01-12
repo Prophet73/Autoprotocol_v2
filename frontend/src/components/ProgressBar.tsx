@@ -49,9 +49,9 @@ export function ProgressBar({ percent, stage, message, status }: ProgressBarProp
           <div
             className={clsx(
               'h-full transition-all duration-500 ease-out rounded-full',
-              status === 'completed' && 'bg-gradient-to-r from-emerald-500 to-teal-500',
+              status === 'completed' && 'bg-[#E52713]',
               status === 'failed' && 'bg-gradient-to-r from-red-500 to-rose-500',
-              status === 'processing' && 'bg-gradient-to-r from-emerald-500 to-teal-500',
+              status === 'processing' && 'bg-[#E52713]',
               status === 'pending' && 'bg-slate-400'
             )}
             style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
@@ -62,9 +62,9 @@ export function ProgressBar({ percent, stage, message, status }: ProgressBarProp
         <div className="absolute -top-1 right-0 transform translate-x-1/2">
           <span className={clsx(
             'inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-bold',
-            status === 'completed' && 'bg-emerald-100 text-emerald-700',
+            status === 'completed' && 'bg-red-100 text-[#E52713]',
             status === 'failed' && 'bg-red-100 text-red-700',
-            status === 'processing' && 'bg-emerald-100 text-emerald-700',
+            status === 'processing' && 'bg-red-100 text-[#E52713]',
             status === 'pending' && 'bg-slate-100 text-slate-600'
           )}>
             {percent}%
@@ -76,15 +76,15 @@ export function ProgressBar({ percent, stage, message, status }: ProgressBarProp
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           {status === 'processing' && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-lg">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-lg">
               <span className="text-lg">{stageIcon}</span>
-              <span className="font-medium text-emerald-700">{stageLabel}</span>
+              <span className="font-medium text-[#E52713]">{stageLabel}</span>
             </div>
           )}
           {status === 'completed' && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-lg">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-lg">
               <span className="text-lg">✅</span>
-              <span className="font-medium text-emerald-700">Завершено</span>
+              <span className="font-medium text-[#E52713]">Завершено</span>
             </div>
           )}
           {status === 'failed' && (

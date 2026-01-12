@@ -14,6 +14,8 @@ export default function SSOCallbackPage() {
     const processCallback = async () => {
       const code = searchParams.get('code');
       const state = searchParams.get('state');
+      const token = searchParams.get('token');  // Hub SSO direct token
+      const redirect = searchParams.get('redirect') || '/admin';
       const errorParam = searchParams.get('error');
       const errorDescription = searchParams.get('error_description');
 
@@ -23,7 +25,35 @@ export default function SSOCallbackPage() {
         return;
       }
 
-      // Validate required parameters
+      // Hub SSO: token is passed directly from backend
+      if (token) {
+        try {
+          // Store token first
+          const { setToken } = useAuthStore.getState();
+          setToken(token);
+
+          // Fetch user info with the token
+          const response = await fetch('/auth/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to get user info');
+          }
+
+          const user = await response.json() as User;
+          login(token, user);
+
+          // Redirect to specified page
+          navigate(redirect);
+          return;
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Hub SSO authentication failed');
+          return;
+        }
+      }
+
+      // Standard OAuth flow: code + state
       if (!code || !state) {
         setError('Missing required parameters');
         return;

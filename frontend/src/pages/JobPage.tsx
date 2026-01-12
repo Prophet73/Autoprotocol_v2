@@ -88,11 +88,11 @@ export function JobPage() {
         {/* Header */}
         <div className="p-6 border-b border-slate-100">
           <div className="flex items-start gap-4">
-            <div className="p-3 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-xl">
+            <div className="p-3 bg-red-100 rounded-xl">
               {isVideo ? (
-                <FileVideo className="w-8 h-8 text-emerald-600" />
+                <FileVideo className="w-8 h-8 text-[#E52713]" />
               ) : (
-                <FileAudio className="w-8 h-8 text-emerald-600" />
+                <FileAudio className="w-8 h-8 text-[#E52713]" />
               )}
             </div>
             <div className="flex-1 min-w-0">
@@ -129,7 +129,7 @@ export function JobPage() {
                 </span>
               )}
               {isProcessing && (
-                <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium">
+                <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-100 text-[#E52713] rounded-full text-sm font-medium">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Обработка
                 </span>
@@ -140,7 +140,7 @@ export function JobPage() {
 
         {/* Progress section */}
         {isProcessing && status && (
-          <div className="p-6 bg-gradient-to-r from-emerald-50 to-teal-50 border-b border-slate-100">
+          <div className="p-6 bg-red-50 border-b border-slate-100">
             <ProgressBar
               percent={status.progress_percent}
               stage={status.current_stage || undefined}
@@ -198,7 +198,7 @@ export function JobPage() {
         {isCompleted && result?.output_files && (
           <div className="p-6">
             <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-              <Download className="w-5 h-5 text-emerald-500" />
+              <Download className="w-5 h-5 text-[#E52713]" />
               Результаты обработки
             </h2>
             <DownloadCard jobId={jobId} outputFiles={result.output_files} />
@@ -236,7 +236,7 @@ export function JobPage() {
       <div className="mt-6 flex justify-center gap-4">
         <Link
           to="/"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-colors font-medium shadow-lg shadow-emerald-500/25"
+          className="inline-flex items-center gap-2 px-6 py-3 bg-[#E52713] text-white rounded-xl hover:bg-[#C41F0E] transition-colors font-medium shadow-lg shadow-red-500/25"
         >
           Обработать ещё файл
         </Link>

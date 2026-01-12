@@ -33,7 +33,7 @@ export function ManagerDashboardPage() {
   if (projectsLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+        <Loader2 className="w-8 h-8 text-[#E52713] animate-spin" />
       </div>
     );
   }
@@ -54,7 +54,7 @@ export function ManagerDashboardPage() {
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-          <LayoutDashboard className="w-7 h-7 text-emerald-600" />
+          <LayoutDashboard className="w-7 h-7 text-[#E52713]" />
           Мои проекты
         </h1>
         <p className="text-slate-500 mt-1">
@@ -85,7 +85,7 @@ export function ManagerDashboardPage() {
         <div className="space-y-6">
           {dashboardLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+              <Loader2 className="w-8 h-8 text-[#E52713] animate-spin" />
             </div>
           ) : dashboardData ? (
             <>
@@ -95,7 +95,7 @@ export function ManagerDashboardPage() {
                   label="Всего отчётов"
                   value={dashboardData.total_reports}
                   icon={FileText}
-                  color="emerald"
+                  color="red"
                 />
                 <StatCard
                   label="Проектов"
@@ -131,8 +131,8 @@ export function ManagerDashboardPage() {
                 <div className="divide-y divide-slate-100">
                   {dashboardData.timeline.slice(0, 10).map((item) => (
                     <div key={item.id} className="p-4 flex items-center gap-4 hover:bg-slate-50">
-                      <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-                        <FileText className="w-5 h-5 text-emerald-600" />
+                      <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
+                        <FileText className="w-5 h-5 text-[#E52713]" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-slate-800 truncate">{item.title}</p>
@@ -166,8 +166,8 @@ export function ManagerDashboardPage() {
                       {Object.entries(dashboardData.speaker_stats).slice(0, 6).map(([speakerId, stats]) => (
                         <div key={speakerId} className="p-4 bg-slate-50 rounded-lg">
                           <div className="flex items-center gap-3 mb-2">
-                            <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center">
-                              <Users className="w-4 h-4 text-emerald-600" />
+                            <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                              <Users className="w-4 h-4 text-[#E52713]" />
                             </div>
                             <span className="font-medium text-slate-800">{speakerId}</span>
                           </div>
@@ -204,8 +204,8 @@ function ProjectCard({
       onClick={onClick}
       className={`text-left p-4 rounded-xl border-2 transition-all ${
         isSelected
-          ? 'border-emerald-500 bg-emerald-50 shadow-lg shadow-emerald-500/10'
-          : 'border-slate-200 bg-white hover:border-emerald-300 hover:shadow-md'
+          ? 'border-[#E52713] bg-red-50 shadow-lg shadow-red-500/10'
+          : 'border-slate-200 bg-white hover:border-[#E52713]/50 hover:shadow-md'
       }`}
     >
       <div className="flex items-start justify-between mb-3">
@@ -215,7 +215,7 @@ function ProjectCard({
         </div>
         <span className={`px-2 py-1 text-xs rounded-full ${
           project.is_active
-            ? 'bg-emerald-100 text-emerald-700'
+            ? 'bg-red-100 text-[#E52713]'
             : 'bg-slate-100 text-slate-600'
         }`}>
           {project.is_active ? 'Активен' : 'Архив'}
@@ -227,7 +227,7 @@ function ProjectCard({
           <FileText className="w-4 h-4" />
           <span>{project.total_reports} отчётов</span>
         </div>
-        <div className="flex items-center gap-1 text-emerald-600">
+        <div className="flex items-center gap-1 text-[#E52713]">
           <CheckCircle className="w-4 h-4" />
           <span>{project.completed_reports} готово</span>
         </div>
@@ -260,10 +260,10 @@ function StatCard({
   label: string;
   value: number;
   icon: React.ElementType;
-  color: 'emerald' | 'blue' | 'purple' | 'amber';
+  color: 'red' | 'blue' | 'purple' | 'amber';
 }) {
   const colorClasses = {
-    emerald: 'bg-emerald-100 text-emerald-600',
+    red: 'bg-red-100 text-[#E52713]',
     blue: 'bg-blue-100 text-blue-600',
     purple: 'bg-purple-100 text-purple-600',
     amber: 'bg-amber-100 text-amber-600',

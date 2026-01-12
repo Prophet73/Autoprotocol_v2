@@ -67,19 +67,19 @@ export function FileDropzone({ onFileSelect, selectedFile, onClear }: FileDropzo
 
   if (selectedFile) {
     return (
-      <div className="w-full border-2 border-emerald-300 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl p-6">
+      <div className="w-full border-2 border-[#E52713] bg-gradient-to-br from-red-50 to-orange-50/50 rounded-xl p-6">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-white rounded-xl shadow-sm flex-shrink-0">
             {isVideo ? (
-              <FileVideo className="w-8 h-8 text-emerald-600" />
+              <FileVideo className="w-8 h-8 text-[#E52713]" />
             ) : (
-              <FileAudio className="w-8 h-8 text-emerald-600" />
+              <FileAudio className="w-8 h-8 text-[#E52713]" />
             )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <p className="font-semibold text-slate-800 truncate">{selectedFile.name}</p>
-              <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+              <CheckCircle className="w-4 h-4 text-[#E52713] flex-shrink-0" />
             </div>
             <p className="text-sm text-slate-500">{formatFileSize(selectedFile.size)}</p>
           </div>
@@ -103,8 +103,8 @@ export function FileDropzone({ onFileSelect, selectedFile, onClear }: FileDropzo
       className={`
         block w-full border-2 border-dashed rounded-xl py-4 px-6 text-center cursor-pointer transition-all
         ${isDragging
-          ? 'border-emerald-400 bg-emerald-50'
-          : 'border-slate-300 hover:border-emerald-400 hover:bg-slate-50'
+          ? 'border-[#E52713] bg-red-50'
+          : 'border-slate-300 hover:border-[#E52713] hover:bg-slate-50'
         }
       `}
     >
@@ -118,9 +118,9 @@ export function FileDropzone({ onFileSelect, selectedFile, onClear }: FileDropzo
       <div className="flex items-center justify-center gap-3">
         <div className={`
           w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0
-          ${isDragging ? 'bg-emerald-100' : 'bg-slate-100'}
+          ${isDragging ? 'bg-red-100' : 'bg-slate-100'}
         `}>
-          <Upload className={`w-5 h-5 ${isDragging ? 'text-emerald-600' : 'text-slate-400'}`} />
+          <Upload className={`w-5 h-5 ${isDragging ? 'text-[#E52713]' : 'text-slate-400'}`} />
         </div>
         <div className="text-left">
           <p className="text-sm font-medium text-slate-700">
