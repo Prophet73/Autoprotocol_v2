@@ -15,9 +15,12 @@ from sqlalchemy import (
     DateTime,
     Text,
     Integer,
+    Float,
     ForeignKey,
     Table,
     Column,
+    JSON,
+    Index,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -342,3 +345,115 @@ class UserProjectAccessRecord(Base):
 
     def __repr__(self) -> str:
         return f"<UserProjectAccessRecord(user_id={self.user_id}, project_id={self.project_id})>"
+
+
+class TranscriptionJob(Base):
+    """
+    Central transcription job tracking for all domains.
+
+    Stores metadata and results of processed transcriptions
+    for statistics and analytics across all domains.
+
+    Attributes:
+        id: Primary key
+        job_id: Unique job identifier (UUID)
+        domain: Domain (construction, hr, it)
+        meeting_type: Meeting type within domain
+        status: Processing status
+        user_id: User who uploaded (nullable for anonymous)
+        tenant_id: Associated tenant
+        project_id: Construction project (for construction domain)
+        source_filename: Original file name
+        source_size_bytes: File size in bytes
+        audio_duration_seconds: Audio/video duration
+        processing_time_seconds: Time taken to process
+        segment_count: Number of transcript segments
+        speaker_count: Number of identified speakers
+        input_tokens: Gemini input tokens used
+        output_tokens: Gemini output tokens used
+        artifacts: JSON with generated artifacts flags
+        error_message: Error details if failed
+        created_at: Job creation timestamp
+        started_at: Processing start timestamp
+        completed_at: Processing completion timestamp
+    """
+    __tablename__ = "transcription_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+
+    # Domain and type
+    domain: Mapped[str] = mapped_column(String(50), nullable=False, index=True, default="construction")
+    meeting_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+
+    # Status
+    status: Mapped[str] = mapped_column(String(50), nullable=False, index=True, default="pending")
+
+    # User and tenant
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+    tenant_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("tenants.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    # Project (for construction domain)
+    project_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("construction_projects.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True
+    )
+
+    # Source file info
+    source_filename: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    source_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    audio_duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Processing stats
+    processing_time_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    segment_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    speaker_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # AI token usage (for cost calculation)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Artifacts generated (JSON: {transcript: true, tasks: true, report: false, analysis: false})
+    artifacts: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    # Error handling
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_stage: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True
+    )
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    # Relationships
+    user: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[user_id],
+        lazy="selectin"
+    )
+
+    def __repr__(self) -> str:
+        return f"<TranscriptionJob(id={self.id}, job_id='{self.job_id}', domain='{self.domain}', status='{self.status}')>"
