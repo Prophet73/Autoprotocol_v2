@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
+import { DashboardLayout } from './components/DashboardLayout';
 import { UploadPage } from './pages/UploadPage';
 import { JobPage } from './pages/JobPage';
 import { HistoryPage } from './pages/HistoryPage';
@@ -43,14 +44,14 @@ function App() {
           {/* SSO callback */}
           <Route path="/auth/callback" element={<SSOCallbackPage />} />
 
-          {/* Manager dashboard (requires manager role) */}
+          {/* Manager dashboard (requires manager role) - full-width layout */}
           <Route
             path="/dashboard"
             element={
               <AuthGuard requiredRole="manager">
-                <Layout>
+                <DashboardLayout>
                   <ManagerDashboardPage />
-                </Layout>
+                </DashboardLayout>
               </AuthGuard>
             }
           />

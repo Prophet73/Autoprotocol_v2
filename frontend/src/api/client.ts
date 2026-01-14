@@ -218,3 +218,163 @@ export async function getProjectDashboard(
   );
   return response.data;
 }
+
+// Manager Dashboard API (Autoprotokol style)
+export interface ManagerDashboardKPI {
+  total_jobs: number;
+  attention_jobs: number;
+  critical_jobs: number;
+}
+
+export interface CalendarEvent {
+  id: number;
+  title: string;
+  date: string;
+  status: 'critical' | 'attention' | 'stable';
+  project_id: number;
+  project_code: string;
+  project_name: string;
+}
+
+export interface AttentionItem {
+  id: number;
+  analytics_id: number;
+  problem_text: string;
+  status: 'new' | 'done';
+  severity: 'critical' | 'attention';
+  source_file: string;
+  project_name: string;
+  created_at: string;
+}
+
+export interface ActivityFeedItem {
+  id: number;
+  title: string;
+  project_name: string;
+  status: 'critical' | 'attention' | 'stable';
+  created_at: string;
+}
+
+export interface ProjectHealth {
+  id: number;
+  name: string;
+  project_code: string;
+  health: 'critical' | 'attention' | 'stable';
+  total_reports: number;
+  open_issues: number;
+}
+
+export interface ManagerDashboardView {
+  kpi: ManagerDashboardKPI;
+  calendar_events: CalendarEvent[];
+  attention_items: AttentionItem[];
+  activity_feed: ActivityFeedItem[];
+  projects_health: ProjectHealth[];
+  pulse_chart: {
+    labels: string[];
+    critical: number[];
+    attention: number[];
+    stable: number[];
+  };
+}
+
+// Dynamic indicator in Autoprotocol format
+export interface DynamicIndicator {
+  indicator_name: string;
+  status: string;  // "Критический", "Есть риски", "В норме"
+  comment: string;
+}
+
+export interface AnalyticsDetail {
+  id: number;
+  summary: string;
+  status: 'critical' | 'attention' | 'stable';
+  key_indicators: DynamicIndicator[];
+  challenges: Array<{ text: string; recommendation: string }>;
+  achievements: string[];
+  toxicity_level: number;
+  toxicity_details: string;
+  report_files: {
+    main?: string;
+    detailed?: string;
+  };
+  // Flags for download buttons (Autoprotocol format)
+  has_main_report: boolean;
+  has_detailed_report: boolean;
+  filename: string;
+}
+
+export async function getManagerDashboardView(
+  projectId?: number,
+  startDate?: string,
+  endDate?: string
+): Promise<ManagerDashboardView> {
+  const params = new URLSearchParams();
+  if (projectId) params.append('project_id', projectId.toString());
+  if (startDate) params.append('start_date', startDate);
+  if (endDate) params.append('end_date', endDate);
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const response = await api.get<ManagerDashboardView>(
+    `/api/manager/dashboard-view${query}`
+  );
+  return response.data;
+}
+
+export async function getAnalyticsDetail(analyticsId: number): Promise<AnalyticsDetail> {
+  const response = await api.get<AnalyticsDetail>(`/api/manager/analytics/${analyticsId}`);
+  return response.data;
+}
+
+export async function updateProblemStatus(
+  problemId: number,
+  status: 'new' | 'done'
+): Promise<{ success: boolean }> {
+  const response = await api.post('/api/manager/problem/status', {
+    problem_id: problemId,
+    status,
+  });
+  return response.data;
+}
+
+export function getAnalyticsReportUrl(analyticsId: number, type: 'main' | 'detailed'): string {
+  const base = API_BASE_URL || window.location.origin;
+  return `${base}/api/manager/analytics/${analyticsId}/report/${type}`;
+}
+
+// Download analytics report with authentication
+export async function downloadAnalyticsReport(analyticsId: number, type: 'main' | 'detailed'): Promise<void> {
+  const url = getAnalyticsReportUrl(analyticsId, type);
+  const token = localStorage.getItem('token');
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Download failed: ${response.status}`);
+  }
+
+  // Get filename from Content-Disposition header or use default
+  const contentDisposition = response.headers.get('Content-Disposition');
+  let filename = type === 'main' ? 'report.docx' : 'detailed_report.docx';
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+    if (match) {
+      filename = match[1];
+    }
+  }
+
+  // Create blob and trigger download
+  const blob = await response.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(blobUrl);
+}

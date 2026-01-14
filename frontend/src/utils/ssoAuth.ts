@@ -7,7 +7,7 @@
  * - Custom enterprise SSO
  */
 
-export type SSOProvider = 'google' | 'microsoft' | 'github' | 'keycloak' | 'custom';
+export type SSOProvider = 'google' | 'microsoft' | 'github' | 'keycloak' | 'hub' | 'custom';
 
 interface SSOConfig {
   provider: SSOProvider;
@@ -44,6 +44,12 @@ const SSO_CONFIGS: Record<string, Partial<SSOConfig>> = {
     scope: 'openid email profile',
     responseType: 'code',
   },
+  hub: {
+    provider: 'hub',
+    // Uses backend redirect, no direct OAuth
+    scope: 'openid email profile',
+    responseType: 'code',
+  },
 };
 
 /**
@@ -66,6 +72,9 @@ export function getAvailableSSOProviders(): SSOProvider[] {
   }
   if (import.meta.env.VITE_SSO_CUSTOM_URL) {
     providers.push('custom');
+  }
+  if (import.meta.env.VITE_SSO_HUB_ENABLED === 'true') {
+    providers.push('hub');
   }
 
   return providers;
@@ -153,6 +162,13 @@ export function buildSSOAuthUrl(provider: SSOProvider): string {
  * Initiate SSO login flow
  */
 export function initiateSSOLogin(provider: SSOProvider): void {
+  // Hub uses backend redirect flow
+  if (provider === 'hub') {
+    sessionStorage.setItem('sso_provider', provider);
+    window.location.href = '/auth/hub/login?redirect_to=/admin';
+    return;
+  }
+
   const authUrl = buildSSOAuthUrl(provider);
   // Store provider for callback
   sessionStorage.setItem('sso_provider', provider);
@@ -211,6 +227,8 @@ export function getSSOProviderInfo(provider: SSOProvider): {
       return { name: 'GitHub', icon: 'github', color: '#333' };
     case 'keycloak':
       return { name: 'Keycloak', icon: 'key', color: '#4D4D4D' };
+    case 'hub':
+      return { name: 'Corporate SSO', icon: 'building', color: '#3B82F6' };
     case 'custom':
       return { name: 'SSO', icon: 'lock', color: '#6366F1' };
     default:

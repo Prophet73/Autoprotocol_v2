@@ -58,6 +58,18 @@ export interface UserInfo {
   tenant_id: number | null;
 }
 
+export interface DevUser {
+  email: string;
+  role: string;
+  is_superuser: boolean;
+  full_name: string | null;
+}
+
+export interface DevUsersResponse {
+  users: DevUser[];
+  enabled: boolean;
+}
+
 export const authApi = {
   login: async (data: LoginRequest): Promise<LoginResponse> => {
     const formData = new FormData();
@@ -72,6 +84,17 @@ export const authApi = {
 
   getMe: async (): Promise<UserInfo> => {
     const response = await adminApi.get('/auth/me');
+    return response.data;
+  },
+
+  // Dev tools (only in dev mode)
+  devGetUsers: async (): Promise<DevUsersResponse> => {
+    const response = await adminApi.get('/auth/dev/users');
+    return response.data;
+  },
+
+  devLogin: async (role: string): Promise<LoginResponse> => {
+    const response = await adminApi.post('/auth/dev/login', { role });
     return response.data;
   },
 };

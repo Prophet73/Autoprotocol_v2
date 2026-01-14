@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import health, transcription
+from .routes import health, transcription, manager
 from backend.admin.users import router as users_router
 from backend.admin.stats import router as stats_router
 from backend.admin.settings import router as settings_router
@@ -24,6 +24,7 @@ from backend.admin.logs.middleware import ErrorLoggingMiddleware
 from backend.shared.database import init_db, close_db
 from backend.domains.construction import router as construction_router
 from backend.core.auth import router as auth_router
+from backend.core.auth.hub_sso import router as hub_sso_router
 
 # Configure logging
 logging.basicConfig(
@@ -111,6 +112,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(transcription.router)
 app.include_router(auth_router.router)
+app.include_router(hub_sso_router)  # Hub SSO
 
 # Admin routers (all under /api/admin prefix)
 app.include_router(users_router.router, prefix="/api/admin")
@@ -121,6 +123,9 @@ app.include_router(prompts_router.router, prefix="/api/admin")
 
 # Domain routers
 app.include_router(construction_router.router, prefix="/api/domains")
+
+# Manager dashboard router
+app.include_router(manager.router, prefix="/api")
 
 
 @app.get("/")

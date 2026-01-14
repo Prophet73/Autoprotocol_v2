@@ -261,3 +261,120 @@ class ConstructionReportDB(Base):
 
     def __repr__(self) -> str:
         return f"<ConstructionReportDB(id={self.id}, job_id='{self.job_id}', status='{self.status}')>"
+
+
+class ReportAnalytics(Base):
+    """
+    Analytics data extracted from processed report.
+
+    Contains AI-generated insights, challenges, and health status.
+    """
+    __tablename__ = "report_analytics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    report_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("construction_reports.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True
+    )
+
+    # Status and health
+    health_status: Mapped[str] = mapped_column(
+        String(20),
+        default="stable",
+        nullable=False
+    )  # critical, attention, stable
+
+    # AI-generated content
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    key_indicators: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    challenges: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    achievements: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+
+    # Toxicity analysis
+    toxicity_level: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    toxicity_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    # Relationship
+    report: Mapped["ConstructionReportDB"] = relationship(
+        "ConstructionReportDB",
+        lazy="selectin"
+    )
+    problems: Mapped[List["ReportProblem"]] = relationship(
+        "ReportProblem",
+        back_populates="analytics",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<ReportAnalytics(id={self.id}, report_id={self.report_id}, health='{self.health_status}')>"
+
+
+class ReportProblem(Base):
+    """
+    Problems/issues identified in report analytics.
+
+    Manager can mark problems as resolved.
+    """
+    __tablename__ = "report_problems"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    analytics_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("report_analytics.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    # Problem details
+    problem_text: Mapped[str] = mapped_column(Text, nullable=False)
+    recommendation: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    severity: Mapped[str] = mapped_column(
+        String(20),
+        default="attention",
+        nullable=False
+    )  # critical, attention
+
+    # Status
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="new",
+        nullable=False
+    )  # new, done
+    resolved_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True
+    )
+
+    # Relationships
+    analytics: Mapped["ReportAnalytics"] = relationship(
+        "ReportAnalytics",
+        back_populates="problems",
+        lazy="selectin"
+    )
+
+    def __repr__(self) -> str:
+        return f"<ReportProblem(id={self.id}, severity='{self.severity}', status='{self.status}')>"

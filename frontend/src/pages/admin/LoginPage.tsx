@@ -57,6 +57,13 @@ function SSOProviderIcon({ provider }: { provider: SSOProvider }) {
   }
 }
 
+// Dev role badge colors
+const ROLE_COLORS: Record<string, string> = {
+  admin: 'bg-red-100 text-red-700 border-red-300',
+  manager: 'bg-blue-100 text-blue-700 border-blue-300',
+  user: 'bg-green-100 text-green-700 border-green-300',
+};
+
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -70,10 +77,21 @@ export default function LoginPage() {
   const [ssoProviders, setSsoProviders] = useState<SSOProvider[]>([]);
   const [ssoLoading, setSsoLoading] = useState<SSOProvider | null>(null);
 
-  // Check for available SSO providers on mount
+  // Dev tools state
+  const [devEnabled, setDevEnabled] = useState(false);
+  const [devLoading, setDevLoading] = useState<string | null>(null);
+
+  // Check for available SSO providers and dev mode on mount
   useEffect(() => {
     const providers = getAvailableSSOProviders();
     setSsoProviders(providers);
+
+    // Check if dev mode is enabled
+    authApi.devGetUsers().then((res) => {
+      setDevEnabled(res.enabled);
+    }).catch(() => {
+      setDevEnabled(false);
+    });
   }, []);
 
   // Check for redirect back from SSO with error
@@ -88,6 +106,39 @@ export default function LoginPage() {
   const handleSSOLogin = (provider: SSOProvider) => {
     setSsoLoading(provider);
     initiateSSOLogin(provider);
+  };
+
+  // Dev login handler
+  const handleDevLogin = async (role: string) => {
+    setError('');
+    setDevLoading(role);
+
+    try {
+      // Get token via dev login
+      const tokenResponse = await authApi.devLogin(role);
+
+      // Store token
+      setToken(tokenResponse.access_token);
+
+      // Get user info
+      const userInfo = await authApi.getMe();
+
+      // Store auth data
+      login(tokenResponse.access_token, userInfo);
+
+      // Redirect based on role
+      if (userInfo.is_superuser || userInfo.role === 'admin') {
+        navigate('/admin');
+      } else if (userInfo.role === 'manager') {
+        navigate('/dashboard');
+      } else {
+        navigate('/');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Dev login failed');
+    } finally {
+      setDevLoading(null);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -243,6 +294,43 @@ export default function LoginPage() {
                     </button>
                   );
                 })}
+              </div>
+            </>
+          )}
+
+          {/* Dev Tools (only in development) */}
+          {devEnabled && (
+            <>
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-orange-200"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white text-orange-500 font-medium">🛠️ Dev Tools</span>
+                </div>
+              </div>
+
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                <p className="text-xs text-orange-600 mb-3">Быстрый вход для тестирования:</p>
+                <div className="flex gap-2">
+                  {['admin', 'manager', 'user'].map((role) => (
+                    <button
+                      key={role}
+                      onClick={() => handleDevLogin(role)}
+                      disabled={!!devLoading}
+                      className={`flex-1 py-2 px-3 text-sm font-medium rounded-md border transition ${ROLE_COLORS[role]} hover:opacity-80 disabled:opacity-50`}
+                    >
+                      {devLoading === role ? (
+                        <span className="animate-pulse">...</span>
+                      ) : (
+                        role.charAt(0).toUpperCase() + role.slice(1)
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-orange-500 mt-2 text-center">
+                  Admin → /admin | Manager → /dashboard | User → /
+                </p>
               </div>
             </>
           )}

@@ -130,6 +130,10 @@ class User(Base):
         index=True
     )
 
+    # SSO fields
+    sso_provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    sso_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

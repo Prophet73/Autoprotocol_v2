@@ -12,6 +12,9 @@ export default function AuthGuard({ children, requiredRole = 'admin' }: AuthGuar
   const { isAuthenticated, user } = useAuthStore();
   const location = useLocation();
 
+  // Debug
+  console.log('AuthGuard:', { isAuthenticated, user, requiredRole, role: user?.role, is_superuser: user?.is_superuser });
+
   // Check if user is authenticated
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;

@@ -170,3 +170,140 @@ async def register(
 async def get_me(current_user: CurrentUser) -> UserInfo:
     """Get current user info."""
     return UserInfo.model_validate(current_user)
+
+
+# =============================================================================
+# Dev Tools (only in development mode)
+# =============================================================================
+
+import os
+
+DEV_MODE = os.getenv("DEBUG", "true").lower() == "true"
+
+
+class DevLoginRequest(BaseModel):
+    """Dev login request - select role to login as."""
+    role: str  # admin, manager, user
+
+
+class DevUsersList(BaseModel):
+    """List of available dev users."""
+    users: list[dict]
+    enabled: bool
+
+
+@router.get(
+    "/dev/users",
+    response_model=DevUsersList,
+    summary="[DEV] Список тестовых пользователей",
+    description="Получение списка доступных тестовых пользователей (только в dev режиме)."
+)
+async def dev_list_users(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> DevUsersList:
+    """List available dev users for quick login."""
+    if not DEV_MODE:
+        return DevUsersList(users=[], enabled=False)
+
+    # Get existing users
+    result = await db.execute(select(User).where(User.is_active == True))
+    users = result.scalars().all()
+
+    return DevUsersList(
+        users=[
+            {
+                "email": u.email,
+                "role": u.role,
+                "is_superuser": u.is_superuser,
+                "full_name": u.full_name,
+            }
+            for u in users
+        ],
+        enabled=True
+    )
+
+
+@router.post(
+    "/dev/login",
+    response_model=Token,
+    summary="[DEV] Быстрый вход для тестирования",
+    description="Вход под тестовым пользователем по роли (только в dev режиме)."
+)
+async def dev_login(
+    data: DevLoginRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Token:
+    """
+    Quick login as a specific role for development testing.
+
+    Creates user if doesn't exist:
+    - admin: admin@dev.local
+    - manager: manager@dev.local
+    - user: user@dev.local
+    """
+    if not DEV_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dev login disabled in production"
+        )
+
+    # Map role to user config
+    role_configs = {
+        "admin": {
+            "email": "admin@dev.local",
+            "role": "admin",
+            "is_superuser": True,
+            "full_name": "Dev Admin",
+        },
+        "manager": {
+            "email": "manager@dev.local",
+            "role": "manager",
+            "is_superuser": False,
+            "full_name": "Dev Manager",
+        },
+        "user": {
+            "email": "user@dev.local",
+            "role": "user",
+            "is_superuser": False,
+            "full_name": "Dev User",
+        },
+    }
+
+    if data.role not in role_configs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role. Available: {list(role_configs.keys())}"
+        )
+
+    config = role_configs[data.role]
+
+    # Find or create user
+    result = await db.execute(
+        select(User).where(User.email == config["email"])
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        # Create dev user
+        user = User(
+            email=config["email"],
+            hashed_password=get_password_hash("devpassword"),
+            full_name=config["full_name"],
+            role=config["role"],
+            is_superuser=config["is_superuser"],
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    # Create access token
+    access_token = create_access_token(
+        data={"sub": user.email},
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+
+    return Token(
+        access_token=access_token,
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
