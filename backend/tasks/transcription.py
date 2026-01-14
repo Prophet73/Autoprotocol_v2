@@ -29,36 +29,57 @@ def _run_domain_generators(
     output_path: Path,
     artifact_options: Dict,
     progress_callback,
+    domain_type: Optional[str] = None,
 ) -> Dict[str, str]:
     """
-    Run domain-specific generators based on artifact_options.
+    Run domain-specific generators based on artifact_options and domain_type.
 
     Args:
         result: TranscriptionResult from pipeline
         output_path: Output directory
         artifact_options: Dict with flags (generate_transcript, generate_tasks, etc.)
         progress_callback: Progress callback function
+        domain_type: Domain type (construction, hr, it)
 
     Returns:
         Dict mapping artifact type to file path
     """
-    from ..domains.construction.generators import (
-        generate_transcript,
-        generate_tasks,
-        generate_report,
-        generate_analysis,
-    )
-
     output_files = {}
 
     # Check if Gemini is configured for LLM-based generators
     has_gemini = _check_gemini_configured()
 
+    # Get meeting_type from artifact_options
+    meeting_type = artifact_options.get("meeting_type")
+
+    # Default to construction domain
+    domain = domain_type or "construction"
+
+    # Import generators based on domain
+    if domain == "hr":
+        from ..domains.hr.generators import generate_transcript, generate_report
+        generate_tasks = None  # HR doesn't have separate tasks generator
+        generate_analysis = None
+    elif domain == "it":
+        from ..domains.it.generators import generate_transcript, generate_report
+        generate_tasks = None  # IT doesn't have separate tasks generator
+        generate_analysis = None
+    else:  # construction (default)
+        from ..domains.construction.generators import (
+            generate_transcript,
+            generate_tasks,
+            generate_report,
+            generate_analysis,
+        )
+
     # 1. Transcript (no LLM required)
     if artifact_options.get("generate_transcript", True):
         progress_callback("domain_generators", 92, "Generating transcript.docx...")
         try:
-            transcript_path = generate_transcript(result, output_path)
+            if meeting_type:
+                transcript_path = generate_transcript(result, output_path, meeting_type=meeting_type)
+            else:
+                transcript_path = generate_transcript(result, output_path)
             output_files["transcript"] = str(transcript_path)
             logger.info(f"Generated transcript: {transcript_path}")
         except Exception as e:
@@ -66,8 +87,8 @@ def _run_domain_generators(
 
     # LLM-based generators (require Gemini via GOOGLE_API_KEY)
     if has_gemini:
-        # 2. Tasks Excel
-        if artifact_options.get("generate_tasks", False):
+        # 2. Tasks Excel (construction only)
+        if artifact_options.get("generate_tasks", False) and generate_tasks:
             progress_callback("domain_generators", 94, "Generating tasks.xlsx (AI)...")
             try:
                 tasks_path = generate_tasks(result, output_path)
@@ -80,14 +101,17 @@ def _run_domain_generators(
         if artifact_options.get("generate_report", False):
             progress_callback("domain_generators", 96, "Generating report.docx (AI)...")
             try:
-                report_path = generate_report(result, output_path)
+                if meeting_type:
+                    report_path = generate_report(result, output_path, meeting_type=meeting_type)
+                else:
+                    report_path = generate_report(result, output_path)
                 output_files["report"] = str(report_path)
                 logger.info(f"Generated report: {report_path}")
             except Exception as e:
                 logger.error(f"Report generation failed: {e}")
 
-        # 4. AI Analysis
-        if artifact_options.get("generate_analysis", False):
+        # 4. AI Analysis (construction only)
+        if artifact_options.get("generate_analysis", False) and generate_analysis:
             progress_callback("domain_generators", 98, "Generating analysis.docx (AI)...")
             try:
                 analysis_path = generate_analysis(result, output_path)
@@ -185,6 +209,7 @@ def process_transcription_task(
     # Domain linkage parameters
     project_id: Optional[int] = None,
     domain_type: Optional[str] = None,
+    meeting_type: Optional[str] = None,
     guest_uid: Optional[str] = None,
     uploader_id: Optional[int] = None,
     # Email notification
@@ -263,6 +288,7 @@ def process_transcription_task(
             output_path=output_path,
             artifact_options=artifact_options,
             progress_callback=progress_callback,
+            domain_type=domain_type,
         )
         output_files.update(generated_artifacts)
 

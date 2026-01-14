@@ -16,7 +16,6 @@ import UsersPage from './pages/admin/UsersPage';
 import SettingsPage from './pages/admin/SettingsPage';
 import ProjectsPage from './pages/admin/ProjectsPage';
 import LogsPage from './pages/admin/LogsPage';
-import PromptStudioPage from './pages/admin/PromptStudioPage';
 import SSOCallbackPage from './pages/SSOCallbackPage';
 
 const queryClient = new QueryClient({
@@ -66,7 +65,6 @@ function App() {
             }
           >
             <Route index element={<DashboardPage />} />
-            <Route path="prompts" element={<PromptStudioPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="settings" element={<SettingsPage />} />

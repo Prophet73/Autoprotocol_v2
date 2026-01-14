@@ -67,8 +67,17 @@ export interface TranscribeOptions {
   generate_analysis?: boolean;
   // Project linkage for Drop Box workflow
   project_code?: string;
+  // Meeting type for domain-specific processing
+  meeting_type?: string;
   // Email notification (optional)
   notify_emails?: string;
+}
+
+// Meeting type info from backend
+export interface MeetingTypeInfo {
+  id: string;
+  name: string;
+  default?: boolean;
 }
 
 // Project code validation response
@@ -100,6 +109,8 @@ export async function createTranscription(
   if (options.generate_analysis) formData.append('generate_analysis', 'true');
   // Project code for Drop Box workflow
   if (options.project_code) formData.append('project_code', options.project_code);
+  // Meeting type for domain-specific processing
+  if (options.meeting_type) formData.append('meeting_type', options.meeting_type);
   // Email notification
   if (options.notify_emails) formData.append('notify_emails', options.notify_emails);
 
@@ -144,6 +155,12 @@ export async function getJobs(limit: number = 50): Promise<JobListResponse> {
 
 export async function cancelJob(jobId: string): Promise<{ success: boolean }> {
   const response = await api.delete(`/transcribe/${jobId}`);
+  return response.data;
+}
+
+// Get meeting types for a domain
+export async function getMeetingTypes(domain: string): Promise<MeetingTypeInfo[]> {
+  const response = await api.get<MeetingTypeInfo[]>(`/api/domains/${domain}/meeting-types`);
   return response.data;
 }
 

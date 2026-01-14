@@ -114,6 +114,8 @@ async def create_transcription(
     skip_emotions: bool = Form(default=False, description="Пропустить анализ эмоций"),
     # Project linkage (for construction domain)
     project_code: Optional[str] = Form(default=None, description="4-значный код проекта для анонимной загрузки"),
+    # Meeting type (for HR/IT domains)
+    meeting_type: Optional[str] = Form(default=None, description="Тип встречи (recruitment, standup, и т.д.)"),
     # Guest ID for anonymous users (from X-Guest-ID header)
     x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-ID", description="UUID гостя для анонимной загрузки"),
     # Domain artifact options (ДПУ)
@@ -230,6 +232,7 @@ async def create_transcription(
         "generate_tasks": generate_tasks,
         "generate_report": generate_report,
         "generate_analysis": generate_analysis,
+        "meeting_type": meeting_type,
     }
 
     # Queue Celery task
@@ -246,6 +249,7 @@ async def create_transcription(
             # Domain-specific parameters
             project_id=project_id,
             domain_type=domain_type,
+            meeting_type=meeting_type,
             guest_uid=guest_uid,
             uploader_id=uploader_id,
             # Email notification

@@ -83,14 +83,29 @@ class DomainServiceFactory:
         return domain_type in cls._registry
 
 
-# Auto-register construction domain on import
+# Auto-register domains on import
 def _register_default_domains():
     """Register built-in domain services."""
+    # Construction domain
     try:
         from .construction.service import ConstructionService
         DomainServiceFactory.register('construction', ConstructionService)
     except ImportError:
         pass  # Construction domain not available
+
+    # HR domain
+    try:
+        from .hr.service import HRService
+        DomainServiceFactory.register('hr', HRService)
+    except ImportError:
+        pass  # HR domain not available
+
+    # IT domain
+    try:
+        from .it.service import ITService
+        DomainServiceFactory.register('it', ITService)
+    except ImportError:
+        pass  # IT domain not available
 
 
 # Register on module load

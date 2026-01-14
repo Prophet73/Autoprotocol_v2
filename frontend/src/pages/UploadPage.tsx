@@ -5,11 +5,14 @@ import { Loader2, PlayCircle, Check, X, Mail } from 'lucide-react';
 import { FileDropzone } from '../components/FileDropzone';
 import { ArtifactOptions, defaultArtifactState } from '../components/ArtifactOptions';
 import { LanguageSelector, defaultLanguages } from '../components/LanguageSelector';
+import { MeetingTypeSelector } from '../components/MeetingTypeSelector';
 import type { ArtifactState } from '../components/ArtifactOptions';
 import { createTranscription, validateProjectCode } from '../api/client';
+import { useAuthStore } from '../stores/authStore';
 
 export function UploadPage() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [file, setFile] = useState<File | null>(null);
   const [languages, setLanguages] = useState<string[]>(defaultLanguages);
   const [artifacts, setArtifacts] = useState<ArtifactState>(defaultArtifactState);
@@ -22,6 +25,11 @@ export function UploadPage() {
     projectName?: string;
   } | null>(null);
   const [isValidating, setIsValidating] = useState(false);
+
+  // Meeting type for HR/IT domains
+  const [meetingType, setMeetingType] = useState('');
+  const userDomain = user?.domain || 'construction';
+  const showMeetingTypeSelector = userDomain !== 'construction';
 
   // Email notification (optional)
   const [notifyEmails, setNotifyEmails] = useState('');
@@ -64,6 +72,7 @@ export function UploadPage() {
         generate_report: artifacts.report,
         generate_analysis: artifacts.analysis,
         project_code: projectCode,
+        meeting_type: showMeetingTypeSelector ? meetingType : undefined,
         notify_emails: notifyEmails.trim() || undefined,
       });
 
@@ -76,7 +85,8 @@ export function UploadPage() {
 
   const hasAnyArtifact = Object.values(artifacts).some(Boolean);
   const isCodeValid = codeValidation?.valid === true;
-  const canSubmit = file && hasAnyArtifact && isCodeValid && !mutation.isPending;
+  const isMeetingTypeValid = !showMeetingTypeSelector || meetingType !== '';
+  const canSubmit = file && hasAnyArtifact && isCodeValid && isMeetingTypeValid && !mutation.isPending;
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -134,6 +144,20 @@ export function UploadPage() {
             </div>
           </div>
         </div>
+
+        {/* Meeting type selector (for HR/IT domains) */}
+        {showMeetingTypeSelector && (
+          <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/50">
+            <h2 className="text-sm font-semibold text-slate-800 mb-2">
+              <span className="text-severin-red">1.5</span> Выберите тип встречи
+            </h2>
+            <MeetingTypeSelector
+              domain={userDomain}
+              value={meetingType}
+              onChange={setMeetingType}
+            />
+          </div>
+        )}
 
         {/* File upload section */}
         <div className="px-5 py-3 border-b border-slate-100">

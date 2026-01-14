@@ -18,12 +18,11 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from .routes import health, transcription, manager
+from .routes import health, transcription, manager, domains
 from backend.admin.users import router as users_router
 from backend.admin.stats import router as stats_router
 from backend.admin.settings import router as settings_router
 from backend.admin.logs import router as logs_router
-from backend.admin.prompts import router as prompts_router
 from backend.admin.logs.middleware import ErrorLoggingMiddleware
 from backend.shared.database import init_db, close_db
 from backend.domains.construction import router as construction_router
@@ -157,7 +156,9 @@ app.include_router(users_router.router, prefix="/api/admin")
 app.include_router(stats_router.router, prefix="/api/admin")
 app.include_router(settings_router.router, prefix="/api/admin")
 app.include_router(logs_router.router, prefix="/api/admin")
-app.include_router(prompts_router.router, prefix="/api/admin")
+
+# Domain info router
+app.include_router(domains.router, prefix="/api")
 
 # Domain routers
 app.include_router(construction_router.router, prefix="/api/domains")

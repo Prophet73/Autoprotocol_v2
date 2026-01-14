@@ -11,7 +11,7 @@ import type {
 } from '../types/user';
 
 // Re-export types for backwards compatibility
-export type { CurrentUser as UserInfo, AdminUser as User, UserListResponse, LoginResponse };
+export type { CurrentUser as UserInfo, AdminUser as User, UserListResponse, LoginResponse, CreateUserRequest };
 
 // Create axios instance with auth interceptor
 export const adminApi = axios.create({
