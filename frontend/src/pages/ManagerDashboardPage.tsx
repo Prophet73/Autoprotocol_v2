@@ -158,7 +158,7 @@ export function ManagerDashboardPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[600px]">
-        <Loader2 className="w-10 h-10 text-[#E52713] animate-spin" />
+        <Loader2 className="w-10 h-10 text-severin-red animate-spin" />
       </div>
     );
   }
@@ -204,7 +204,7 @@ export function ManagerDashboardPage() {
                   placeholder="Поиск..."
                   value={projectSearch}
                   onChange={(e) => setProjectSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E52713]/20 focus:border-[#E52713]"
+                  className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-severin-red/20 focus:border-severin-red"
                 />
               </div>
             </div>
@@ -215,7 +215,7 @@ export function ManagerDashboardPage() {
             onClick={() => setSelectedProjectId(null)}
             className={`m-3 p-3 rounded-lg text-left transition-all ${
               selectedProjectId === null
-                ? 'bg-[#E52713] text-white'
+                ? 'bg-severin-red text-white'
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
@@ -248,7 +248,7 @@ export function ManagerDashboardPage() {
           {/* Dashboard Header */}
           <div className="bg-white border-b border-slate-200 px-6 py-4">
             <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-              <LayoutDashboard className="w-7 h-7 text-[#E52713]" />
+              <LayoutDashboard className="w-7 h-7 text-severin-red" />
               {selectedProjectId
                 ? dashboard?.projects_health?.find(p => p.id === selectedProjectId)?.name || 'Проект'
                 : 'Панель управления'}
@@ -290,7 +290,7 @@ export function ManagerDashboardPage() {
             // Show Calendar for all projects
             <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6">
               <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-[#E52713]" />
+                <Calendar className="w-5 h-5 text-severin-red" />
                 Календарь отчётов
               </h3>
               <FullCalendar
@@ -398,7 +398,7 @@ function ProjectItem({
       <button
         onClick={onClick}
         className={`w-full p-2 rounded-lg transition-all ${
-          isSelected ? 'bg-red-50 ring-2 ring-[#E52713]' : 'hover:bg-slate-100'
+          isSelected ? 'bg-red-50 ring-2 ring-severin-red' : 'hover:bg-slate-100'
         }`}
         title={project.name}
       >
@@ -412,7 +412,7 @@ function ProjectItem({
       onClick={onClick}
       className={`w-full p-3 rounded-lg text-left transition-all ${
         isSelected
-          ? 'bg-red-50 ring-2 ring-[#E52713]'
+          ? 'bg-red-50 ring-2 ring-severin-red'
           : 'hover:bg-slate-100'
       }`}
     >
@@ -493,7 +493,7 @@ function AttentionItemRow({
           className={`text-left font-medium transition-colors ${
             isDone
               ? 'text-slate-400 line-through'
-              : 'text-slate-800 hover:text-[#E52713]'
+              : 'text-slate-800 hover:text-severin-red'
           }`}
         >
           {item.problem_text}
@@ -506,7 +506,7 @@ function AttentionItemRow({
         type="checkbox"
         checked={isDone}
         onChange={(e) => onStatusChange(e.target.checked ? 'done' : 'new')}
-        className="w-5 h-5 rounded border-slate-300 text-[#E52713] focus:ring-[#E52713]"
+        className="w-5 h-5 rounded border-slate-300 text-severin-red focus:ring-severin-red"
       />
     </div>
   );
@@ -579,14 +579,14 @@ function AnalyticsModal({
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 text-[#E52713] animate-spin" />
+              <Loader2 className="w-8 h-8 text-severin-red animate-spin" />
             </div>
           ) : detail ? (
             <div className="space-y-6">
               {/* Executive Summary */}
               <div className="bg-slate-50 rounded-lg p-4">
                 <h3 className="font-semibold text-slate-800 mb-2 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-[#E52713]" />
+                  <FileText className="w-5 h-5 text-severin-red" />
                   Выжимка для руководителя
                 </h3>
                 <p className="text-slate-700 leading-relaxed">{detail.summary}</p>
@@ -717,7 +717,7 @@ function AnalyticsModal({
             {detail.has_detailed_report && (
               <button
                 onClick={() => downloadAnalyticsReport(analyticsId, 'detailed')}
-                className="px-5 py-2.5 bg-[#E52713] text-white rounded-lg hover:bg-[#C41F0E] transition-colors flex items-center gap-2 font-medium shadow-sm cursor-pointer"
+                className="px-5 py-2.5 bg-severin-red text-white rounded-lg hover:bg-severin-red-dark transition-colors flex items-center gap-2 font-medium shadow-sm cursor-pointer"
               >
                 <Download className="w-4 h-4" />
                 Скачать подробный протокол (DOCX)

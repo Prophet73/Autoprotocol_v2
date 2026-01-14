@@ -42,7 +42,7 @@ export function Layout({ children }: LayoutProps) {
               {/* Hub Apps Button */}
               <a
                 href="https://ai-hub.svrd.ru/apps"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-[#E52713] hover:bg-red-50 transition-all"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-severin-red hover:bg-red-50 transition-all"
                 title="Все приложения"
               >
                 <Grid3X3 className="w-5 h-5" />
@@ -52,7 +52,7 @@ export function Layout({ children }: LayoutProps) {
               <Link to="/" className="flex items-center gap-2 group">
                 <img src="/severin-logo.png" alt="Severin" className="w-8 h-8" />
                 <div>
-                  <h1 className="text-lg font-bold text-slate-800">Severin<span className="text-[#E52713]">Autoprotocol</span></h1>
+                  <h1 className="text-lg font-bold text-slate-800">Severin<span className="text-severin-red">Autoprotocol</span></h1>
                 </div>
               </Link>
             </div>
@@ -66,7 +66,7 @@ export function Layout({ children }: LayoutProps) {
                   className={clsx(
                     'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
                     isActive(path)
-                      ? 'bg-red-50 text-[#E52713]'
+                      ? 'bg-red-50 text-severin-red'
                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                   )}
                 >

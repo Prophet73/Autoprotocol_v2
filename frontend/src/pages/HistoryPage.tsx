@@ -8,8 +8,8 @@ const statusConfig = {
     icon: CheckCircle2,
     label: 'Готово',
     bg: 'bg-red-50',
-    text: 'text-[#E52713]',
-    badge: 'bg-red-100 text-[#E52713]',
+    text: 'text-severin-red',
+    badge: 'bg-red-100 text-severin-red',
   },
   processing: {
     icon: Loader2,
@@ -58,7 +58,7 @@ export function HistoryPage() {
         <button
           onClick={() => refetch()}
           disabled={isFetching}
-          className="p-2.5 text-slate-500 hover:text-[#E52713] hover:bg-red-50 rounded-xl transition-all"
+          className="p-2.5 text-slate-500 hover:text-severin-red hover:bg-red-50 rounded-xl transition-all"
           title="Обновить"
         >
           <RefreshCw className={`w-5 h-5 ${isFetching ? 'animate-spin' : ''}`} />
@@ -68,7 +68,7 @@ export function HistoryPage() {
       {/* Loading state */}
       {isLoading && (
         <div className="bg-white rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-200 p-12 text-center">
-          <Loader2 className="w-10 h-10 text-[#E52713] mx-auto mb-4 animate-spin" />
+          <Loader2 className="w-10 h-10 text-severin-red mx-auto mb-4 animate-spin" />
           <p className="text-slate-500">Загрузка истории...</p>
         </div>
       )}
@@ -83,7 +83,7 @@ export function HistoryPage() {
           <p className="text-slate-500 mb-6">Не удалось загрузить историю обработок</p>
           <button
             onClick={() => refetch()}
-            className="px-6 py-2.5 bg-[#E52713] text-white rounded-xl hover:bg-[#C41F0E] transition-colors font-medium"
+            className="px-6 py-2.5 bg-severin-red text-white rounded-xl hover:bg-severin-red-dark transition-colors font-medium"
           >
             Попробовать снова
           </button>
@@ -100,7 +100,7 @@ export function HistoryPage() {
           <p className="text-slate-500 mb-6">Загрузите первый файл для обработки</p>
           <Link
             to="/"
-            className="inline-block px-6 py-2.5 bg-[#E52713] text-white rounded-xl hover:bg-[#C41F0E] transition-colors font-medium"
+            className="inline-block px-6 py-2.5 bg-severin-red text-white rounded-xl hover:bg-severin-red-dark transition-colors font-medium"
           >
             Загрузить файл
           </Link>
@@ -133,7 +133,7 @@ export function HistoryPage() {
 
                   {/* File info */}
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-800 truncate group-hover:text-[#E52713] transition-colors">
+                    <p className="font-medium text-slate-800 truncate group-hover:text-severin-red transition-colors">
                       {job.source_file}
                     </p>
                     <div className="flex items-center gap-3 mt-1 text-sm text-slate-500">

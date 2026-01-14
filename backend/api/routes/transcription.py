@@ -10,6 +10,7 @@ API маршруты транскрипции с хранением задач �
 - DELETE /transcribe/{job_id} — отмена задачи
 """
 import os
+import re
 import uuid
 import shutil
 import logging
@@ -27,6 +28,7 @@ from ..schemas import (
     JobResultResponse,
 )
 from ...core.storage import get_job_store, JobStore
+from ...core.utils.file_security import validate_file_path
 from ...core.storage.job_store import JobData
 from ...core.transcription.models import TranscriptionRequest, JobStatus
 from ...tasks.transcription import process_transcription_task
@@ -38,6 +40,51 @@ from ...shared.models import User
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/transcribe", tags=["Транскрипция"])
+
+# Email validation regex (RFC 5322 simplified)
+_EMAIL_REGEX = re.compile(
+    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+)
+
+
+def validate_email_list(emails_str: Optional[str]) -> list[str]:
+    """
+    Validate and parse comma-separated email list.
+
+    Args:
+        emails_str: Comma-separated email addresses.
+
+    Returns:
+        List of validated email addresses.
+
+    Raises:
+        HTTPException 400: If any email is invalid.
+    """
+    if not emails_str:
+        return []
+
+    emails = []
+    for email in emails_str.split(","):
+        email = email.strip()
+        if not email:
+            continue
+
+        if not _EMAIL_REGEX.match(email):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid email format: {email}"
+            )
+
+        # Additional security: prevent email header injection
+        if '\n' in email or '\r' in email:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid characters in email: {email}"
+            )
+
+        emails.append(email)
+
+    return emails
 
 # Storage paths - use DATA_DIR env or default to /data (Docker)
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
@@ -149,10 +196,8 @@ async def create_transcription(
 
     # Create job record in Redis
     now = datetime.now()
-    # Parse notify emails
-    notify_emails_list = []
-    if notify_emails:
-        notify_emails_list = [e.strip() for e in notify_emails.split(",") if e.strip() and "@" in e]
+    # Parse and validate notify emails
+    notify_emails_list = validate_email_list(notify_emails)
 
     job_data = JobData(
         job_id=job_id,
@@ -342,9 +387,12 @@ async def download_result(job_id: str, file_type: str):
     if file_type not in output_files:
         raise HTTPException(status_code=404, detail=f"File type '{file_type}' not found")
 
-    file_path = Path(output_files[file_type])
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found on disk")
+    # Validate file path is within OUTPUT_DIR (prevents path traversal)
+    file_path = validate_file_path(
+        file_path=output_files[file_type],
+        allowed_dir=OUTPUT_DIR,
+        must_exist=True
+    )
 
     return FileResponse(
         path=file_path,

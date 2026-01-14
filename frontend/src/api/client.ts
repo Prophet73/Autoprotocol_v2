@@ -1,10 +1,7 @@
 import axios from 'axios';
 import { getGuestId } from '../utils/guestId';
 import { useAuthStore } from '../stores/authStore';
-
-// In dev mode, Vite proxy handles /transcribe -> localhost:8000
-// In production, set VITE_API_URL to the backend URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+import { API_BASE_URL, getApiBaseUrl } from '../config/api';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -123,8 +120,7 @@ export async function getJobResult(jobId: string): Promise<JobResultResponse> {
 }
 
 export function getDownloadUrl(jobId: string, fileType: string): string {
-  const base = API_BASE_URL || window.location.origin;
-  return `${base}/transcribe/${jobId}/download/${fileType}`;
+  return `${getApiBaseUrl()}/transcribe/${jobId}/download/${fileType}`;
 }
 
 // History types
@@ -338,8 +334,7 @@ export async function updateProblemStatus(
 }
 
 export function getAnalyticsReportUrl(analyticsId: number, type: 'main' | 'detailed'): string {
-  const base = API_BASE_URL || window.location.origin;
-  return `${base}/api/manager/analytics/${analyticsId}/report/${type}`;
+  return `${getApiBaseUrl()}/api/manager/analytics/${analyticsId}/report/${type}`;
 }
 
 // Download analytics report with authentication

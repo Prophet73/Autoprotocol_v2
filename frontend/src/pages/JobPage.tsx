@@ -90,9 +90,9 @@ export function JobPage() {
           <div className="flex items-start gap-4">
             <div className="p-3 bg-red-100 rounded-xl">
               {isVideo ? (
-                <FileVideo className="w-8 h-8 text-[#E52713]" />
+                <FileVideo className="w-8 h-8 text-severin-red" />
               ) : (
-                <FileAudio className="w-8 h-8 text-[#E52713]" />
+                <FileAudio className="w-8 h-8 text-severin-red" />
               )}
             </div>
             <div className="flex-1 min-w-0">
@@ -129,7 +129,7 @@ export function JobPage() {
                 </span>
               )}
               {isProcessing && (
-                <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-100 text-[#E52713] rounded-full text-sm font-medium">
+                <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-100 text-severin-red rounded-full text-sm font-medium">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Обработка
                 </span>
@@ -198,7 +198,7 @@ export function JobPage() {
         {isCompleted && result?.output_files && (
           <div className="p-6">
             <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-              <Download className="w-5 h-5 text-[#E52713]" />
+              <Download className="w-5 h-5 text-severin-red" />
               Результаты обработки
             </h2>
             <DownloadCard jobId={jobId} outputFiles={result.output_files} />
@@ -236,7 +236,7 @@ export function JobPage() {
       <div className="mt-6 flex justify-center gap-4">
         <Link
           to="/"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-[#E52713] text-white rounded-xl hover:bg-[#C41F0E] transition-colors font-medium shadow-lg shadow-red-500/25"
+          className="inline-flex items-center gap-2 px-6 py-3 bg-severin-red text-white rounded-xl hover:bg-severin-red-dark transition-colors font-medium shadow-lg shadow-severin-red/25"
         >
           Обработать ещё файл
         </Link>

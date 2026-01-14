@@ -193,7 +193,7 @@ export default function LoginPage() {
             <div className="inline-flex items-center justify-center mb-4">
               <img src="/severin-logo.png" alt="Severin" className="w-16 h-16" />
             </div>
-            <h1 className="text-2xl font-bold text-slate-800">Severin<span className="text-[#E52713]">Autoprotocol</span></h1>
+            <h1 className="text-2xl font-bold text-slate-800">Severin<span className="text-severin-red">Autoprotocol</span></h1>
             <p className="text-slate-500 mt-2">Вход в систему</p>
           </div>
 
@@ -216,7 +216,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#E52713] focus:border-transparent transition"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent transition"
                 placeholder="admin"
               />
             </div>
@@ -231,7 +231,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#E52713] focus:border-transparent transition"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent transition"
                 placeholder="••••••••"
               />
             </div>
@@ -239,7 +239,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 px-4 bg-[#E52713] hover:bg-[#C41F0E] disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition duration-200 flex items-center justify-center"
+              className="w-full py-3 px-4 bg-severin-red hover:bg-severin-red-dark disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition duration-200 flex items-center justify-center"
             >
               {loading ? (
                 <>
@@ -337,7 +337,7 @@ export default function LoginPage() {
 
           {/* Back link */}
           <div className="mt-6 text-center">
-            <a href="/" className="text-sm text-slate-500 hover:text-[#E52713] transition">
+            <a href="/" className="text-sm text-slate-500 hover:text-severin-red transition">
               ← Вернуться к приложению
             </a>
           </div>

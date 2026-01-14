@@ -22,7 +22,27 @@ from backend.shared.models import User
 
 
 # Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+_env = os.getenv("ENVIRONMENT", "production").lower()
+_is_production = _env not in ("development", "dev", "local")
+
+# SECRET_KEY is required in production
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    if _is_production:
+        raise RuntimeError(
+            "SECRET_KEY environment variable is required in production. "
+            "Generate a secure key with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    else:
+        # Only use dev key in development environment
+        SECRET_KEY = "dev-secret-key-for-local-development-only"
+        import warnings
+        warnings.warn(
+            "Using development SECRET_KEY. This is insecure! "
+            "Set SECRET_KEY environment variable in production.",
+            UserWarning
+        )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24 hours
 

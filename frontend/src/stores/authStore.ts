@@ -1,16 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { CurrentUser } from '../types/user';
 
-export interface User {
-  id: number;
-  email: string;
-  username: string | null;
-  full_name: string | null;
-  role: string;
-  domain: string | null;
-  is_superuser: boolean;
-  tenant_id: number | null;
-}
+// Re-export for backwards compatibility
+export type User = CurrentUser;
 
 interface AuthState {
   token: string | null;

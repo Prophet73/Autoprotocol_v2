@@ -11,8 +11,12 @@ import os
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from .routes import health, transcription, manager
 from backend.admin.users import router as users_router
@@ -32,6 +36,19 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Rate limiter setup
+# Uses Redis if available, falls back to in-memory
+_redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+try:
+    limiter = Limiter(
+        key_func=get_remote_address,
+        storage_uri=_redis_url,
+        strategy="fixed-window",
+    )
+except Exception:
+    # Fallback to in-memory if Redis unavailable
+    limiter = Limiter(key_func=get_remote_address)
 
 
 @asynccontextmanager
@@ -96,16 +113,37 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# Add rate limiter to app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Error logging middleware (must be added before CORS for proper ordering)
 app.add_middleware(ErrorLoggingMiddleware)
 
-# CORS middleware
+# CORS middleware - secure defaults
+# In production, set CORS_ORIGINS to your actual domains
+_default_origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+_cors_origins_env = os.getenv("CORS_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()] if _cors_origins_env else _default_origins
+
+# Warn if using wildcard in production
+if "*" in _cors_origins:
+    logger.warning(
+        "CORS_ORIGINS contains '*' which allows all origins. "
+        "This is insecure in production. Set specific origins."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Content-Type", "Authorization", "X-Guest-ID", "X-Requested-With"],
 )
 
 # Include routers

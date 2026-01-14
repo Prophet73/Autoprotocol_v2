@@ -7,6 +7,7 @@ Provides endpoints for:
 - Problem status management
 - Report downloads
 """
+import os
 from datetime import datetime, timedelta
 from typing import Annotated, Optional, List
 from pathlib import Path
@@ -19,6 +20,10 @@ from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field
 
 from backend.shared.database import get_db
+from backend.core.utils.file_security import validate_file_path
+
+# Base data directory for file validation
+DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 from backend.shared.models import User
 from backend.core.auth.dependencies import CurrentUser
 # Import directly from models to avoid heavy dependencies chain
@@ -633,21 +638,20 @@ async def download_analytics_report(
 
     # Get file path
     report = analytics.report
-    file_path = report.report_path if report_type == 'main' else report.analysis_path
+    file_path_str = report.report_path if report_type == 'main' else report.analysis_path
 
-    if not file_path:
+    if not file_path_str:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No {report_type} report file available"
         )
 
-    # Check file exists
-    path = Path(file_path)
-    if not path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Report file not found on disk"
-        )
+    # Validate file path is within DATA_DIR (prevents path traversal)
+    path = validate_file_path(
+        file_path=file_path_str,
+        allowed_dir=DATA_DIR,
+        must_exist=True
+    )
 
     # Return file
     filename = path.name

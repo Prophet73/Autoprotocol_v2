@@ -10,7 +10,7 @@ const fileConfig: Record<string, { label: string; icon: typeof FileText; color: 
   transcript: {
     label: 'Транскрибация',
     icon: FileText,
-    color: 'border-red-200 bg-red-50 text-[#E52713] hover:bg-red-100',
+    color: 'border-red-200 bg-red-50 text-severin-red hover:bg-red-100',
     desc: 'Полный текст с таймкодами',
   },
   tasks: {
@@ -34,7 +34,7 @@ const fileConfig: Record<string, { label: string; icon: typeof FileText; color: 
   protocol_docx: {
     label: 'Протокол (Word)',
     icon: FileText,
-    color: 'border-red-200 bg-red-50 text-[#E52713] hover:bg-red-100',
+    color: 'border-red-200 bg-red-50 text-severin-red hover:bg-red-100',
     desc: 'Готовый протокол',
   },
   protocol_txt: {

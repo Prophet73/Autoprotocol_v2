@@ -46,14 +46,14 @@ export function LanguageSelector({ value, onChange }: LanguageSelectorProps) {
         className={`
           w-full flex items-center justify-between px-4 py-3 bg-white border-2 rounded-xl
           transition-all text-left
-          ${isOpen ? 'border-[#E52713] ring-2 ring-red-100' : 'border-slate-200 hover:border-slate-300'}
+          ${isOpen ? 'border-severin-red ring-2 ring-red-100' : 'border-slate-200 hover:border-slate-300'}
         `}
       >
         <div className="flex items-center gap-2 flex-wrap">
           {selectedLanguages.map((lang) => (
             <span
               key={lang.code}
-              className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 text-[#E52713] rounded-lg text-sm font-medium"
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-50 text-severin-red rounded-lg text-sm font-medium"
             >
               <span>{lang.flag}</span>
               <span>{lang.name}</span>
@@ -89,7 +89,7 @@ export function LanguageSelector({ value, onChange }: LanguageSelectorProps) {
                   <span className="font-medium text-slate-700">{lang.name}</span>
                   <span className="text-slate-400 text-sm">({lang.code})</span>
                 </div>
-                {isSelected && <Check className="w-5 h-5 text-[#E52713]" />}
+                {isSelected && <Check className="w-5 h-5 text-severin-red" />}
               </button>
             );
           })}

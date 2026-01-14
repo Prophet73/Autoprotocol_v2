@@ -58,7 +58,7 @@ export function ArtifactOptions({ value, onChange }: ArtifactOptionsProps) {
             className={`
               flex items-center gap-3 py-2.5 px-3 rounded-lg border-2 text-left transition-all
               ${isChecked
-                ? 'border-[#E52713] bg-red-50'
+                ? 'border-severin-red bg-red-50'
                 : 'border-slate-200 hover:border-slate-300 bg-white'
               }
             `}
@@ -67,7 +67,7 @@ export function ArtifactOptions({ value, onChange }: ArtifactOptionsProps) {
               w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0
               ${isChecked ? 'bg-red-100' : 'bg-slate-100'}
             `}>
-              <Icon className={`w-4 h-4 ${isChecked ? 'text-[#E52713]' : 'text-slate-400'}`} />
+              <Icon className={`w-4 h-4 ${isChecked ? 'text-severin-red' : 'text-slate-400'}`} />
             </div>
 
             <div className="flex-1 min-w-0">
@@ -79,7 +79,7 @@ export function ArtifactOptions({ value, onChange }: ArtifactOptionsProps) {
 
             <div className={`
               w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0
-              ${isChecked ? 'bg-[#E52713] border-[#E52713]' : 'border-slate-300'}
+              ${isChecked ? 'bg-severin-red border-severin-red' : 'border-slate-300'}
             `}>
               {isChecked && <Check className="w-3 h-3 text-white" />}
             </div>

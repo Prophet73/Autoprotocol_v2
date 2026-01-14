@@ -49,9 +49,9 @@ export function ProgressBar({ percent, stage, message, status }: ProgressBarProp
           <div
             className={clsx(
               'h-full transition-all duration-500 ease-out rounded-full',
-              status === 'completed' && 'bg-[#E52713]',
+              status === 'completed' && 'bg-severin-red',
               status === 'failed' && 'bg-gradient-to-r from-red-500 to-rose-500',
-              status === 'processing' && 'bg-[#E52713]',
+              status === 'processing' && 'bg-severin-red',
               status === 'pending' && 'bg-slate-400'
             )}
             style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
@@ -62,9 +62,9 @@ export function ProgressBar({ percent, stage, message, status }: ProgressBarProp
         <div className="absolute -top-1 right-0 transform translate-x-1/2">
           <span className={clsx(
             'inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-bold',
-            status === 'completed' && 'bg-red-100 text-[#E52713]',
+            status === 'completed' && 'bg-red-100 text-severin-red',
             status === 'failed' && 'bg-red-100 text-red-700',
-            status === 'processing' && 'bg-red-100 text-[#E52713]',
+            status === 'processing' && 'bg-red-100 text-severin-red',
             status === 'pending' && 'bg-slate-100 text-slate-600'
           )}>
             {percent}%
@@ -78,13 +78,13 @@ export function ProgressBar({ percent, stage, message, status }: ProgressBarProp
           {status === 'processing' && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-lg">
               <span className="text-lg">{stageIcon}</span>
-              <span className="font-medium text-[#E52713]">{stageLabel}</span>
+              <span className="font-medium text-severin-red">{stageLabel}</span>
             </div>
           )}
           {status === 'completed' && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-lg">
               <span className="text-lg">✅</span>
-              <span className="font-medium text-[#E52713]">Завершено</span>
+              <span className="font-medium text-severin-red">Завершено</span>
             </div>
           )}
           {status === 'failed' && (

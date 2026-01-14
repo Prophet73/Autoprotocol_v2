@@ -1,11 +1,21 @@
 import axios from 'axios';
 import { useAuthStore } from '../stores/authStore';
+import { API_BASE_URL } from '../config/api';
+import {
+  CurrentUser,
+  AdminUser,
+  UserListResponse,
+  LoginResponse,
+  CreateUserRequest,
+  AssignRoleRequest,
+} from '../types/user';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Re-export types for backwards compatibility
+export type { CurrentUser as UserInfo, AdminUser as User, UserListResponse, LoginResponse };
 
 // Create axios instance with auth interceptor
 export const adminApi = axios.create({
-  baseURL: API_URL,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -41,23 +51,6 @@ export interface LoginRequest {
   password: string;
 }
 
-export interface LoginResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-}
-
-export interface UserInfo {
-  id: number;
-  email: string;
-  username: string | null;
-  full_name: string | null;
-  role: string;
-  domain: string | null;
-  is_superuser: boolean;
-  tenant_id: number | null;
-}
-
 export interface DevUser {
   email: string;
   role: string;
@@ -82,7 +75,7 @@ export const authApi = {
     return response.data;
   },
 
-  getMe: async (): Promise<UserInfo> => {
+  getMe: async (): Promise<CurrentUser> => {
     const response = await adminApi.get('/auth/me');
     return response.data;
   },
@@ -103,55 +96,23 @@ export const authApi = {
 // Users API
 // =============================================================================
 
-export interface User {
-  id: number;
-  email: string;
-  full_name: string | null;
-  is_active: boolean;
-  is_superuser: boolean;
-  role: string;
-  domain: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface UserListResponse {
-  users: User[];
-  total: number;
-}
-
-export interface CreateUserRequest {
-  email: string;
-  password: string;
-  full_name?: string;
-  role?: string;
-  domain?: string;
-  is_superuser?: boolean;
-}
-
-export interface AssignRoleRequest {
-  user_id: number;
-  role: string;
-  domain?: string;
-}
-
 export const usersApi = {
   list: async (params?: { skip?: number; limit?: number; role?: string; domain?: string }): Promise<UserListResponse> => {
     const response = await adminApi.get('/api/admin/users', { params });
     return response.data;
   },
 
-  get: async (id: number): Promise<User> => {
+  get: async (id: number): Promise<AdminUser> => {
     const response = await adminApi.get(`/api/admin/users/${id}`);
     return response.data;
   },
 
-  create: async (data: CreateUserRequest): Promise<User> => {
+  create: async (data: CreateUserRequest): Promise<AdminUser> => {
     const response = await adminApi.post('/api/admin/users', data);
     return response.data;
   },
 
-  update: async (id: number, data: Partial<User>): Promise<User> => {
+  update: async (id: number, data: Partial<AdminUser>): Promise<AdminUser> => {
     const response = await adminApi.patch(`/api/admin/users/${id}`, data);
     return response.data;
   },
@@ -160,7 +121,7 @@ export const usersApi = {
     await adminApi.delete(`/api/admin/users/${id}`);
   },
 
-  assignRole: async (data: AssignRoleRequest): Promise<User> => {
+  assignRole: async (data: AssignRoleRequest): Promise<AdminUser> => {
     const response = await adminApi.post('/api/admin/users/assign-role', data);
     return response.data.user;
   },

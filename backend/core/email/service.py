@@ -2,17 +2,48 @@
 Email sending service.
 """
 import smtplib
+import socket
 import logging
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .config import email_config
 
 logger = logging.getLogger(__name__)
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2
+
+
+class EmailError(Exception):
+    """Base exception for email errors."""
+    pass
+
+
+class EmailConfigError(EmailError):
+    """Email configuration error (non-retryable)."""
+    pass
+
+
+class EmailConnectionError(EmailError):
+    """Connection error (retryable)."""
+    pass
+
+
+class EmailAuthError(EmailError):
+    """Authentication error (non-retryable)."""
+    pass
+
+
+class EmailRecipientError(EmailError):
+    """Recipient rejected (non-retryable for specific recipients)."""
+    pass
 
 
 class EmailService:
@@ -68,13 +99,26 @@ class EmailService:
                 for file_type, file_path in output_files.items():
                     self._attach_file(msg, file_path, file_type)
 
-            # Send
-            self._send_email(msg, recipients)
-            logger.info(f"Email notification sent to {recipients} for job {job_id}")
-            return True
+            # Send with retry logic
+            success, error = self._send_email_with_retry(msg, recipients)
+            if success:
+                logger.info(f"Email notification sent to {recipients} for job {job_id}")
+                return True
+            else:
+                logger.error(f"Failed to send email after retries: {error}")
+                return False
 
+        except EmailConfigError as e:
+            logger.error(f"Email configuration error (non-retryable): {e}")
+            return False
+        except EmailAuthError as e:
+            logger.error(f"Email authentication failed (check credentials): {e}")
+            return False
+        except EmailRecipientError as e:
+            logger.error(f"Email recipient rejected: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Failed to send email notification: {e}")
+            logger.exception(f"Unexpected error sending email notification: {e}")
             return False
 
     def _create_email_body(
@@ -149,14 +193,86 @@ class EmailService:
         except Exception as e:
             logger.error(f"Failed to attach file {file_path}: {e}")
 
-    def _send_email(self, msg: MIMEMultipart, recipients: List[str]) -> None:
-        """Send the email via SMTP."""
-        if self.config.use_ssl:
-            server = smtplib.SMTP_SSL(self.config.server, self.config.port)
-        else:
-            server = smtplib.SMTP(self.config.server, self.config.port)
+    def _send_email_with_retry(
+        self,
+        msg: MIMEMultipart,
+        recipients: List[str]
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Send email with retry logic for transient errors.
 
+        Args:
+            msg: Email message to send.
+            recipients: List of recipient email addresses.
+
+        Returns:
+            Tuple of (success: bool, error_message: Optional[str])
+        """
+        last_error = None
+
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                self._send_email(msg, recipients)
+                return True, None
+
+            except smtplib.SMTPAuthenticationError as e:
+                # Authentication errors are not retryable
+                raise EmailAuthError(f"SMTP authentication failed: {e}")
+
+            except smtplib.SMTPRecipientsRefused as e:
+                # Recipient errors are not retryable
+                raise EmailRecipientError(f"Recipients refused: {e}")
+
+            except smtplib.SMTPSenderRefused as e:
+                # Sender errors are not retryable
+                raise EmailConfigError(f"Sender refused: {e}")
+
+            except (
+                smtplib.SMTPConnectError,
+                smtplib.SMTPServerDisconnected,
+                socket.timeout,
+                socket.error,
+                ConnectionError,
+            ) as e:
+                # Connection errors are retryable
+                last_error = str(e)
+                if attempt < MAX_RETRIES:
+                    logger.warning(
+                        f"Email send attempt {attempt}/{MAX_RETRIES} failed "
+                        f"(will retry in {RETRY_DELAY_SECONDS}s): {e}"
+                    )
+                    time.sleep(RETRY_DELAY_SECONDS)
+                else:
+                    logger.error(f"Email send failed after {MAX_RETRIES} attempts: {e}")
+
+            except smtplib.SMTPException as e:
+                # Other SMTP errors - retry once
+                last_error = str(e)
+                if attempt < MAX_RETRIES:
+                    logger.warning(f"SMTP error on attempt {attempt}, retrying: {e}")
+                    time.sleep(RETRY_DELAY_SECONDS)
+                else:
+                    logger.error(f"SMTP error after {MAX_RETRIES} attempts: {e}")
+
+        return False, last_error
+
+    def _send_email(self, msg: MIMEMultipart, recipients: List[str]) -> None:
+        """Send the email via SMTP (single attempt)."""
+        server = None
         try:
+            if self.config.use_ssl:
+                server = smtplib.SMTP_SSL(
+                    self.config.server,
+                    self.config.port,
+                    timeout=30
+                )
+            else:
+                server = smtplib.SMTP(
+                    self.config.server,
+                    self.config.port,
+                    timeout=30
+                )
+
             if self.config.use_tls:
                 server.starttls()
 
@@ -167,7 +283,11 @@ class EmailService:
                 msg.as_string()
             )
         finally:
-            server.quit()
+            if server:
+                try:
+                    server.quit()
+                except Exception:
+                    pass  # Ignore errors during cleanup
 
 
 # Global service instance

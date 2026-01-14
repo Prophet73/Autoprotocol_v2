@@ -17,6 +17,25 @@ from backend.shared.models import ErrorLog, User
 from .schemas import ErrorLogResponse, ErrorLogListResponse, ErrorLogSummary
 
 
+def _escape_like_pattern(value: str) -> str:
+    """
+    Escape special characters in LIKE pattern to prevent LIKE injection.
+
+    Args:
+        value: User-provided search string.
+
+    Returns:
+        Escaped string safe for use in LIKE queries.
+    """
+    # Escape backslash first, then other special chars
+    return (
+        value
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
 class ErrorLogService:
     """Service for error log management."""
 
@@ -96,7 +115,9 @@ class ErrorLogService:
 
         # Apply filters
         if endpoint_filter:
-            query = query.where(ErrorLog.endpoint.ilike(f"%{endpoint_filter}%"))
+            # Escape LIKE wildcards to prevent LIKE injection
+            escaped = _escape_like_pattern(endpoint_filter)
+            query = query.where(ErrorLog.endpoint.ilike(f"%{escaped}%", escape="\\"))
         if error_type_filter:
             query = query.where(ErrorLog.error_type == error_type_filter)
         if status_code_filter:

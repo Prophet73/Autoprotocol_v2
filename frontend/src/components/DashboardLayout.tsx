@@ -29,7 +29,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             {/* Hub Apps */}
             <a
               href="https://ai-hub.svrd.ru/apps"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-[#E52713] hover:bg-red-50 transition-all"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-severin-red hover:bg-red-50 transition-all"
               title="Все приложения"
             >
               <Grid3X3 className="w-4 h-4" />
@@ -39,13 +39,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             <Link to="/" className="flex items-center gap-2">
               <img src="/severin-logo.png" alt="Severin" className="w-7 h-7" />
               <span className="text-base font-bold text-slate-800">
-                Severin<span className="text-[#E52713]">Autoprotocol</span>
+                Severin<span className="text-severin-red">Autoprotocol</span>
               </span>
             </Link>
 
             {/* Breadcrumb */}
             <div className="flex items-center gap-2 text-sm text-slate-500 ml-4">
-              <Link to="/" className="hover:text-[#E52713] transition-colors">
+              <Link to="/" className="hover:text-severin-red transition-colors">
                 <Home className="w-4 h-4" />
               </Link>
               <span>/</span>
@@ -59,7 +59,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             {(user?.role === 'admin' || user?.is_superuser) && (
               <Link
                 to="/admin"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-[#E52713] hover:bg-red-50 transition-all"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-severin-red hover:bg-red-50 transition-all"
                 title="Админ-панель"
               >
                 <Settings className="w-4 h-4" />

@@ -1,35 +1,16 @@
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Geologica:wght@300;400;500;600;700&display=swap');
 
-:root {
-  /* Severin Development Brand Colors */
-  --severin-red: #E52713;
-  --severin-red-dark: #C41F0E;
-  --severin-red-light: #FF4D3A;
-  --severin-gray: #5F6062;
-  --severin-gray-dark: #3D3E40;
-  --severin-gray-light: #8A8B8D;
+/* Severin Development Brand Colors - Tailwind 4 Theme */
+@theme {
+  --color-severin-red: #E52713;
+  --color-severin-red-dark: #C41F0E;
+  --color-severin-red-light: #FF4D3A;
+  --color-severin-gray: #5F6062;
+  --color-severin-gray-dark: #3D3E40;
+  --color-severin-gray-light: #8A8B8D;
 }
 
 body {
   font-family: 'Geologica', system-ui, -apple-system, sans-serif;
-}
-
-/* Custom utilities for Severin brand */
-@layer utilities {
-  .text-severin-red {
-    color: var(--severin-red);
-  }
-  .bg-severin-red {
-    background-color: var(--severin-red);
-  }
-  .border-severin-red {
-    border-color: var(--severin-red);
-  }
-  .text-severin-gray {
-    color: var(--severin-gray);
-  }
-  .bg-severin-gray {
-    background-color: var(--severin-gray);
-  }
 }
