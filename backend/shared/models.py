@@ -34,6 +34,25 @@ project_managers = Table(
     Column('assigned_at', DateTime(timezone=True), server_default=func.now())
 )
 
+# Many-to-many association table for user domains
+user_domains = Table(
+    'user_domains',
+    Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True),
+    Column('domain', String(50), primary_key=True),  # construction, hr, it
+    Column('assigned_at', DateTime(timezone=True), server_default=func.now())
+)
+
+# User-Project access table (simple read access like Autoprotokol)
+user_project_access = Table(
+    'user_project_access',
+    Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True),
+    Column('project_id', Integer, ForeignKey('construction_projects.id', ondelete='CASCADE'), primary_key=True),
+    Column('granted_at', DateTime(timezone=True), server_default=func.now()),
+    Column('granted_by', Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+)
+
 
 class UserRole(str, Enum):
     """User roles in the system."""
@@ -46,6 +65,7 @@ class Domain(str, Enum):
     """Available domains for role assignment."""
     CONSTRUCTION = "construction"
     HR = "hr"
+    IT = "it"
     GENERAL = "general"
 
 
@@ -120,7 +140,10 @@ class User(Base):
         default=UserRole.USER.value,
         nullable=False
     )
+    # Legacy single domain field (kept for backwards compatibility)
     domain: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # Active domain for current session (used by frontend switcher)
+    active_domain: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # Tenant (multi-tenancy)
     tenant_id: Mapped[Optional[int]] = mapped_column(
@@ -158,6 +181,30 @@ class User(Base):
         back_populates="user",
         lazy="selectin"
     )
+    domain_assignments: Mapped[list["UserDomainAssignment"]] = relationship(
+        "UserDomainAssignment",
+        back_populates="user",
+        foreign_keys="UserDomainAssignment.user_id",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
+    project_access_records: Mapped[list["UserProjectAccessRecord"]] = relationship(
+        "UserProjectAccessRecord",
+        back_populates="user",
+        foreign_keys="UserProjectAccessRecord.user_id",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
+
+    @property
+    def domains(self) -> list[str]:
+        """Get list of assigned domains."""
+        return [da.domain for da in self.domain_assignments]
+
+    @property
+    def has_multiple_domains(self) -> bool:
+        """Check if user has access to multiple domains."""
+        return len(self.domain_assignments) > 1
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email='{self.email}', role='{self.role}')>"
@@ -211,3 +258,87 @@ class ErrorLog(Base):
 
     def __repr__(self) -> str:
         return f"<ErrorLog(id={self.id}, endpoint='{self.endpoint}', error_type='{self.error_type}')>"
+
+
+class UserDomainAssignment(Base):
+    """
+    User domain assignment for multi-domain access.
+
+    Allows users to have access to multiple domains (construction, hr, it).
+    """
+    __tablename__ = "user_domain_assignments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    domain: Mapped[str] = mapped_column(String(50), nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+    assigned_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[user_id],
+        back_populates="domain_assignments",
+        lazy="selectin"
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserDomainAssignment(user_id={self.user_id}, domain='{self.domain}')>"
+
+
+class UserProjectAccessRecord(Base):
+    """
+    User project access for dashboard read permissions.
+
+    Simple model: if record exists, user has read access to project.
+    Similar to Autoprotokol's UserProjectAccess.
+    """
+    __tablename__ = "user_project_access_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    project_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("construction_projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    granted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+    granted_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True
+    )
+
+    # Relationships
+    user: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[user_id],
+        back_populates="project_access_records",
+        lazy="selectin"
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserProjectAccessRecord(user_id={self.user_id}, project_id={self.project_id})>"

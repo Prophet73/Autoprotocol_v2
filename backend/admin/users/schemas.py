@@ -16,7 +16,9 @@ class UserResponse(BaseModel):
     is_active: bool
     is_superuser: bool
     role: str
-    domain: Optional[str]
+    domain: Optional[str]  # Legacy single domain
+    domains: List[str] = []  # Multiple domains
+    active_domain: Optional[str] = None  # Currently selected domain
     created_at: datetime
     updated_at: datetime
 
@@ -60,3 +62,44 @@ class UpdateUserRequest(BaseModel):
     is_superuser: Optional[bool] = None
     role: Optional[UserRole] = None
     domain: Optional[Domain] = None
+    domains: Optional[List[str]] = None  # Set multiple domains
+    active_domain: Optional[str] = None  # Set active domain
+
+
+# Domain management schemas
+class AssignDomainsRequest(BaseModel):
+    """Request to assign multiple domains to user."""
+    user_id: int
+    domains: List[str]  # ["construction", "hr", "it"]
+
+
+class SetActiveDomainRequest(BaseModel):
+    """Request to set user's active domain."""
+    domain: str
+
+
+# Project access schemas
+class GrantProjectAccessRequest(BaseModel):
+    """Request to grant user access to a project."""
+    user_id: int
+    project_id: int
+
+
+class RevokeProjectAccessRequest(BaseModel):
+    """Request to revoke user access from a project."""
+    user_id: int
+    project_id: int
+
+
+class ProjectAccessResponse(BaseModel):
+    """Response for project access operations."""
+    user_id: int
+    project_id: int
+    granted: bool
+    message: str
+
+
+class UserProjectAccessList(BaseModel):
+    """List of projects user has access to."""
+    user_id: int
+    project_ids: List[int]

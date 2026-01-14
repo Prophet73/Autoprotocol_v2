@@ -11,12 +11,19 @@ import os
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
+
+# Rate limiting is optional - may not be installed in Docker
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    SLOWAPI_AVAILABLE = True
+except ImportError:
+    SLOWAPI_AVAILABLE = False
+    Limiter = None
 
 from .routes import health, transcription, manager, domains
 from backend.admin.users import router as users_router
@@ -36,18 +43,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Rate limiter setup
-# Uses Redis if available, falls back to in-memory
-_redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-try:
-    limiter = Limiter(
-        key_func=get_remote_address,
-        storage_uri=_redis_url,
-        strategy="fixed-window",
-    )
-except Exception:
-    # Fallback to in-memory if Redis unavailable
-    limiter = Limiter(key_func=get_remote_address)
+# Rate limiter setup (optional)
+limiter = None
+if SLOWAPI_AVAILABLE:
+    _redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    try:
+        limiter = Limiter(
+            key_func=get_remote_address,
+            storage_uri=_redis_url,
+            strategy="fixed-window",
+        )
+    except Exception:
+        # Fallback to in-memory if Redis unavailable
+        limiter = Limiter(key_func=get_remote_address)
 
 
 @asynccontextmanager
@@ -112,9 +120,10 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Add rate limiter to app state
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# Add rate limiter to app state (if available)
+if SLOWAPI_AVAILABLE and limiter:
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Error logging middleware (must be added before CORS for proper ordering)
 app.add_middleware(ErrorLoggingMiddleware)

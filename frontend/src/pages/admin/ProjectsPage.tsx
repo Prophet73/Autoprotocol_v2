@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react';
-import { projectsApi } from '../../api/adminApi';
-import type { Project, CreateProjectRequest } from '../../api/adminApi';
+import { projectsApi, usersApi } from '../../api/adminApi';
+import type { Project, CreateProjectRequest, User } from '../../api/adminApi';
 
 interface ProjectModalProps {
   isOpen: boolean;
   project: Project | null;
+  users: User[];
   onClose: () => void;
   onSave: (data: CreateProjectRequest | Partial<Project>) => void;
 }
 
-function ProjectModal({ isOpen, project, onClose, onSave }: ProjectModalProps) {
+function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalProps) {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    manager_id: null as number | null,
   });
   const [saving, setSaving] = useState(false);
 
@@ -21,11 +23,13 @@ function ProjectModal({ isOpen, project, onClose, onSave }: ProjectModalProps) {
       setFormData({
         name: project.name,
         description: project.description || '',
+        manager_id: project.manager_id,
       });
     } else {
       setFormData({
         name: '',
         description: '',
+        manager_id: null,
       });
     }
   }, [project]);
@@ -34,7 +38,11 @@ function ProjectModal({ isOpen, project, onClose, onSave }: ProjectModalProps) {
     e.preventDefault();
     setSaving(true);
     try {
-      await onSave(formData);
+      await onSave({
+        name: formData.name,
+        description: formData.description || undefined,
+        manager_id: formData.manager_id || undefined,
+      });
       onClose();
     } finally {
       setSaving(false);
@@ -75,6 +83,27 @@ function ProjectModal({ isOpen, project, onClose, onSave }: ProjectModalProps) {
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              РПУ (Руководитель проекта)
+            </label>
+            <select
+              value={formData.manager_id || ''}
+              onChange={(e) => setFormData({
+                ...formData,
+                manager_id: e.target.value ? Number(e.target.value) : null
+              })}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Не назначен</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.full_name || user.email} ({user.role})
+                </option>
+              ))}
+            </select>
+          </div>
+
           {project && (
             <div className="bg-gray-700 rounded-lg p-3">
               <p className="text-sm text-gray-400">
@@ -110,6 +139,7 @@ function ProjectModal({ isOpen, project, onClose, onSave }: ProjectModalProps) {
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -119,7 +149,18 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     loadProjects();
+    loadUsers();
   }, [showArchived]);
+
+  const loadUsers = async () => {
+    try {
+      // Load all active users as potential managers
+      const response = await usersApi.list({ limit: 500 });
+      setUsers(response.users);
+    } catch (err) {
+      console.error('Failed to load users:', err);
+    }
+  };
 
   const loadProjects = async () => {
     try {
@@ -321,6 +362,7 @@ export default function ProjectsPage() {
       <ProjectModal
         isOpen={modalOpen}
         project={editingProject}
+        users={users}
         onClose={() => setModalOpen(false)}
         onSave={handleSave}
       />

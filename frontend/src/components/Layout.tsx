@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Upload, History, Activity, LogIn, User, LogOut, LayoutDashboard, Settings, Grid3X3 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuthStore } from '../stores/authStore';
+import { DomainSwitcher } from './DomainSwitcher';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -87,6 +88,9 @@ export function Layout({ children }: LayoutProps) {
               <div className="flex items-center gap-1 ml-3 pl-3 border-l border-slate-200">
                 {isAuthenticated ? (
                   <>
+                    {/* Domain switcher */}
+                    <DomainSwitcher />
+
                     {/* Dashboard link for managers */}
                     {(user?.role === 'manager' || user?.role === 'admin' || user?.is_superuser) && (
                       <Link

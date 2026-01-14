@@ -28,8 +28,11 @@ export function UploadPage() {
 
   // Meeting type for HR/IT domains
   const [meetingType, setMeetingType] = useState('');
-  const userDomain = user?.domain || 'construction';
+  // Use active_domain (from domain switcher) or fall back to first domain or 'construction'
+  const userDomain = user?.active_domain || user?.domain || (user?.domains?.[0]) || 'construction';
   const showMeetingTypeSelector = userDomain !== 'construction';
+  // For construction, show project code; for HR/IT, project code is optional
+  const showProjectCodeRequired = userDomain === 'construction';
 
   // Email notification (optional)
   const [notifyEmails, setNotifyEmails] = useState('');
@@ -63,7 +66,10 @@ export function UploadPage() {
   const mutation = useMutation({
     mutationFn: async () => {
       if (!file) throw new Error('No file selected');
-      if (!codeValidation?.valid) throw new Error('Invalid project code');
+      // Only require valid project code for construction domain
+      if (showProjectCodeRequired && !codeValidation?.valid) {
+        throw new Error('Invalid project code');
+      }
 
       const response = await createTranscription(file, {
         languages: languages.join(','),
@@ -71,7 +77,8 @@ export function UploadPage() {
         generate_tasks: artifacts.tasks,
         generate_report: artifacts.report,
         generate_analysis: artifacts.analysis,
-        project_code: projectCode,
+        // Only send project_code if it's valid (for construction or if manually entered for HR/IT)
+        project_code: codeValidation?.valid ? projectCode : undefined,
         meeting_type: showMeetingTypeSelector ? meetingType : undefined,
         notify_emails: notifyEmails.trim() || undefined,
       });
@@ -84,7 +91,8 @@ export function UploadPage() {
   });
 
   const hasAnyArtifact = Object.values(artifacts).some(Boolean);
-  const isCodeValid = codeValidation?.valid === true;
+  // Project code is only required for construction domain
+  const isCodeValid = showProjectCodeRequired ? codeValidation?.valid === true : true;
   const isMeetingTypeValid = !showMeetingTypeSelector || meetingType !== '';
   const canSubmit = file && hasAnyArtifact && isCodeValid && isMeetingTypeValid && !mutation.isPending;
 
@@ -92,7 +100,8 @@ export function UploadPage() {
     <div className="max-w-3xl mx-auto">
       {/* Main card */}
       <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden">
-        {/* Project code section */}
+        {/* Project code section - required for construction, optional for HR/IT */}
+        {showProjectCodeRequired ? (
         <div className="px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-red-50/30">
           <h2 className="text-sm font-semibold text-slate-800 mb-2">
             <span className="text-severin-red">1.</span> Введите код проекта
@@ -144,12 +153,13 @@ export function UploadPage() {
             </div>
           </div>
         </div>
+        ) : null}
 
         {/* Meeting type selector (for HR/IT domains) */}
         {showMeetingTypeSelector && (
-          <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/50">
+          <div className="px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-purple-50/30">
             <h2 className="text-sm font-semibold text-slate-800 mb-2">
-              <span className="text-severin-red">1.5</span> Выберите тип встречи
+              <span className="text-severin-red">1.</span> Выберите тип встречи
             </h2>
             <MeetingTypeSelector
               domain={userDomain}
@@ -217,9 +227,15 @@ export function UploadPage() {
             </div>
           )}
 
-          {!isCodeValid && file && (
+          {showProjectCodeRequired && !isCodeValid && file && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm mb-3 text-center">
               Введите корректный код проекта (4 цифры)
+            </div>
+          )}
+
+          {showMeetingTypeSelector && !isMeetingTypeValid && file && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm mb-3 text-center">
+              Выберите тип встречи
             </div>
           )}
 

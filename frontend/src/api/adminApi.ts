@@ -80,6 +80,11 @@ export const authApi = {
     return response.data;
   },
 
+  setActiveDomain: async (domain: string): Promise<CurrentUser> => {
+    const response = await adminApi.post('/auth/me/domain', { domain });
+    return response.data;
+  },
+
   // Dev tools (only in dev mode)
   devGetUsers: async (): Promise<DevUsersResponse> => {
     const response = await adminApi.get('/auth/dev/users');
@@ -156,6 +161,7 @@ export interface GlobalStats {
   domains: {
     construction: number;
     hr: number;
+    it: number;
     general: number;
   };
   redis_connected: boolean;

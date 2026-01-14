@@ -9,19 +9,14 @@ Endpoints for:
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from backend.shared.database import get_db
 from backend.shared.models import User
-
-# Rate limiter for auth endpoints
-limiter = Limiter(key_func=get_remote_address)
 from .dependencies import (
     verify_password,
     get_password_hash,
@@ -52,7 +47,9 @@ class UserInfo(BaseModel):
     username: str | None
     full_name: str | None
     role: str
-    domain: str | None
+    domain: str | None  # Legacy single domain
+    domains: list[str] = []  # Multiple domains
+    active_domain: str | None = None  # Currently selected domain
     is_superuser: bool
     tenant_id: int | None
 
@@ -77,9 +74,7 @@ class RegisterRequest(BaseModel):
     summary="Вход в систему",
     description="Получение JWT токена по email/username и паролю."
 )
-@limiter.limit("5/minute")  # 5 login attempts per minute per IP
 async def login(
-    request: Request,  # Required for rate limiter
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
@@ -134,9 +129,7 @@ async def login(
     summary="Регистрация",
     description="Создание нового аккаунта пользователя."
 )
-@limiter.limit("3/minute")  # 3 registrations per minute per IP
 async def register(
-    request: Request,  # Required for rate limiter
     data: RegisterRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserInfo:
@@ -178,6 +171,48 @@ async def register(
 )
 async def get_me(current_user: CurrentUser) -> UserInfo:
     """Get current user info."""
+    return UserInfo.model_validate(current_user)
+
+
+class SetDomainRequest(BaseModel):
+    """Request to set active domain."""
+    domain: str
+
+
+@router.post(
+    "/me/domain",
+    response_model=UserInfo,
+    summary="Переключить домен",
+    description="Установить активный домен для текущей сессии."
+)
+async def set_active_domain(
+    data: SetDomainRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserInfo:
+    """
+    Set active domain for current user.
+
+    User must have access to the domain (or be superuser).
+    """
+    # Check if user has access to domain
+    allowed_domains = current_user.domains if current_user.domains else []
+
+    # Superusers can access any domain
+    if current_user.is_superuser:
+        allowed_domains = ["construction", "hr", "it", "general"]
+
+    if data.domain not in allowed_domains:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"No access to domain: {data.domain}. Allowed: {allowed_domains}"
+        )
+
+    # Update active domain
+    current_user.active_domain = data.domain
+    await db.commit()
+    await db.refresh(current_user)
+
     return UserInfo.model_validate(current_user)
 
 

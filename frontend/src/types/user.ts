@@ -13,7 +13,9 @@ export interface CurrentUser {
   username: string | null;
   full_name: string | null;
   role: string;
-  domain: string | null;
+  domain: string | null;  // Legacy single domain
+  domains: string[];  // Multiple domains
+  active_domain: string | null;  // Currently selected domain
   is_superuser: boolean;
   tenant_id: number | null;
 }

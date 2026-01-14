@@ -19,6 +19,7 @@ class DomainStats(BaseModel):
     """Statistics by domain."""
     construction: int = 0
     hr: int = 0
+    it: int = 0
     general: int = 0
 
 

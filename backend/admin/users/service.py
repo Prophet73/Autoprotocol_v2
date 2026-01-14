@@ -11,7 +11,7 @@ from typing import Optional, List
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.shared.models import User, UserRole, Domain
+from backend.shared.models import User, UserRole, Domain, UserDomainAssignment, UserProjectAccessRecord
 from backend.core.auth.dependencies import get_password_hash
 from .schemas import (
     UserResponse,
@@ -198,3 +198,173 @@ class UserService:
         await self.db.delete(user)
         await self.db.flush()
         return True
+
+    # =========================================================================
+    # Domain Management
+    # =========================================================================
+
+    async def assign_domains(
+        self,
+        user_id: int,
+        domains: List[str],
+        assigned_by_id: Optional[int] = None
+    ) -> User:
+        """
+        Assign multiple domains to a user (replaces existing).
+
+        Args:
+            user_id: User ID
+            domains: List of domain names ["construction", "hr", "it"]
+            assigned_by_id: ID of user who assigned the domains
+
+        Returns:
+            Updated user
+        """
+        user = await self.get_user(user_id)
+        if not user:
+            raise ValueError(f"User with id {user_id} not found")
+
+        # Clear existing domain assignments
+        await self.db.execute(
+            select(UserDomainAssignment).where(
+                UserDomainAssignment.user_id == user_id
+            )
+        )
+        for da in user.domain_assignments:
+            await self.db.delete(da)
+
+        # Add new domain assignments
+        for domain in domains:
+            if domain in [d.value for d in Domain]:
+                assignment = UserDomainAssignment(
+                    user_id=user_id,
+                    domain=domain,
+                    assigned_by_id=assigned_by_id
+                )
+                self.db.add(assignment)
+
+        # Also update legacy domain field (first domain or None)
+        user.domain = domains[0] if domains else None
+
+        # Set active domain if not set
+        if not user.active_domain and domains:
+            user.active_domain = domains[0]
+
+        await self.db.flush()
+        await self.db.refresh(user)
+        return user
+
+    async def set_active_domain(self, user_id: int, domain: str) -> User:
+        """
+        Set user's active domain for current session.
+
+        Args:
+            user_id: User ID
+            domain: Domain to set as active
+
+        Returns:
+            Updated user
+        """
+        user = await self.get_user(user_id)
+        if not user:
+            raise ValueError(f"User with id {user_id} not found")
+
+        # Verify user has access to this domain
+        if domain not in user.domains and not user.is_superuser:
+            raise ValueError(f"User does not have access to domain: {domain}")
+
+        user.active_domain = domain
+        await self.db.flush()
+        await self.db.refresh(user)
+        return user
+
+    async def get_user_domains(self, user_id: int) -> List[str]:
+        """Get list of domains assigned to user."""
+        user = await self.get_user(user_id)
+        if not user:
+            return []
+        return user.domains
+
+    # =========================================================================
+    # Project Access Management
+    # =========================================================================
+
+    async def grant_project_access(
+        self,
+        user_id: int,
+        project_id: int,
+        granted_by_id: Optional[int] = None
+    ) -> bool:
+        """
+        Grant user read access to a project.
+
+        Args:
+            user_id: User ID
+            project_id: Project ID
+            granted_by_id: ID of user who granted access
+
+        Returns:
+            True if access granted, False if already exists
+        """
+        # Check if access already exists
+        result = await self.db.execute(
+            select(UserProjectAccessRecord).where(
+                UserProjectAccessRecord.user_id == user_id,
+                UserProjectAccessRecord.project_id == project_id
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            return False  # Already has access
+
+        access = UserProjectAccessRecord(
+            user_id=user_id,
+            project_id=project_id,
+            granted_by_id=granted_by_id
+        )
+        self.db.add(access)
+        await self.db.flush()
+        return True
+
+    async def revoke_project_access(self, user_id: int, project_id: int) -> bool:
+        """
+        Revoke user's read access to a project.
+
+        Args:
+            user_id: User ID
+            project_id: Project ID
+
+        Returns:
+            True if revoked, False if access didn't exist
+        """
+        result = await self.db.execute(
+            select(UserProjectAccessRecord).where(
+                UserProjectAccessRecord.user_id == user_id,
+                UserProjectAccessRecord.project_id == project_id
+            )
+        )
+        access = result.scalar_one_or_none()
+        if not access:
+            return False
+
+        await self.db.delete(access)
+        await self.db.flush()
+        return True
+
+    async def get_user_project_ids(self, user_id: int) -> List[int]:
+        """Get list of project IDs user has access to."""
+        result = await self.db.execute(
+            select(UserProjectAccessRecord.project_id).where(
+                UserProjectAccessRecord.user_id == user_id
+            )
+        )
+        return [row[0] for row in result.all()]
+
+    async def get_project_user_ids(self, project_id: int) -> List[int]:
+        """Get list of user IDs who have access to a project."""
+        result = await self.db.execute(
+            select(UserProjectAccessRecord.user_id).where(
+                UserProjectAccessRecord.project_id == project_id
+            )
+        )
+        return [row[0] for row in result.all()]

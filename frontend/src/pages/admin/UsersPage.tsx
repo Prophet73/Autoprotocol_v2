@@ -135,6 +135,7 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
               <option value="">Без домена</option>
               <option value="construction">Строительство</option>
               <option value="hr">HR</option>
+              <option value="it">IT</option>
               <option value="general">Общий</option>
             </select>
           </div>
@@ -280,6 +281,7 @@ export default function UsersPage() {
           <option value="">Все домены</option>
           <option value="construction">Строительство</option>
           <option value="hr">HR</option>
+          <option value="it">IT</option>
           <option value="general">Общий</option>
         </select>
       </div>

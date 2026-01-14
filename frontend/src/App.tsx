@@ -6,6 +6,9 @@ import { UploadPage } from './pages/UploadPage';
 import { JobPage } from './pages/JobPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { ManagerDashboardPage } from './pages/ManagerDashboardPage';
+import { HRDashboardPage } from './pages/HRDashboardPage';
+import { ITDashboardPage } from './pages/ITDashboardPage';
+import { DomainDashboardRouter } from './components/DomainDashboardRouter';
 
 // Admin imports
 import LoginPage from './pages/admin/LoginPage';
@@ -43,14 +46,46 @@ function App() {
           {/* SSO callback */}
           <Route path="/auth/callback" element={<SSOCallbackPage />} />
 
-          {/* Manager dashboard (requires manager role) - full-width layout */}
+          {/* Domain-aware dashboard - routes to appropriate dashboard based on user's domain */}
           <Route
             path="/dashboard"
             element={
               <AuthGuard requiredRole="manager">
                 <DashboardLayout>
+                  <DomainDashboardRouter />
+                </DashboardLayout>
+              </AuthGuard>
+            }
+          />
+
+          {/* Direct dashboard routes for each domain */}
+          <Route
+            path="/dashboard/construction"
+            element={
+              <AuthGuard requiredRole="manager">
+                <DashboardLayout>
                   <ManagerDashboardPage />
                 </DashboardLayout>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/dashboard/hr"
+            element={
+              <AuthGuard requiredRole="manager">
+                <Layout>
+                  <HRDashboardPage />
+                </Layout>
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/dashboard/it"
+            element={
+              <AuthGuard requiredRole="manager">
+                <Layout>
+                  <ITDashboardPage />
+                </Layout>
               </AuthGuard>
             }
           />

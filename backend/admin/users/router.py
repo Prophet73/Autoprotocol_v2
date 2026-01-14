@@ -20,6 +20,11 @@ from .schemas import (
     AssignRoleResponse,
     CreateUserRequest,
     UpdateUserRequest,
+    AssignDomainsRequest,
+    GrantProjectAccessRequest,
+    RevokeProjectAccessRequest,
+    ProjectAccessResponse,
+    UserProjectAccessList,
 )
 
 
@@ -188,3 +193,131 @@ async def delete_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User with id {user_id} not found"
         )
+
+
+# =============================================================================
+# Domain Management Endpoints
+# =============================================================================
+
+@router.post(
+    "/{user_id}/domains",
+    response_model=UserResponse,
+    summary="Назначить домены",
+    description="Назначить пользователю доступ к нескольким доменам (заменяет текущие)."
+)
+async def assign_domains(
+    user_id: int,
+    domains: list[str],
+    current_user: SuperUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserResponse:
+    """
+    Assign multiple domains to a user.
+
+    Replaces all existing domain assignments.
+    Valid domains: construction, hr, it, general
+    """
+    service = UserService(db)
+    try:
+        user = await service.assign_domains(
+            user_id=user_id,
+            domains=domains,
+            assigned_by_id=current_user.id
+        )
+        return UserResponse.model_validate(user)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.get(
+    "/{user_id}/domains",
+    response_model=list[str],
+    summary="Получить домены пользователя",
+    description="Получить список доменов, к которым пользователь имеет доступ."
+)
+async def get_user_domains(
+    user_id: int,
+    current_user: SuperUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[str]:
+    """Get list of domains assigned to user."""
+    service = UserService(db)
+    return await service.get_user_domains(user_id)
+
+
+# =============================================================================
+# Project Access Management Endpoints
+# =============================================================================
+
+@router.post(
+    "/{user_id}/projects/{project_id}",
+    response_model=ProjectAccessResponse,
+    summary="Дать доступ к проекту",
+    description="Выдать пользователю права на чтение проекта (dashboard)."
+)
+async def grant_project_access(
+    user_id: int,
+    project_id: int,
+    current_user: SuperUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ProjectAccessResponse:
+    """
+    Grant user read access to a project.
+
+    Similar to Autoprotokol's access model.
+    """
+    service = UserService(db)
+    granted = await service.grant_project_access(
+        user_id=user_id,
+        project_id=project_id,
+        granted_by_id=current_user.id
+    )
+    return ProjectAccessResponse(
+        user_id=user_id,
+        project_id=project_id,
+        granted=granted,
+        message="Access granted" if granted else "Access already exists"
+    )
+
+
+@router.delete(
+    "/{user_id}/projects/{project_id}",
+    response_model=ProjectAccessResponse,
+    summary="Отозвать доступ к проекту",
+    description="Отозвать у пользователя права на чтение проекта."
+)
+async def revoke_project_access(
+    user_id: int,
+    project_id: int,
+    current_user: SuperUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ProjectAccessResponse:
+    """Revoke user's read access to a project."""
+    service = UserService(db)
+    revoked = await service.revoke_project_access(user_id, project_id)
+    return ProjectAccessResponse(
+        user_id=user_id,
+        project_id=project_id,
+        granted=not revoked,
+        message="Access revoked" if revoked else "Access didn't exist"
+    )
+
+
+@router.get(
+    "/{user_id}/projects",
+    response_model=UserProjectAccessList,
+    summary="Проекты пользователя",
+    description="Получить список проектов, к которым пользователь имеет доступ."
+)
+async def get_user_projects(
+    user_id: int,
+    current_user: SuperUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserProjectAccessList:
+    """Get list of project IDs user has access to."""
+    service = UserService(db)
+    project_ids = await service.get_user_project_ids(user_id)
+    return UserProjectAccessList(user_id=user_id, project_ids=project_ids)

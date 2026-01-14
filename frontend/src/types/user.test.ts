@@ -16,6 +16,8 @@ describe('User Types', () => {
         full_name: 'Test User',
         role: 'user',
         domain: null,
+        domains: ['construction'],
+        active_domain: 'construction',
         is_superuser: false,
         tenant_id: null,
       };
@@ -23,6 +25,7 @@ describe('User Types', () => {
       expect(user.id).toBe(1);
       expect(user.email).toBe('test@example.com');
       expect(user.role).toBe('user');
+      expect(user.domains).toContain('construction');
     });
 
     it('should allow null for optional fields', () => {
@@ -33,12 +36,15 @@ describe('User Types', () => {
         full_name: null,
         role: 'admin',
         domain: null,
+        domains: [],
+        active_domain: null,
         is_superuser: true,
         tenant_id: null,
       };
 
       expect(user.username).toBeNull();
       expect(user.full_name).toBeNull();
+      expect(user.active_domain).toBeNull();
     });
   });
 
