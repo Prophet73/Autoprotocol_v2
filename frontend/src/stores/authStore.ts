@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { CurrentUser } from '../types/user';
+import type { CurrentUser } from '../types/user';
 
 // Re-export for backwards compatibility
 export type User = CurrentUser;

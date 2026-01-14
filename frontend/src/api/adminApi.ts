@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { useAuthStore } from '../stores/authStore';
 import { API_BASE_URL } from '../config/api';
-import {
+import type {
   CurrentUser,
   AdminUser,
   UserListResponse,
