@@ -31,7 +31,8 @@ from ...core.storage import get_job_store, JobStore
 from ...core.utils.file_security import validate_file_path
 from ...core.storage.job_store import JobData
 from ...core.transcription.models import TranscriptionRequest, JobStatus
-from ...tasks.transcription import process_transcription_task
+from ...tasks.transcription import process_transcription_task, _sync_job_to_db
+from ...core.utils.text_extraction import is_text_file, extract_text_from_file
 from ...shared.database import get_db
 from ...domains.construction.project_service import ProjectService
 from ...core.auth.dependencies import get_optional_user
@@ -226,6 +227,22 @@ async def create_transcription(
 
     store.create(job_data)
 
+    # Create TranscriptionJob record in PostgreSQL for stats tracking
+    try:
+        file_size = input_file.stat().st_size if input_file.exists() else None
+        _sync_job_to_db(
+            job_id=job_id,
+            domain=domain_type or "construction",
+            meeting_type=meeting_type,
+            user_id=uploader_id,
+            project_id=project_id,
+            source_filename=file.filename,
+            source_size_bytes=file_size,
+            status="pending",
+        )
+    except Exception as e:
+        logger.warning(f"Failed to sync job to DB (non-fatal): {e}")
+
     # Artifact options for task
     artifact_options = {
         "generate_transcript": generate_transcript,
@@ -235,7 +252,27 @@ async def create_transcription(
         "meeting_type": meeting_type,
     }
 
-    # Queue Celery task
+    # Check if this is a text file (direct report generation without transcription)
+    if is_text_file(file.filename):
+        logger.info(f"Text file detected: {file.filename}, using direct report generation")
+        # Run direct report generation in background (no GPU needed)
+        background_tasks.add_task(
+            run_text_report_generation,
+            job_id=job_id,
+            input_file=input_file,
+            output_dir=OUTPUT_DIR / job_id,
+            artifact_options=artifact_options,
+            domain_type=domain_type,
+            notify_emails=notify_emails_list,
+        )
+        return JobResponse(
+            job_id=job_id,
+            status=JobStatus.PENDING,
+            created_at=now,
+            message="Text file queued for report generation",
+        )
+
+    # Queue Celery task for audio/video files
     try:
         process_transcription_task.delay(
             job_id=job_id,
@@ -604,4 +641,201 @@ async def run_transcription_background(
 
     except Exception as e:
         logger.exception(f"Job {job_id} failed: {e}")
+        store.fail(job_id, str(e))
+
+
+async def run_text_report_generation(
+    job_id: str,
+    input_file: Path,
+    output_dir: Path,
+    artifact_options: dict = None,
+    domain_type: str = None,
+    notify_emails: list = None,
+):
+    """
+    Background task for generating reports from text files (.txt, .docx).
+    Bypasses transcription pipeline - directly generates LLM-based reports.
+    """
+    import os
+    from datetime import datetime
+    from dataclasses import dataclass, field
+    from typing import Dict, List
+
+    store = get_store()
+    artifact_options = artifact_options or {}
+
+    def progress_callback(stage: str, percent: int, message: str):
+        store.update_progress(job_id, stage, percent, message)
+
+    try:
+        store.update(job_id, status=JobStatus.PROCESSING)
+        progress_callback("text_extraction", 10, "Extracting text from file...")
+
+        # Extract text from file
+        text_content = extract_text_from_file(input_file)
+        if not text_content:
+            raise ValueError(f"Failed to extract text from {input_file}")
+
+        logger.info(f"Extracted {len(text_content)} characters from {input_file.name}")
+        progress_callback("text_extraction", 20, f"Extracted {len(text_content)} characters")
+
+        # Create output directory
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create a minimal "fake" TranscriptionResult for generators
+        @dataclass
+        class MinimalSegment:
+            text: str
+            speaker: str = "Speaker"
+            start: float = 0.0
+            end: float = 0.0
+            language: str = "ru"
+            translated_text: str = ""
+
+            @property
+            def start_formatted(self) -> str:
+                """Format start time as MM:SS."""
+                mins = int(self.start // 60)
+                secs = int(self.start % 60)
+                return f"{mins:02d}:{secs:02d}"
+
+        @dataclass
+        class MinimalMetadata:
+            source_file: str = ""
+            duration: float = 0.0
+
+            @property
+            def duration_formatted(self) -> str:
+                mins = int(self.duration // 60)
+                secs = int(self.duration % 60)
+                return f"{mins:02d}:{secs:02d}"
+
+        @dataclass
+        class MinimalResult:
+            source_file: str = ""
+            segments: List[MinimalSegment] = field(default_factory=list)
+            processing_time_seconds: float = 0.0
+            segment_count: int = 0
+            language_distribution: Dict[str, int] = field(default_factory=dict)
+            speakers: Dict[str, dict] = field(default_factory=dict)
+
+            @property
+            def metadata(self) -> MinimalMetadata:
+                return MinimalMetadata(source_file=self.source_file, duration=0.0)
+
+            @property
+            def speaker_count(self) -> int:
+                return len(self.speakers)
+
+            def get_full_text(self) -> str:
+                return "\n".join(seg.text for seg in self.segments)
+
+            def to_plain_text(self) -> str:
+                """Convert to plain text for LLM analysis."""
+                lines = []
+                for seg in self.segments:
+                    lines.append(f"[{seg.start_formatted}] {seg.speaker}: {seg.text}")
+                return "\n".join(lines)
+
+        # Split text into paragraphs as "segments"
+        paragraphs = [p.strip() for p in text_content.split("\n\n") if p.strip()]
+        if not paragraphs:
+            paragraphs = [text_content]
+
+        segments = [MinimalSegment(text=p, speaker="Speaker 1") for p in paragraphs]
+        result = MinimalResult(
+            source_file=input_file.name,
+            segments=segments,
+            segment_count=len(segments),
+            language_distribution={"ru": len(segments)},
+            speakers={"Speaker 1": {"total_time": 0, "segment_count": len(segments)}},
+        )
+
+        # Check if Gemini is configured
+        has_gemini = bool(os.getenv("GOOGLE_API_KEY"))
+        output_files = {}
+
+        if not has_gemini:
+            raise ValueError("GOOGLE_API_KEY not configured - cannot generate LLM reports")
+
+        progress_callback("llm_generation", 30, "Starting LLM report generation...")
+
+        # Import generators based on domain
+        domain = domain_type or "construction"
+
+        if domain == "construction":
+            from ...domains.construction.generators import (
+                generate_tasks,
+                generate_report,
+                generate_risk_brief,
+            )
+
+            # Generate tasks
+            if artifact_options.get("generate_tasks", False):
+                progress_callback("llm_generation", 50, "Generating tasks.xlsx...")
+                try:
+                    tasks_path = generate_tasks(result, output_dir)
+                    output_files["tasks"] = str(tasks_path)
+                    logger.info(f"Generated tasks: {tasks_path}")
+                except Exception as e:
+                    logger.error(f"Tasks generation failed: {e}")
+
+            # Generate report
+            if artifact_options.get("generate_report", False):
+                progress_callback("llm_generation", 70, "Generating report.docx...")
+                try:
+                    report_path = generate_report(result, output_dir)
+                    output_files["report"] = str(report_path)
+                    logger.info(f"Generated report: {report_path}")
+                except Exception as e:
+                    logger.error(f"Report generation failed: {e}")
+
+            # Generate risk brief (analysis)
+            if artifact_options.get("generate_analysis", False):
+                progress_callback("llm_generation", 90, "Generating risk_brief.html...")
+                try:
+                    risk_brief_path = generate_risk_brief(result, output_dir)
+                    output_files["risk_brief"] = str(risk_brief_path)
+                    logger.info(f"Generated risk brief: {risk_brief_path}")
+                except Exception as e:
+                    logger.error(f"Risk brief generation failed: {e}")
+
+        # Save original text as transcript
+        if artifact_options.get("generate_transcript", True):
+            transcript_path = output_dir / f"transcript_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            with open(transcript_path, 'w', encoding='utf-8') as f:
+                f.write(text_content)
+            output_files["transcript"] = str(transcript_path)
+
+        # Mark completed
+        store.complete(
+            job_id=job_id,
+            output_files=output_files,
+            processing_time=0,
+            segment_count=len(segments),
+            language_distribution={"ru": len(segments)},
+        )
+
+        logger.info(f"Text report job {job_id} completed successfully")
+
+        # Send email notification
+        if notify_emails:
+            try:
+                from ...core.email.service import send_report_email
+
+                job_data = store.get(job_id)
+                project_name = getattr(job_data, 'project_code', None)
+
+                send_report_email(
+                    recipients=notify_emails,
+                    job_id=job_id,
+                    project_name=project_name,
+                    output_files=output_files,
+                )
+                logger.info(f"Email notification sent to {notify_emails}")
+            except Exception as e:
+                logger.error(f"Email notification failed (non-fatal): {e}")
+
+    except Exception as e:
+        logger.exception(f"Text report job {job_id} failed: {e}")
         store.fail(job_id, str(e))

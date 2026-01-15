@@ -271,6 +271,7 @@ async def dev_list_users(
                 "role": u.role,
                 "is_superuser": u.is_superuser,
                 "full_name": u.full_name,
+                "domain": u.active_domain or u.domain,
             }
             for u in users
         ],
@@ -282,19 +283,18 @@ async def dev_list_users(
     "/dev/login",
     response_model=Token,
     summary="[DEV] Быстрый вход для тестирования",
-    description="Вход под тестовым пользователем по роли (только в dev режиме)."
+    description="Вход под тестовым пользователем по роли или email (только в dev режиме)."
 )
 async def dev_login(
     data: DevLoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
     """
-    Quick login as a specific role for development testing.
+    Quick login as a specific role or existing user for development testing.
 
-    Creates user if doesn't exist:
-    - admin: admin@dev.local
-    - manager: manager@dev.local
-    - user: user@dev.local
+    Accepts:
+    - Role name (admin/manager/user) - creates user if doesn't exist
+    - Email address - logs in as existing user
     """
     if not DEV_MODE:
         raise HTTPException(
@@ -324,33 +324,48 @@ async def dev_login(
         },
     }
 
-    if data.role not in role_configs:
+    user = None
+
+    # Check if input is an email (contains @)
+    if "@" in data.role:
+        # Login as existing user by email
+        result = await db.execute(
+            select(User).where(User.email == data.role, User.is_active == True)
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with email {data.role} not found"
+            )
+    elif data.role in role_configs:
+        # Login by role - find or create
+        config = role_configs[data.role]
+
+        result = await db.execute(
+            select(User).where(User.email == config["email"])
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            # Create dev user
+            user = User(
+                email=config["email"],
+                hashed_password=get_password_hash("devpassword"),
+                full_name=config["full_name"],
+                role=config["role"],
+                is_superuser=config["is_superuser"],
+                is_active=True,
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+    else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid role. Available: {list(role_configs.keys())}"
+            detail=f"Invalid input. Use role ({list(role_configs.keys())}) or email address."
         )
-
-    config = role_configs[data.role]
-
-    # Find or create user
-    result = await db.execute(
-        select(User).where(User.email == config["email"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        # Create dev user
-        user = User(
-            email=config["email"],
-            hashed_password=get_password_hash("devpassword"),
-            full_name=config["full_name"],
-            role=config["role"],
-            is_superuser=config["is_superuser"],
-            is_active=True,
-        )
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
 
     # Create access token
     access_token = create_access_token(

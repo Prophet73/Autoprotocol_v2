@@ -192,6 +192,215 @@ export const statsApi = {
 };
 
 // =============================================================================
+// Comprehensive Stats API (New)
+// =============================================================================
+
+export interface StatsFilters {
+  date_from?: string;
+  date_to?: string;
+  domain?: string;
+  meeting_type?: string;
+  project_id?: number;
+  user_id?: number;
+}
+
+export interface KPIStats {
+  total_jobs: number;
+  completed_jobs: number;
+  failed_jobs: number;
+  pending_jobs: number;
+  processing_jobs: number;
+  success_rate: number;
+  total_processing_hours: number;
+  avg_processing_minutes: number;
+  total_audio_hours: number;
+  total_cost_usd: number;
+  avg_cost_per_job: number;
+}
+
+export interface MeetingTypeStats {
+  meeting_type: string;
+  name: string;
+  count: number;
+  completed: number;
+  failed: number;
+  success_rate: number;
+  total_processing_seconds: number;
+  total_audio_seconds: number;
+}
+
+export interface DomainStats {
+  domain: string;
+  display_name: string;
+  total_jobs: number;
+  completed_jobs: number;
+  failed_jobs: number;
+  success_rate: number;
+  total_processing_hours: number;
+  total_audio_hours: number;
+  total_cost_usd: number;
+  meeting_types: MeetingTypeStats[];
+}
+
+export interface DomainsBreakdown {
+  domains: DomainStats[];
+}
+
+export interface UserActivityStats {
+  user_id: number;
+  email: string;
+  full_name: string | null;
+  role: string;
+  total_jobs: number;
+  completed_jobs: number;
+  domains_used: string[];
+  last_activity: string | null;
+}
+
+export interface UsersStats {
+  total_users: number;
+  active_users: number;
+  by_role: Record<string, number>;
+  by_domain: Record<string, number>;
+  top_users: UserActivityStats[];
+}
+
+export interface CostStats {
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_usd: number;
+  avg_cost_per_job: number;
+  by_domain: Record<string, number>;
+  input_price_per_million: number;
+  output_price_per_million: number;
+}
+
+export interface TimelinePoint {
+  date: string;
+  jobs: number;
+  completed: number;
+  failed: number;
+}
+
+export interface TimelineStats {
+  points: TimelinePoint[];
+  period: string;
+  total_days: number;
+}
+
+export interface ErrorStats {
+  total_errors: number;
+  error_rate: number;
+  by_stage: Record<string, number>;
+  by_domain: Record<string, number>;
+  recent_errors: Array<{
+    id: number;
+    job_id: string;
+    error_message: string;
+    error_stage: string;
+    created_at: string;
+  }>;
+}
+
+export interface ArtifactsStats {
+  transcripts_generated: number;
+  tasks_generated: number;
+  reports_generated: number;
+  analysis_generated: number;
+  transcript_rate: number;
+  tasks_rate: number;
+  report_rate: number;
+  analysis_rate: number;
+}
+
+export interface FullDashboardResponse {
+  overview: KPIStats;
+  domains: DomainsBreakdown;
+  users: UsersStats;
+  costs: CostStats;
+  timeline: TimelineStats;
+  artifacts: ArtifactsStats;
+  errors: ErrorStats;
+  filters_applied: StatsFilters;
+  generated_at: string;
+}
+
+export interface DomainStatsResponse {
+  domain: DomainStats;
+  projects?: {
+    projects: Array<{
+      project_id: number;
+      project_name: string;
+      project_code: string;
+      total_jobs: number;
+      completed_jobs: number;
+      failed_jobs: number;
+      success_rate: number;
+      total_processing_hours: number;
+      total_audio_hours: number;
+      last_activity: string | null;
+    }>;
+    total_projects: number;
+  };
+  timeline: TimelineStats;
+  errors: ErrorStats;
+  filters_applied: StatsFilters;
+  generated_at: string;
+}
+
+export interface UsersStatsResponse {
+  users: UsersStats;
+  timeline: TimelineStats;
+  filters_applied: StatsFilters;
+  generated_at: string;
+}
+
+export interface CostStatsResponse {
+  costs: CostStats;
+  timeline: Array<{ date: string; cost: number }>;
+  filters_applied: StatsFilters;
+  generated_at: string;
+}
+
+export interface DomainInfo {
+  id: string;
+  name: string;
+  meeting_types: Array<{ id: string; name: string }>;
+}
+
+export const comprehensiveStatsApi = {
+  getDashboard: async (filters?: StatsFilters): Promise<FullDashboardResponse> => {
+    const response = await adminApi.get('/api/admin/stats/dashboard', { params: filters });
+    return response.data;
+  },
+
+  getDomains: async (): Promise<{ domains: DomainInfo[] }> => {
+    const response = await adminApi.get('/api/admin/stats/domains');
+    return response.data;
+  },
+
+  getDomainStats: async (domainId: string, filters?: StatsFilters): Promise<DomainStatsResponse> => {
+    const response = await adminApi.get(`/api/admin/stats/domain/${domainId}`, { params: filters });
+    return response.data;
+  },
+
+  getUsersStats: async (filters?: StatsFilters): Promise<UsersStatsResponse> => {
+    const response = await adminApi.get('/api/admin/stats/users', { params: filters });
+    return response.data;
+  },
+
+  getCostsStats: async (filters?: StatsFilters): Promise<CostStatsResponse> => {
+    const response = await adminApi.get('/api/admin/stats/costs', { params: filters });
+    return response.data;
+  },
+
+  getHealth: async (): Promise<SystemHealth> => {
+    const response = await adminApi.get('/api/admin/stats/health');
+    return response.data;
+  },
+};
+
+// =============================================================================
 // Settings API
 // =============================================================================
 
@@ -416,6 +625,44 @@ export interface DomainInfo {
   name: string;
   template_count: number;
 }
+
+// =============================================================================
+// Jobs API (Admin)
+// =============================================================================
+
+export interface AdminJobInfo {
+  job_id: string;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+  source_file: string | null;
+  progress_percent: number;
+  current_stage: string | null;
+  message: string | null;
+  project_code: string | null;
+  uploader_email: string | null;
+  error: string | null;
+}
+
+export interface AdminJobsListResponse {
+  jobs: AdminJobInfo[];
+}
+
+export const jobsApi = {
+  list: async (limit: number = 100): Promise<AdminJobsListResponse> => {
+    const response = await adminApi.get('/api/admin/jobs', { params: { limit } });
+    return response.data;
+  },
+
+  cancel: async (jobId: string): Promise<{ success: boolean; message: string }> => {
+    const response = await adminApi.delete(`/api/admin/jobs/${jobId}`);
+    return response.data;
+  },
+};
+
+// =============================================================================
+// Prompts API
+// =============================================================================
 
 export const promptsApi = {
   list: async (params?: { domain?: string; is_active?: boolean; skip?: number; limit?: number }): Promise<PromptTemplateListResponse> => {

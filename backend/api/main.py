@@ -30,6 +30,7 @@ from backend.admin.users import router as users_router
 from backend.admin.stats import router as stats_router
 from backend.admin.settings import router as settings_router
 from backend.admin.logs import router as logs_router
+from backend.admin.jobs import router as jobs_router
 from backend.admin.logs.middleware import ErrorLoggingMiddleware
 from backend.shared.database import init_db, close_db
 from backend.domains.construction import router as construction_router
@@ -165,6 +166,7 @@ app.include_router(users_router.router, prefix="/api/admin")
 app.include_router(stats_router.router, prefix="/api/admin")
 app.include_router(settings_router.router, prefix="/api/admin")
 app.include_router(logs_router.router, prefix="/api/admin")
+app.include_router(jobs_router.router, prefix="/api/admin")
 
 # Domain info router
 app.include_router(domains.router, prefix="/api")

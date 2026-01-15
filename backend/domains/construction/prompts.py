@@ -38,6 +38,21 @@ AI_ANALYSIS_USER = _construction_prompts.get("ai_analysis", {}).get(
 )
 
 # =============================================================================
+# RISK BRIEF — Executive-отчёт для заказчика (INoT approach)
+# =============================================================================
+
+RISK_BRIEF_SYSTEM = _construction_prompts.get("risk_brief", {}).get(
+    "system",
+    """Ты — система анализа рисков строительных проектов.
+Создай executive-отчёт для заказчика с матрицей рисков."""
+)
+
+RISK_BRIEF_USER = _construction_prompts.get("risk_brief", {}).get(
+    "user",
+    "Проанализируй стенограмму и создай Risk Brief.\n\n{transcript}"
+)
+
+# =============================================================================
 # ЭКСПОРТ (backward compatible)
 # =============================================================================
 
@@ -49,6 +64,10 @@ PROMPTS = {
     "ai_analysis": {
         "system": AI_ANALYSIS_SYSTEM,
         "user": AI_ANALYSIS_USER
+    },
+    "risk_brief": {
+        "system": RISK_BRIEF_SYSTEM,
+        "user": RISK_BRIEF_USER
     }
 }
 
@@ -59,6 +78,7 @@ CONSTRUCTION_PROMPTS = {
         "basic": BASIC_REPORT_USER,
         "tasks": BASIC_REPORT_USER,
         "analysis": AI_ANALYSIS_USER,
+        "risk_brief": RISK_BRIEF_USER,
     }
 }
 
@@ -97,3 +117,25 @@ def get_ai_analysis_prompt(transcript: str) -> tuple:
         transcript=transcript
     )
     return AI_ANALYSIS_SYSTEM, user
+
+
+def get_risk_brief_prompt(transcript: str) -> tuple:
+    """
+    Get formatted Risk Brief prompts (INoT approach).
+
+    This prompt uses Introspection of Thought methodology:
+    - Multi-agent debate (Agent_Risk vs Agent_Skeptic)
+    - Phased analysis with verification
+    - XML structure for clarity
+
+    Args:
+        transcript: Meeting transcript text
+
+    Returns:
+        Tuple of (system_prompt, user_prompt)
+    """
+    user = get_prompt(
+        "domains.construction.risk_brief.user",
+        transcript=transcript
+    )
+    return RISK_BRIEF_SYSTEM, user

@@ -17,6 +17,9 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_API_KEY=${GEMINI_API_KEY}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - WHISPER_MODEL=large-v3
       - COMPUTE_TYPE=float16
       - DEVICE=cuda
@@ -53,6 +56,9 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_API_KEY=${GEMINI_API_KEY}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - WHISPER_MODEL=large-v3
       - COMPUTE_TYPE=float16
       - DEVICE=cuda

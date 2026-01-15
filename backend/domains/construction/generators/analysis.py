@@ -21,7 +21,7 @@ from backend.domains.construction.prompts import CONSTRUCTION_PROMPTS
 
 
 # Model for reports (pro for quality)
-REPORT_MODEL = "gemini-2.5-pro"
+REPORT_MODEL = "gemini-2.5-flash"
 
 # Status colors and emojis
 STATUS_CONFIG = {

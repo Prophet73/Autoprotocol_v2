@@ -172,7 +172,7 @@ class ConstructionService(BaseDomainService):
         # Участники из транскрипции
         participants = parsed.get("participants", [])
         if not participants:
-            participants = [sp.speaker_id for sp in transcription.speakers]
+            participants = [sp.speaker_id for sp in transcription.speakers.values()]
 
         return ConstructionReport(
             report_type=report_type,
@@ -226,8 +226,12 @@ class ConstructionService(BaseDomainService):
         content_parts.append(f"**Участников:** {transcription.speaker_count}\n\n")
 
         content_parts.append("## Участники\n")
-        for speaker in transcription.speakers:
-            emotion = speaker.dominant_emotion.label_ru
+        for speaker in transcription.speakers.values():
+            # Get emotion label with fallback
+            if speaker.dominant_emotion:
+                emotion = speaker.dominant_emotion.label_ru
+            else:
+                emotion = "Нейтральный"
             content_parts.append(f"- **{speaker.speaker_id}**: {speaker.total_time_formatted} ({emotion})\n")
 
         content_parts.append("\n## Транскрипция\n")
@@ -245,7 +249,7 @@ class ConstructionService(BaseDomainService):
             issues=[],
             risks=[],
             compliance_items=[],
-            participants=[sp.speaker_id for sp in transcription.speakers],
+            participants=[sp.speaker_id for sp in transcription.speakers.values()],
             source_file=transcription.metadata.source_file
         )
 

@@ -59,10 +59,26 @@ function SSOProviderIcon({ provider }: { provider: SSOProvider }) {
 
 // Dev role badge colors
 const ROLE_COLORS: Record<string, string> = {
+  superuser: 'bg-purple-100 text-purple-700 border-purple-300',
   admin: 'bg-red-100 text-red-700 border-red-300',
   manager: 'bg-blue-100 text-blue-700 border-blue-300',
   user: 'bg-green-100 text-green-700 border-green-300',
 };
+
+// Domain badge colors
+const DOMAIN_COLORS: Record<string, string> = {
+  construction: 'bg-orange-100 text-orange-700',
+  hr: 'bg-pink-100 text-pink-700',
+  it: 'bg-cyan-100 text-cyan-700',
+};
+
+interface DevUser {
+  email: string;
+  role: string;
+  is_superuser: boolean;
+  full_name: string | null;
+  domain?: string;
+}
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -79,6 +95,7 @@ export default function LoginPage() {
 
   // Dev tools state
   const [devEnabled, setDevEnabled] = useState(false);
+  const [devUsers, setDevUsers] = useState<DevUser[]>([]);
   const [devLoading, setDevLoading] = useState<string | null>(null);
 
   // Check for available SSO providers and dev mode on mount
@@ -86,9 +103,12 @@ export default function LoginPage() {
     const providers = getAvailableSSOProviders();
     setSsoProviders(providers);
 
-    // Check if dev mode is enabled
+    // Check if dev mode is enabled and get users
     authApi.devGetUsers().then((res) => {
       setDevEnabled(res.enabled);
+      if (res.enabled && res.users) {
+        setDevUsers(res.users);
+      }
     }).catch(() => {
       setDevEnabled(false);
     });
@@ -108,14 +128,14 @@ export default function LoginPage() {
     initiateSSOLogin(provider);
   };
 
-  // Dev login handler
-  const handleDevLogin = async (role: string) => {
+  // Dev login handler - can login by role (creates user) or email (existing user)
+  const handleDevLogin = async (roleOrEmail: string) => {
     setError('');
-    setDevLoading(role);
+    setDevLoading(roleOrEmail);
 
     try {
       // Get token via dev login
-      const tokenResponse = await authApi.devLogin(role);
+      const tokenResponse = await authApi.devLogin(roleOrEmail);
 
       // Store token
       setToken(tokenResponse.access_token);
@@ -311,8 +331,9 @@ export default function LoginPage() {
               </div>
 
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                <p className="text-xs text-orange-600 mb-3">Быстрый вход для тестирования:</p>
-                <div className="flex gap-2">
+                {/* Quick role buttons */}
+                <p className="text-xs text-orange-600 mb-2">Создать/войти по роли:</p>
+                <div className="flex gap-2 mb-4">
                   {['admin', 'manager', 'user'].map((role) => (
                     <button
                       key={role}
@@ -328,8 +349,55 @@ export default function LoginPage() {
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-orange-500 mt-2 text-center">
-                  Admin → /admin | Manager → /dashboard | User → /
+
+                {/* Existing users from DB */}
+                {devUsers.length > 0 && (
+                  <>
+                    <p className="text-xs text-orange-600 mb-2">Существующие пользователи:</p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {devUsers.map((user) => {
+                        const roleKey = user.is_superuser ? 'superuser' : user.role;
+                        return (
+                          <button
+                            key={user.email}
+                            onClick={() => handleDevLogin(user.email)}
+                            disabled={!!devLoading}
+                            className="w-full p-2 text-left bg-white border border-orange-200 rounded-md hover:bg-orange-100 transition disabled:opacity-50"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-slate-800 truncate">
+                                  {user.full_name || user.email}
+                                </p>
+                                <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                              </div>
+                              <div className="flex gap-1 ml-2">
+                                <span className={`px-2 py-0.5 text-xs rounded ${ROLE_COLORS[roleKey] || ROLE_COLORS.user}`}>
+                                  {user.is_superuser ? 'Super' : user.role}
+                                </span>
+                                {user.domain && (
+                                  <span className={`px-2 py-0.5 text-xs rounded ${DOMAIN_COLORS[user.domain] || 'bg-gray-100 text-gray-700'}`}>
+                                    {user.domain}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {devLoading === user.email && (
+                              <div className="mt-1">
+                                <div className="h-1 bg-orange-200 rounded overflow-hidden">
+                                  <div className="h-full bg-orange-500 animate-pulse w-full"></div>
+                                </div>
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
+                <p className="text-xs text-orange-500 mt-3 text-center">
+                  Admin/Super → /admin | Manager → /dashboard | User → /
                 </p>
               </div>
             </>

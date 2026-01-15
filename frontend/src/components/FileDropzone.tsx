@@ -7,7 +7,7 @@ interface FileDropzoneProps {
   onClear: () => void;
 }
 
-// All FFmpeg supported audio/video formats
+// All FFmpeg supported audio/video formats + text files for direct report generation
 const ACCEPTED_TYPES = [
   // Audio
   'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/m4a', 'audio/x-m4a',
@@ -16,9 +16,11 @@ const ACCEPTED_TYPES = [
   // Video
   'video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/webm',
   'video/x-matroska', 'video/x-flv', 'video/3gpp', 'video/x-ms-wmv', 'video/ogg',
+  // Text (for direct report generation without transcription)
+  'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ];
 
-const ACCEPTED_EXTENSIONS = '.mp3,.mp4,.wav,.m4a,.mpeg,.mov,.avi,.mkv,.webm,.flv,.ogg,.opus,.flac,.aac,.wma,.wmv,.3gp,.amr,.aiff,.ts,.mts,.m2ts';
+const ACCEPTED_EXTENSIONS = '.mp3,.mp4,.wav,.m4a,.mpeg,.mov,.avi,.mkv,.webm,.flv,.ogg,.opus,.flac,.aac,.wma,.wmv,.3gp,.amr,.aiff,.ts,.mts,.m2ts,.txt,.docx';
 
 export function FileDropzone({ onFileSelect, selectedFile, onClear }: FileDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -39,7 +41,7 @@ export function FileDropzone({ onFileSelect, selectedFile, onClear }: FileDropzo
       setIsDragging(false);
 
       const file = e.dataTransfer.files[0];
-      if (file && (ACCEPTED_TYPES.includes(file.type) || file.name.match(/\.(mp3|mp4|wav|m4a|mpeg|mov|avi)$/i))) {
+      if (file && (ACCEPTED_TYPES.includes(file.type) || file.name.match(/\.(mp3|mp4|wav|m4a|mpeg|mov|avi|mkv|webm|txt|docx)$/i))) {
         onFileSelect(file);
       }
     },

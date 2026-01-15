@@ -56,20 +56,19 @@ def _run_domain_generators(
     domain = domain_type or "construction"
 
     # Import generators based on domain
+    generate_risk_brief = None  # Default - only construction has risk_brief
     if domain == "hr":
         from ..domains.hr.generators import generate_transcript, generate_report
         generate_tasks = None  # HR doesn't have separate tasks generator
-        generate_analysis = None
     elif domain == "it":
         from ..domains.it.generators import generate_transcript, generate_report
         generate_tasks = None  # IT doesn't have separate tasks generator
-        generate_analysis = None
     else:  # construction (default)
         from ..domains.construction.generators import (
             generate_transcript,
             generate_tasks,
             generate_report,
-            generate_analysis,
+            generate_risk_brief,  # INoT approach - HTML for client
         )
 
     # 1. Transcript (no LLM required)
@@ -110,15 +109,15 @@ def _run_domain_generators(
             except Exception as e:
                 logger.error(f"Report generation failed: {e}")
 
-        # 4. AI Analysis (construction only)
-        if artifact_options.get("generate_analysis", False) and generate_analysis:
-            progress_callback("domain_generators", 98, "Generating analysis.docx (AI)...")
+        # 4. Risk Brief (construction only) - INoT approach, HTML for client
+        if artifact_options.get("generate_analysis", False) and generate_risk_brief:
+            progress_callback("domain_generators", 98, "Generating risk_brief.html (AI/INoT)...")
             try:
-                analysis_path = generate_analysis(result, output_path)
-                output_files["analysis"] = str(analysis_path)
-                logger.info(f"Generated analysis: {analysis_path}")
+                risk_brief_path = generate_risk_brief(result, output_path)
+                output_files["risk_brief"] = str(risk_brief_path)
+                logger.info(f"Generated risk brief: {risk_brief_path}")
             except Exception as e:
-                logger.error(f"Analysis generation failed: {e}")
+                logger.error(f"Risk brief generation failed: {e}")
     else:
         # Log warning if LLM generators were requested but Gemini not configured
         llm_requested = any([
@@ -133,6 +132,109 @@ def _run_domain_generators(
             )
 
     return output_files
+
+
+def _sync_job_to_db(
+    job_id: str,
+    domain: str,
+    meeting_type: Optional[str],
+    user_id: Optional[int],
+    project_id: Optional[int],
+    source_filename: Optional[str],
+    source_size_bytes: Optional[int] = None,
+    status: str = "pending",
+) -> None:
+    """
+    Create/update TranscriptionJob record in PostgreSQL for stats tracking.
+
+    Called when job is created to sync Redis -> PostgreSQL.
+    """
+    import asyncio
+    from ..shared.database import async_session_factory
+    from ..shared.models import TranscriptionJob
+
+    async def _async_create():
+        async with async_session_factory() as db:
+            try:
+                # Create new record
+                job = TranscriptionJob(
+                    job_id=job_id,
+                    domain=domain or "construction",
+                    meeting_type=meeting_type,
+                    status=status,
+                    user_id=user_id,
+                    project_id=project_id,
+                    source_filename=source_filename,
+                    source_size_bytes=source_size_bytes,
+                )
+                db.add(job)
+                await db.commit()
+                logger.info(f"TranscriptionJob record created for {job_id}")
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Failed to create TranscriptionJob record: {e}")
+
+    asyncio.run(_async_create())
+
+
+def _update_job_in_db(
+    job_id: str,
+    status: str,
+    processing_time_seconds: Optional[float] = None,
+    audio_duration_seconds: Optional[float] = None,
+    segment_count: Optional[int] = None,
+    speaker_count: Optional[int] = None,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    artifacts: Optional[dict] = None,
+    error_message: Optional[str] = None,
+    error_stage: Optional[str] = None,
+) -> None:
+    """
+    Update TranscriptionJob record in PostgreSQL after processing completes.
+    """
+    import asyncio
+    from datetime import datetime
+    from sqlalchemy import update
+    from ..shared.database import async_session_factory
+    from ..shared.models import TranscriptionJob
+
+    async def _async_update():
+        async with async_session_factory() as db:
+            try:
+                update_data = {
+                    "status": status,
+                    "processing_time_seconds": processing_time_seconds,
+                    "audio_duration_seconds": audio_duration_seconds,
+                    "segment_count": segment_count,
+                    "speaker_count": speaker_count,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "artifacts": artifacts,
+                    "error_message": error_message,
+                    "error_stage": error_stage,
+                }
+
+                if status == "completed":
+                    update_data["completed_at"] = datetime.now()
+                elif status == "processing":
+                    update_data["started_at"] = datetime.now()
+
+                # Remove None values
+                update_data = {k: v for k, v in update_data.items() if v is not None}
+
+                stmt = update(TranscriptionJob).where(
+                    TranscriptionJob.job_id == job_id
+                ).values(**update_data)
+
+                await db.execute(stmt)
+                await db.commit()
+                logger.info(f"TranscriptionJob record updated for {job_id}: {status}")
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Failed to update TranscriptionJob record: {e}")
+
+    asyncio.run(_async_update())
 
 
 def _save_domain_report(
@@ -260,6 +362,7 @@ def process_transcription_task(
     try:
         # Mark as processing
         store.update(job_id, status=JobStatus.PROCESSING)
+        _update_job_in_db(job_id=job_id, status="processing")
 
         # Create output directory
         output_path = Path(output_dir)
@@ -330,6 +433,24 @@ def process_transcription_task(
             language_distribution=result.language_distribution,
         )
 
+        # Update TranscriptionJob in PostgreSQL for stats
+        _update_job_in_db(
+            job_id=job_id,
+            status="completed",
+            processing_time_seconds=result.processing_time_seconds,
+            audio_duration_seconds=getattr(result, 'audio_duration_seconds', None),
+            segment_count=result.segment_count,
+            speaker_count=getattr(result, 'speaker_count', None),
+            input_tokens=getattr(result, 'input_tokens', 0),
+            output_tokens=getattr(result, 'output_tokens', 0),
+            artifacts={
+                "transcript": "transcript" in output_files,
+                "tasks": "tasks" in output_files,
+                "report": "report" in output_files,
+                "analysis": "risk_brief" in output_files,
+            },
+        )
+
         logger.info(f"Job {job_id} completed successfully")
 
         # Send email notification if emails are provided
@@ -367,6 +488,7 @@ def process_transcription_task(
         error_msg = "Task exceeded time limit"
         logger.error(f"Job {job_id}: {error_msg}")
         store.fail(job_id, error_msg)
+        _update_job_in_db(job_id=job_id, status="failed", error_message=error_msg, error_stage="timeout")
         return {
             "job_id": job_id,
             "status": "failed",
@@ -376,6 +498,7 @@ def process_transcription_task(
     except Exception as e:
         logger.exception(f"Job {job_id} failed: {e}")
         store.fail(job_id, str(e))
+        _update_job_in_db(job_id=job_id, status="failed", error_message=str(e)[:500], error_stage="processing")
         raise  # Will trigger retry
 
 

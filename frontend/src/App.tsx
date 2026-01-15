@@ -19,6 +19,8 @@ import UsersPage from './pages/admin/UsersPage';
 import SettingsPage from './pages/admin/SettingsPage';
 import ProjectsPage from './pages/admin/ProjectsPage';
 import LogsPage from './pages/admin/LogsPage';
+import StatsPage from './pages/admin/StatsPage';
+import JobsPage from './pages/admin/JobsPage';
 import SSOCallbackPage from './pages/SSOCallbackPage';
 
 const queryClient = new QueryClient({
@@ -100,6 +102,8 @@ function App() {
             }
           >
             <Route index element={<DashboardPage />} />
+            <Route path="jobs" element={<JobsPage />} />
+            <Route path="stats" element={<StatsPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="settings" element={<SettingsPage />} />

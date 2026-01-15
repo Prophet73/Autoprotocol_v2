@@ -313,3 +313,251 @@ class ConstructionReport(BaseModel):
     project_name: Optional[str] = Field(None, description="Название проекта")
     source_file: Optional[str] = Field(None, description="Исходный файл")
     meeting_date: Optional[date] = Field(None, description="Дата совещания")
+
+
+# =============================================================================
+# RISK BRIEF — Отчёт для заказчика с матрицей рисков (INoT approach)
+# =============================================================================
+
+class RiskCategory(str, Enum):
+    """Категория риска для строительного проекта"""
+    PERMITS = "permits"           # ИРД, разрешения, согласования
+    DESIGN = "design"             # Проектирование, РД, ПД
+    CONSTRUCTION = "construction" # СМР, технология, качество
+    ENGINEERING = "engineering"   # Инженерные сети, коммуникации
+    SUPPLY = "supply"             # Снабжение, материалы, логистика
+    FINANCE = "finance"           # Финансы, бюджет, оплаты
+    LEGAL = "legal"               # Юридические, договоры, визы
+    SAFETY = "safety"             # Безопасность, ОТ, экология
+    SCHEDULE = "schedule"         # Сроки, график, зависимости
+    RESOURCES = "resources"       # Кадры, техника, мощности
+
+    @property
+    def label_ru(self) -> str:
+        labels = {
+            "permits": "Разрешения и согласования",
+            "design": "Проектирование",
+            "construction": "Строительство",
+            "engineering": "Инженерные сети",
+            "supply": "Снабжение",
+            "finance": "Финансы",
+            "legal": "Юридические вопросы",
+            "safety": "Безопасность",
+            "schedule": "Сроки",
+            "resources": "Ресурсы"
+        }
+        return labels.get(self.value, self.value)
+
+
+class ConcernCategory(str, Enum):
+    """Категория вопроса, требующего внимания"""
+    PERMITS = "Разрешения на землю"
+    SAFETY = "Безопасность"
+    SCHEDULE = "Срыв сроков"
+    LIVING = "Быт рабочих"
+    FINANCE = "Бюджет"
+    COORDINATION = "Координация"
+    QUALITY = "Качество"
+    OTHER = "Прочее"
+
+
+class ProjectRisk(BaseModel):
+    """
+    Детальный риск проекта с оценкой P×I.
+    Для матрицы рисков и карточек критических рисков.
+    """
+    # Идентификация
+    id: str = Field(description="ID риска: R1, R2, R3...")
+    title: str = Field(description="Краткий заголовок риска (3-7 слов)")
+    category: RiskCategory = Field(description="Категория риска")
+
+    # Описание
+    description: str = Field(
+        description="Полное описание ситуации: что происходит, почему это риск"
+    )
+    consequences: str = Field(
+        description="Последствия если риск реализуется: срыв сроков, штрафы, остановка"
+    )
+    mitigation: str = Field(
+        description="Конкретные меры по снижению риска: что делать, кому поручить"
+    )
+
+    # Оценка (матрица 5×5)
+    probability: int = Field(
+        ge=1, le=5,
+        description="Вероятность реализации: 1-очень низкая, 5-очень высокая"
+    )
+    impact: int = Field(
+        ge=1, le=5,
+        description="Влияние на проект: 1-минимальное, 5-критическое"
+    )
+
+    # Ответственность
+    responsible: Optional[str] = Field(
+        None,
+        description="Кто отвечает за риск (если назначен)"
+    )
+    suggested_responsible: Optional[str] = Field(
+        None,
+        description="Кого рекомендуется назначить ответственным"
+    )
+
+    # Сроки и флаги
+    deadline: Optional[str] = Field(
+        None,
+        description="Крайний срок реагирования (если есть)"
+    )
+    is_blocker: bool = Field(
+        default=False,
+        description="Блокирует ли риск начало/продолжение работ"
+    )
+
+    @property
+    def score(self) -> int:
+        """Балл риска P×I (1-25)"""
+        return self.probability * self.impact
+
+    @property
+    def severity(self) -> str:
+        """Уровень критичности по баллу"""
+        score = self.score
+        if score >= 16:
+            return "critical"
+        elif score >= 9:
+            return "high"
+        elif score >= 4:
+            return "medium"
+        return "low"
+
+    @property
+    def color(self) -> str:
+        """Цвет для визуализации"""
+        colors = {
+            "critical": "#C62828",  # Красный
+            "high": "#E65100",      # Оранжевый
+            "medium": "#F9A825",    # Жёлтый
+            "low": "#2E7D32"        # Зелёный
+        }
+        return colors.get(self.severity, "#666666")
+
+
+class Concern(BaseModel):
+    """
+    Вопрос, требующий внимания руководителя.
+    Не риск, но важный момент который могли упустить.
+    """
+    id: str = Field(description="ID: C1, C2, C3...")
+    category: ConcernCategory = Field(description="Категория вопроса")
+    title: str = Field(description="Заголовок (что упущено/не решено)")
+    description: str = Field(
+        description="Описание ситуации: что обсуждалось, что не доделано"
+    )
+    recommendation: str = Field(
+        description="Конкретная рекомендация: кому поручить, что сделать, в какой срок"
+    )
+
+
+class Abbreviation(BaseModel):
+    """Аббревиатура и её расшифровка"""
+    abbr: str = Field(description="Аббревиатура (ТП, СанПин, КОС...)")
+    definition: str = Field(description="Расшифровка")
+
+
+class RiskBrief(BaseModel):
+    """
+    Risk Brief — Executive-отчёт для заказчика.
+
+    Структурированный анализ совещания с фокусом на риски,
+    проблемы и рекомендации. Готов к печати на A3.
+
+    Генерируется с использованием INoT-подхода:
+    - Phase 1: Extraction (факты)
+    - Phase 2: Risk Identification (поиск рисков)
+    - Phase 3: Verification (проверка, не FP ли это)
+    - Phase 4: Assessment (оценка P×I, меры)
+    """
+
+    # === МЕТАДАННЫЕ ===
+    project_name: Optional[str] = Field(
+        None,
+        description="Название проекта (если упоминается)"
+    )
+    project_code: Optional[str] = Field(
+        None,
+        description="Код/номер проекта (если есть)"
+    )
+    location: Optional[str] = Field(
+        None,
+        description="Локация/город (если упоминается)"
+    )
+
+    # === СТАТУС И САММАРИ ===
+    overall_status: OverallStatus = Field(
+        description="Общий статус: stable/attention/critical"
+    )
+    executive_summary: str = Field(
+        description="О чём совещание — 2-4 предложения для быстрого понимания"
+    )
+
+    # === АТМОСФЕРА ===
+    atmosphere: Atmosphere = Field(
+        description="Атмосфера совещания"
+    )
+    atmosphere_comment: str = Field(
+        description="Почему такая оценка атмосферы — 1-2 предложения"
+    )
+
+    # === РИСКИ ===
+    risks: List[ProjectRisk] = Field(
+        default_factory=list,
+        description="Список рисков проекта (2-6 шт), отсортированных по score"
+    )
+
+    # === CONCERNS (требует внимания) ===
+    concerns: List[Concern] = Field(
+        default_factory=list,
+        description="Вопросы для руководителя (2-5 шт) — не риски, но важно"
+    )
+
+    # === ГЛОССАРИЙ ===
+    abbreviations: List[Abbreviation] = Field(
+        default_factory=list,
+        description="Технические аббревиатуры из совещания (3-7 шт)"
+    )
+
+    # === COMPUTED PROPERTIES ===
+
+    @property
+    def critical_risks(self) -> List[ProjectRisk]:
+        """Риски с баллом ≥16"""
+        return [r for r in self.risks if r.score >= 16]
+
+    @property
+    def high_risks(self) -> List[ProjectRisk]:
+        """Риски с баллом 9-15"""
+        return [r for r in self.risks if 9 <= r.score < 16]
+
+    @property
+    def blockers(self) -> List[ProjectRisk]:
+        """Риски-блокеры"""
+        return [r for r in self.risks if r.is_blocker]
+
+    @property
+    def risks_by_severity(self) -> dict:
+        """Риски сгруппированные по критичности"""
+        return {
+            "critical": self.critical_risks,
+            "high": self.high_risks,
+            "medium": [r for r in self.risks if 4 <= r.score < 9],
+            "low": [r for r in self.risks if r.score < 4]
+        }
+
+    @property
+    def status_color(self) -> str:
+        """Цвет статуса"""
+        colors = {
+            "stable": "#2E7D32",
+            "attention": "#F9A825",
+            "critical": "#C62828"
+        }
+        return colors.get(self.overall_status.value, "#666666")
