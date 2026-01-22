@@ -43,6 +43,57 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/transcribe", tags=["Транскрипция"])
 
+
+def _extract_media_creation_date(file_path: Path) -> Optional[str]:
+    """
+    Extract creation date from media file metadata using FFprobe.
+
+    Returns date in YYYY-MM-DD format or None if not found.
+    """
+    import subprocess
+    import json
+
+    try:
+        # Run ffprobe to get metadata
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "quiet",
+                "-print_format", "json",
+                "-show_format",
+                str(file_path)
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode != 0:
+            return None
+
+        data = json.loads(result.stdout)
+        tags = data.get("format", {}).get("tags", {})
+
+        # Try various date fields (case-insensitive)
+        date_fields = ["creation_time", "date", "DATE", "Creation Time", "CREATION_TIME"]
+        for field in date_fields:
+            if field in tags:
+                date_str = tags[field]
+                # Parse ISO format: 2025-12-17T16:35:23.000000Z
+                try:
+                    if "T" in date_str:
+                        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                    else:
+                        dt = datetime.strptime(date_str[:10], "%Y-%m-%d")
+                    return dt.strftime("%Y-%m-%d")
+                except (ValueError, TypeError):
+                    continue
+
+        return None
+    except Exception as e:
+        logger.debug(f"Could not extract media creation date: {e}")
+        return None
+
 # Email validation regex (RFC 5322 simplified)
 _EMAIL_REGEX = re.compile(
     r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -99,6 +150,100 @@ def get_store() -> JobStore:
     return get_job_store()
 
 
+# =============================================================================
+# Helper functions to reduce code duplication
+# =============================================================================
+
+def _create_progress_callback(store: JobStore, job_id: str):
+    """Create a progress callback function for job updates."""
+    def progress_callback(stage: str, percent: int, message: str):
+        store.update_progress(job_id, stage, percent, message)
+    return progress_callback
+
+
+def _start_job_processing(store: JobStore, job_id: str):
+    """Mark job as processing in store and database."""
+    store.update(job_id, status=JobStatus.PROCESSING)
+    _update_job_in_db(job_id=job_id, status="processing")
+
+
+def _complete_job(
+    store: JobStore,
+    job_id: str,
+    output_files: dict,
+    processing_time: float = 0,
+    segment_count: int = 0,
+    speaker_count: int = None,
+    language_distribution: dict = None,
+    audio_duration_seconds: float = None,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    all_output_files: dict = None,
+):
+    """Mark job as completed in store and database.
+
+    Args:
+        output_files: Files available for user download (shown in UI).
+        all_output_files: All generated files for artifacts tracking.
+                          Defaults to output_files if not specified.
+    """
+    artifacts_source = all_output_files if all_output_files is not None else output_files
+    store.complete(
+        job_id=job_id,
+        output_files=output_files,
+        processing_time=processing_time,
+        segment_count=segment_count,
+        language_distribution=language_distribution or {},
+    )
+    _update_job_in_db(
+        job_id=job_id,
+        status="completed",
+        processing_time_seconds=processing_time,
+        audio_duration_seconds=audio_duration_seconds,
+        segment_count=segment_count,
+        speaker_count=speaker_count,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        artifacts={
+            "transcript": "transcript" in artifacts_source,
+            "tasks": "tasks" in artifacts_source,
+            "report": "report" in artifacts_source,
+            "analysis": "analysis" in artifacts_source,
+        },
+    )
+
+
+def _fail_job(store: JobStore, job_id: str, error: Exception, stage: str = "processing"):
+    """Mark job as failed in store and database."""
+    logger.exception(f"Job {job_id} failed: {error}")
+    store.fail(job_id, str(error))
+    _update_job_in_db(
+        job_id=job_id,
+        status="failed",
+        error_message=str(error)[:500],
+        error_stage=stage,
+    )
+
+
+def _send_notification_email(store: JobStore, job_id: str, notify_emails: list, output_files: dict):
+    """Send email notification if emails are provided."""
+    if not notify_emails:
+        return
+    try:
+        from ...core.email.service import send_report_email
+        job_data = store.get(job_id)
+        project_name = getattr(job_data, 'project_code', None)
+        send_report_email(
+            recipients=notify_emails,
+            job_id=job_id,
+            project_name=project_name,
+            output_files=output_files,
+        )
+        logger.info(f"Email notification sent to {notify_emails}")
+    except Exception as e:
+        logger.error(f"Email notification failed (non-fatal): {e}")
+
+
 @router.post(
     "",
     response_model=JobResponse,
@@ -118,13 +263,15 @@ async def create_transcription(
     project_code: Optional[str] = Form(default=None, description="4-значный код проекта для анонимной загрузки"),
     # Meeting type (for HR/IT domains)
     meeting_type: Optional[str] = Form(default=None, description="Тип встречи (recruitment, standup, и т.д.)"),
+    # Meeting date (optional)
+    meeting_date: Optional[str] = Form(default=None, description="Дата встречи (YYYY-MM-DD)"),
     # Guest ID for anonymous users (from X-Guest-ID header)
     x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-ID", description="UUID гостя для анонимной загрузки"),
     # Domain artifact options (ДПУ)
     generate_transcript: bool = Form(default=True, description="Создать транскрипт (transcript.docx)"),
     generate_tasks: bool = Form(default=False, description="Извлечь задачи через LLM (tasks.xlsx)"),
     generate_report: bool = Form(default=False, description="Создать отчёт через LLM (report.docx)"),
-    generate_analysis: bool = Form(default=False, description="Создать менеджерский бриф (analysis.docx)"),
+    generate_analysis: bool = Form(default=False, description="Генерировать менеджерский бриф для дашборда"),
     generate_risk_brief: bool = Form(default=False, description="Создать риск-бриф (risk_brief.pdf)"),
     # Email notification
     notify_emails: Optional[str] = Form(default=None, description="Email адреса для уведомления (через запятую)"),
@@ -250,6 +397,18 @@ async def create_transcription(
     except Exception as e:
         logger.warning(f"Failed to sync job to DB (non-fatal): {e}")
 
+    # Auto-fill meeting date from file metadata if not provided
+    effective_meeting_date = meeting_date
+    if not effective_meeting_date:
+        # Try to extract from media file internal metadata (creation_time)
+        effective_meeting_date = _extract_media_creation_date(input_file)
+        if effective_meeting_date:
+            logger.info(f"Auto-filled meeting date from media metadata: {effective_meeting_date}")
+        else:
+            # Fallback: use current date (file mtime is upload time, not original)
+            effective_meeting_date = datetime.now().strftime("%Y-%m-%d")
+            logger.info(f"Using current date as meeting date: {effective_meeting_date}")
+
     # Artifact options for task
     artifact_options = {
         "generate_transcript": generate_transcript,
@@ -258,6 +417,7 @@ async def create_transcription(
         "generate_analysis": generate_analysis_effective,
         "generate_risk_brief": generate_risk_brief,
         "meeting_type": meeting_type,
+        "meeting_date": effective_meeting_date,
     }
 
     # Check if this is a text file (direct report generation without transcription)
@@ -750,13 +910,10 @@ async def run_transcription_background(
 
     store = get_store()
     artifact_options = artifact_options or {}
-
-    def progress_callback(stage: str, percent: int, message: str):
-        store.update_progress(job_id, stage, percent, message)
+    progress_callback = _create_progress_callback(store, job_id)
 
     try:
-        store.update(job_id, status=JobStatus.PROCESSING)
-        _update_job_in_db(job_id=job_id, status="processing")
+        _start_job_processing(store, job_id)
 
         request = TranscriptionRequest(
             languages=languages,
@@ -788,7 +945,7 @@ async def run_transcription_background(
 
         # Save domain report to database if project is linked
         if domain_type and project_id:
-            progress_callback("domain_report", 99, "Saving report to database...")
+            progress_callback("domain_report", 99, "Сохранение в базу данных...")
             try:
                 _save_domain_report(
                     job_id=job_id,
@@ -816,55 +973,24 @@ async def run_transcription_background(
                     output_files[artifact_type] = str(files[0])
 
         # Mark completed
-        store.complete(
+        _complete_job(
+            store=store,
             job_id=job_id,
             output_files=output_files,
             processing_time=result.processing_time_seconds,
             segment_count=result.segment_count,
-            language_distribution=result.language_distribution,
-        )
-
-        _update_job_in_db(
-            job_id=job_id,
-            status="completed",
-            processing_time_seconds=result.processing_time_seconds,
-            audio_duration_seconds=getattr(result, "audio_duration_seconds", None),
-            segment_count=result.segment_count,
             speaker_count=getattr(result, "speaker_count", None),
+            language_distribution=result.language_distribution,
+            audio_duration_seconds=getattr(result, "audio_duration_seconds", None),
             input_tokens=getattr(result, "input_tokens", 0),
             output_tokens=getattr(result, "output_tokens", 0),
-            artifacts={
-                "transcript": "transcript" in output_files,
-                "tasks": "tasks" in output_files,
-                "report": "report" in output_files,
-                "analysis": "analysis" in output_files,
-            },
         )
-
         logger.info(f"Job {job_id} completed successfully")
 
-        # Send email notification if emails are provided
-        if notify_emails:
-            try:
-                from ...core.email.service import send_report_email
-
-                job_data = store.get(job_id)
-                project_name = getattr(job_data, 'project_code', None)
-
-                send_report_email(
-                    recipients=notify_emails,
-                    job_id=job_id,
-                    project_name=project_name,
-                    output_files=output_files,
-                )
-                logger.info(f"Email notification sent to {notify_emails}")
-            except Exception as e:
-                logger.error(f"Email notification failed (non-fatal): {e}")
+        _send_notification_email(store, job_id, notify_emails, output_files)
 
     except Exception as e:
-        logger.exception(f"Job {job_id} failed: {e}")
-        store.fail(job_id, str(e))
-        _update_job_in_db(job_id=job_id, status="failed", error_message=str(e)[:500], error_stage="processing")
+        _fail_job(store, job_id, e, "processing")
 
 
 async def run_text_report_generation(
@@ -889,14 +1015,11 @@ async def run_text_report_generation(
 
     store = get_store()
     artifact_options = artifact_options or {}
-
-    def progress_callback(stage: str, percent: int, message: str):
-        store.update_progress(job_id, stage, percent, message)
+    progress_callback = _create_progress_callback(store, job_id)
 
     try:
-        store.update(job_id, status=JobStatus.PROCESSING)
-        _update_job_in_db(job_id=job_id, status="processing")
-        progress_callback("text_extraction", 10, "Extracting text from file...")
+        _start_job_processing(store, job_id)
+        progress_callback("text_extraction", 10, "Извлечение текста из файла...")
 
         # Extract text from file
         text_content = extract_text_from_file(input_file)
@@ -904,7 +1027,7 @@ async def run_text_report_generation(
             raise ValueError(f"Failed to extract text from {input_file}")
 
         logger.info(f"Extracted {len(text_content)} characters from {input_file.name}")
-        progress_callback("text_extraction", 20, f"Extracted {len(text_content)} characters")
+        progress_callback("text_extraction", 20, f"Извлечено {len(text_content)} символов")
 
         # Create output directory
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -963,6 +1086,11 @@ async def run_text_report_generation(
             def get_full_text(self) -> str:
                 return "\n".join(seg.text for seg in self.segments)
 
+            @property
+            def speakers_list(self) -> list:
+                """Get speakers as list for iteration."""
+                return list(self.speakers.values())
+
             def to_plain_text(self) -> str:
                 """Convert to plain text for LLM analysis."""
                 lines = []
@@ -991,10 +1119,11 @@ async def run_text_report_generation(
         if not has_gemini:
             raise ValueError("GOOGLE_API_KEY not configured - cannot generate LLM reports")
 
-        progress_callback("llm_generation", 30, "Starting LLM report generation...")
+        progress_callback("llm_generation", 30, "Генерация документов...")
 
         # Import generators based on domain
         domain = domain_type or "construction"
+        ai_analysis = None  # Will be populated if generate_analysis is called (construction only)
 
         if domain == "construction":
             from ...domains.construction.generators import (
@@ -1006,7 +1135,7 @@ async def run_text_report_generation(
 
             # Generate tasks
             if artifact_options.get("generate_tasks", False):
-                progress_callback("llm_generation", 50, "Generating tasks.xlsx...")
+                progress_callback("llm_generation", 50, "Формирование списка задач...")
                 try:
                     tasks_path = generate_tasks(result, output_dir)
                     output_files["tasks"] = str(tasks_path)
@@ -1016,7 +1145,7 @@ async def run_text_report_generation(
 
             # Generate report
             if artifact_options.get("generate_report", False):
-                progress_callback("llm_generation", 70, "Generating report.docx...")
+                progress_callback("llm_generation", 70, "Формирование отчёта...")
                 try:
                     report_path = generate_report(result, output_dir)
                     output_files["report"] = str(report_path)
@@ -1024,19 +1153,18 @@ async def run_text_report_generation(
                 except Exception as e:
                     logger.error(f"Report generation failed: {e}")
 
-            # Generate manager brief
+            # Generate manager brief - for dashboard only, no file
             if artifact_options.get("generate_analysis", False):
-                progress_callback("llm_generation", 85, "Generating manager_brief.docx...")
+                # Silent generation - no progress message for user, no file output
                 try:
-                    analysis_path = generate_analysis(result, output_dir)
-                    output_files["analysis"] = str(analysis_path)
-                    logger.info(f"Generated manager brief: {analysis_path}")
+                    ai_analysis = generate_analysis(result)
+                    logger.info("Generated manager brief (AIAnalysis for dashboard)")
                 except Exception as e:
                     logger.error(f"Manager brief generation failed: {e}")
 
             # Generate risk brief (optional)
             if artifact_options.get("generate_risk_brief", False):
-                progress_callback("llm_generation", 95, "Generating risk_brief.pdf...")
+                progress_callback("llm_generation", 95, "Формирование риск-брифа...")
                 try:
                     risk_brief_path = generate_risk_brief(result, output_dir)
                     output_files["risk_brief"] = str(risk_brief_path)
@@ -1063,57 +1191,27 @@ async def run_text_report_generation(
                     output_files=output_files,
                     guest_uid=guest_uid,
                     uploader_id=uploader_id,
+                    ai_analysis=ai_analysis if domain == "construction" else None,
                 )
             except Exception as e:
                 logger.error(f"Domain report save failed (non-fatal): {e}")
 
-        # Hide manager brief from user-facing downloads
-        public_output_files = {k: v for k, v in output_files.items() if k != "analysis"}
+        # No need to filter - analysis is no longer a file
+        public_output_files = output_files
 
         # Mark completed
-        store.complete(
+        _complete_job(
+            store=store,
             job_id=job_id,
             output_files=public_output_files,
-            processing_time=0,
-            segment_count=len(segments),
-            language_distribution={"ru": len(segments)},
-        )
-
-        _update_job_in_db(
-            job_id=job_id,
-            status="completed",
-            processing_time_seconds=0,
             segment_count=len(segments),
             speaker_count=result.speaker_count,
-            artifacts={
-                "transcript": "transcript" in output_files,
-                "tasks": "tasks" in output_files,
-                "report": "report" in output_files,
-                "analysis": "analysis" in output_files,
-            },
+            language_distribution={"ru": len(segments)},
+            all_output_files=output_files,  # Track all artifacts including analysis
         )
-
         logger.info(f"Text report job {job_id} completed successfully")
 
-        # Send email notification
-        if notify_emails:
-            try:
-                from ...core.email.service import send_report_email
-
-                job_data = store.get(job_id)
-                project_name = getattr(job_data, 'project_code', None)
-
-                send_report_email(
-                    recipients=notify_emails,
-                    job_id=job_id,
-                    project_name=project_name,
-                    output_files=public_output_files,
-                )
-                logger.info(f"Email notification sent to {notify_emails}")
-            except Exception as e:
-                logger.error(f"Email notification failed (non-fatal): {e}")
+        _send_notification_email(store, job_id, notify_emails, public_output_files)
 
     except Exception as e:
-        logger.exception(f"Text report job {job_id} failed: {e}")
-        store.fail(job_id, str(e))
-        _update_job_in_db(job_id=job_id, status="failed", error_message=str(e)[:500], error_stage="text_generation")
+        _fail_job(store, job_id, e, "text_generation")

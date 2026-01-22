@@ -224,7 +224,7 @@ class ProcessingResult(BaseModel):
     transcript_path: Optional[str] = Field(None, description="Путь к transcript.docx")
     tasks_path: Optional[str] = Field(None, description="Путь к tasks.xlsx")
     report_path: Optional[str] = Field(None, description="Путь к report.docx")
-    analysis_path: Optional[str] = Field(None, description="Путь к analysis.docx")
+    # analysis_path: deprecated - analysis is now generated for dashboard only, no file
 
     @property
     def duration_formatted(self) -> str:

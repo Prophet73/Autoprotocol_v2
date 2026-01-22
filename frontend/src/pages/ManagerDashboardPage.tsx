@@ -27,6 +27,7 @@ import {
   CheckCircle,
   Loader2,
   Calendar,
+  Shield,
 } from 'lucide-react';
 import {
   getManagerDashboardView,
@@ -311,8 +312,10 @@ export function ManagerDashboardPage() {
                   week: 'Неделя',
                 }}
                 eventClick={(info) => {
-                  const analyticsId = info.event.extendedProps.id;
-                  setSelectedAnalyticsId(analyticsId);
+                  const analyticsId = info.event.extendedProps.analytics_id;
+                  if (analyticsId) {
+                    setSelectedAnalyticsId(analyticsId);
+                  }
                 }}
                 height="auto"
                 contentHeight={450}
@@ -524,7 +527,7 @@ function getIndicatorStatusColor(status: string): { bg: string; text: string } {
   return { bg: 'bg-green-100', text: 'text-green-700' };
 }
 
-// Analytics Modal Component - Autoprotocol format
+// Analytics Modal Component - Autoprotocol format with brief type switcher
 function AnalyticsModal({
   analyticsId,
   detail,
@@ -536,6 +539,9 @@ function AnalyticsModal({
   isLoading: boolean;
   onClose: () => void;
 }) {
+  // Brief type state: 'manager' or 'risk'
+  const [briefType, setBriefType] = useState<'manager' | 'risk'>('manager');
+
   // Parse toxicity details (format: "Level\n\nComment")
   const toxicityParts = detail?.toxicity_details?.split('\n\n') || [];
   const toxicityLevel = toxicityParts[0] || 'Нейтральный';
@@ -549,151 +555,211 @@ function AnalyticsModal({
     return 'bg-green-500 text-white';
   };
 
+  // Check if risk brief is available
+  const hasRiskBrief = detail?.has_risk_brief ?? false;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-white rounded-2xl shadow-2xl w-[95vw] max-w-[1600px] h-[92vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-          <div className="flex items-center gap-4">
-            <div>
-              <h2 className="text-xl font-bold text-slate-800">Аналитический бриф</h2>
-              {detail?.filename && (
-                <p className="text-sm text-slate-500 mt-1">{detail.filename}</p>
+        <div className="p-5 border-b border-slate-200 bg-slate-50">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-800">
+                  {briefType === 'manager' ? 'Менеджерский бриф' : 'Риск-бриф'}
+                </h2>
+                {detail?.filename && (
+                  <p className="text-sm text-slate-500 mt-1">{detail.filename}</p>
+                )}
+              </div>
+              {detail?.status && (
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusBadge(detail.status)}`}>
+                  {detail.status === 'critical' ? 'Критический' :
+                   detail.status === 'attention' ? 'Требует внимания' : 'Стабильный'}
+                </span>
               )}
             </div>
-            {detail?.status && (
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusBadge(detail.status)}`}>
-                {detail.status === 'critical' ? 'Критический' :
-                 detail.status === 'attention' ? 'Требует внимания' : 'Стабильный'}
-              </span>
-            )}
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          {/* Tab Switcher - only show if risk brief is available */}
+          {hasRiskBrief && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setBriefType('manager')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                  briefType === 'manager'
+                    ? 'bg-severin-red text-white'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                Менеджерский бриф
+              </button>
+              <button
+                onClick={() => setBriefType('risk')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                  briefType === 'risk'
+                    ? 'bg-severin-red text-white'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <Shield className="w-4 h-4" />
+                Риск-бриф
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+        <div className="p-6 overflow-y-auto flex-1">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 text-severin-red animate-spin" />
             </div>
           ) : detail ? (
             <div className="space-y-6">
-              {/* Executive Summary */}
-              <div className="bg-slate-50 rounded-lg p-4">
-                <h3 className="font-semibold text-slate-800 mb-2 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-severin-red" />
-                  Выжимка для руководителя
-                </h3>
-                <p className="text-slate-700 leading-relaxed">{detail.summary}</p>
-              </div>
+              {/* Risk Brief View */}
+              {briefType === 'risk' ? (
+                <div className="text-center py-8">
+                  <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Shield className="w-10 h-10 text-severin-red" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-slate-800 mb-3">
+                    Риск-бриф для инвестора
+                  </h3>
+                  <p className="text-slate-600 mb-6 max-w-md mx-auto">
+                    Детальный анализ рисков проекта с матрицей P×I,
+                    классификацией по категориям и рекомендациями по митигации.
+                  </p>
+                  <button
+                    onClick={() => downloadAnalyticsReport(analyticsId, 'risk_brief')}
+                    className="px-6 py-3 bg-severin-red text-white rounded-lg hover:bg-severin-red-dark transition-colors flex items-center gap-2 font-medium shadow-lg mx-auto cursor-pointer"
+                  >
+                    <Download className="w-5 h-5" />
+                    Скачать риск-бриф (PDF)
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Manager Brief View - Executive Summary */}
+                  <div className="bg-slate-50 rounded-lg p-4">
+                    <h3 className="font-semibold text-slate-800 mb-2 flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-severin-red" />
+                      Выжимка для руководителя
+                    </h3>
+                    <p className="text-slate-700 leading-relaxed">{detail.summary}</p>
+                  </div>
 
-              {/* Panel of Project Status - Table format */}
-              {detail.key_indicators.length > 0 && (
-                <div>
-                  <h3 className="font-semibold text-slate-800 mb-3">Панель состояния проекта</h3>
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <table className="w-full">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="text-left px-4 py-2 text-sm font-semibold text-slate-600 border-b">Показатель</th>
-                          <th className="text-left px-4 py-2 text-sm font-semibold text-slate-600 border-b w-28">Статус</th>
-                          <th className="text-left px-4 py-2 text-sm font-semibold text-slate-600 border-b">Комментарий AI</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.key_indicators.map((indicator, idx) => {
-                          const colors = getIndicatorStatusColor(indicator.status);
-                          return (
-                            <tr key={idx} className="border-b last:border-b-0 hover:bg-slate-50">
-                              <td className="px-4 py-3 text-slate-800 font-medium">{indicator.indicator_name}</td>
-                              <td className="px-4 py-3">
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${colors.bg} ${colors.text}`}>
-                                  {indicator.status}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-sm text-slate-600">{indicator.comment}</td>
+                  {/* Panel of Project Status - Table format */}
+                  {detail.key_indicators.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold text-slate-800 mb-3">Панель состояния проекта</h3>
+                      <div className="border border-slate-200 rounded-lg overflow-hidden">
+                        <table className="w-full">
+                          <thead className="bg-slate-50">
+                            <tr>
+                              <th className="text-left px-4 py-2 text-sm font-semibold text-slate-600 border-b">Показатель</th>
+                              <th className="text-left px-4 py-2 text-sm font-semibold text-slate-600 border-b w-28">Статус</th>
+                              <th className="text-left px-4 py-2 text-sm font-semibold text-slate-600 border-b">Комментарий AI</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Key Challenges and Recommendations */}
-              {detail.challenges.length > 0 && (
-                <div>
-                  <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                    <AlertTriangle className="w-5 h-5 text-amber-500" />
-                    Ключевые проблемы и рекомендации
-                  </h3>
-                  <div className="space-y-3">
-                    {detail.challenges.map((challenge, idx) => (
-                      <div key={idx} className="p-4 bg-amber-50 border-l-4 border-amber-400 rounded-r-lg">
-                        <p className="text-slate-800 mb-2">{challenge.text}</p>
-                        <p className="text-sm text-amber-800 bg-amber-100/50 px-3 py-2 rounded">
-                          <span className="font-semibold">Рекомендация:</span> {challenge.recommendation}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Key Achievements */}
-              {detail.achievements.length > 0 && (
-                <div>
-                  <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-green-500" />
-                    Важные достижения и возможности
-                  </h3>
-                  <ul className="space-y-2">
-                    {detail.achievements.map((achievement, idx) => (
-                      <li key={idx} className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
-                        <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0" />
-                        <p className="text-slate-700">{achievement}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Toxicity Meter - Atmosphere Analysis */}
-              {detail.toxicity_level !== undefined && (
-                <div>
-                  <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                    <Flame className="w-5 h-5 text-orange-500" />
-                    Анализ атмосферы ("Токсикометр")
-                  </h3>
-                  <div className="p-4 bg-slate-50 rounded-lg">
-                    <div className="flex items-center gap-4 mb-3">
-                      <span className="text-sm text-slate-500">Общий уровень:</span>
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        detail.toxicity_level > 60 ? 'bg-red-100 text-red-700' :
-                        detail.toxicity_level > 30 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'
-                      }`}>
-                        {toxicityLevel}
-                      </span>
-                      <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full transition-all ${
-                            detail.toxicity_level > 60 ? 'bg-red-500' :
-                            detail.toxicity_level > 30 ? 'bg-amber-500' : 'bg-green-500'
-                          }`}
-                          style={{ width: `${detail.toxicity_level}%` }}
-                        />
+                          </thead>
+                          <tbody>
+                            {detail.key_indicators.map((indicator, idx) => {
+                              const colors = getIndicatorStatusColor(indicator.status);
+                              return (
+                                <tr key={idx} className="border-b last:border-b-0 hover:bg-slate-50">
+                                  <td className="px-4 py-3 text-slate-800 font-medium">{indicator.indicator_name}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={`px-2 py-1 rounded text-xs font-medium ${colors.bg} ${colors.text}`}>
+                                      {indicator.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-sm text-slate-600">{indicator.comment}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
-                    <p className="text-sm text-slate-600">{toxicityComment}</p>
-                  </div>
-                </div>
+                  )}
+
+                  {/* Key Challenges and Recommendations */}
+                  {detail.challenges.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-amber-500" />
+                        Ключевые проблемы и рекомендации
+                      </h3>
+                      <div className="space-y-3">
+                        {detail.challenges.map((challenge, idx) => (
+                          <div key={idx} className="p-4 bg-amber-50 border-l-4 border-amber-400 rounded-r-lg">
+                            <p className="text-slate-800 mb-2">{challenge.text}</p>
+                            <p className="text-sm text-amber-800 bg-amber-100/50 px-3 py-2 rounded">
+                              <span className="font-semibold">Рекомендация:</span> {challenge.recommendation}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Key Achievements */}
+                  {detail.achievements.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                        <CheckCircle className="w-5 h-5 text-green-500" />
+                        Важные достижения и возможности
+                      </h3>
+                      <ul className="space-y-2">
+                        {detail.achievements.map((achievement, idx) => (
+                          <li key={idx} className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
+                            <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0" />
+                            <p className="text-slate-700">{achievement}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Toxicity Meter - Atmosphere Analysis */}
+                  {detail.toxicity_level !== undefined && (
+                    <div>
+                      <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                        <Flame className="w-5 h-5 text-orange-500" />
+                        Анализ атмосферы ("Токсикометр")
+                      </h3>
+                      <div className="p-4 bg-slate-50 rounded-lg">
+                        <div className="flex items-center gap-4 mb-3">
+                          <span className="text-sm text-slate-500">Общий уровень:</span>
+                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                            detail.toxicity_level > 60 ? 'bg-red-100 text-red-700' :
+                            detail.toxicity_level > 30 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'
+                          }`}>
+                            {toxicityLevel}
+                          </span>
+                          <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all ${
+                                detail.toxicity_level > 60 ? 'bg-red-500' :
+                                detail.toxicity_level > 30 ? 'bg-amber-500' : 'bg-green-500'
+                              }`}
+                              style={{ width: `${detail.toxicity_level}%` }}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-sm text-slate-600">{toxicityComment}</p>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ) : (
@@ -703,8 +769,8 @@ function AnalyticsModal({
           )}
         </div>
 
-        {/* Footer with download buttons - using boolean flags (Autoprotocol format) */}
-        {(detail?.has_main_report || detail?.has_detailed_report || detail?.has_transcript || detail?.has_tasks) && (
+        {/* Footer with download buttons - updated format (no transcript, has risk brief) */}
+        {(detail?.has_main_report || detail?.has_tasks || detail?.has_risk_brief) && (
           <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-wrap justify-end gap-3">
             <button
               onClick={() => downloadAnalyticsReportAll(analyticsId)}
@@ -719,25 +785,7 @@ function AnalyticsModal({
                 className="px-5 py-2.5 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2 font-medium shadow-sm cursor-pointer"
               >
                 <Download className="w-4 h-4" />
-                Скачать осн. отчёт (DOCX)
-              </button>
-            )}
-            {detail.has_detailed_report && (
-              <button
-                onClick={() => downloadAnalyticsReport(analyticsId, 'detailed')}
-                className="px-5 py-2.5 bg-severin-red text-white rounded-lg hover:bg-severin-red-dark transition-colors flex items-center gap-2 font-medium shadow-sm cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                Скачать менеджерский бриф (DOCX)
-              </button>
-            )}
-            {detail.has_transcript && (
-              <button
-                onClick={() => downloadAnalyticsReport(analyticsId, 'transcript')}
-                className="px-5 py-2.5 bg-slate-500 text-white rounded-lg hover:bg-slate-600 transition-colors flex items-center gap-2 font-medium shadow-sm cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                Скачать транскрипт
+                Скачать отчёт (DOCX)
               </button>
             )}
             {detail.has_tasks && (
@@ -747,6 +795,15 @@ function AnalyticsModal({
               >
                 <Download className="w-4 h-4" />
                 Скачать задачи (XLSX)
+              </button>
+            )}
+            {detail.has_risk_brief && (
+              <button
+                onClick={() => downloadAnalyticsReport(analyticsId, 'risk_brief')}
+                className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 font-medium shadow-sm cursor-pointer"
+              >
+                <Shield className="w-4 h-4" />
+                Скачать риск-бриф (PDF)
               </button>
             )}
           </div>

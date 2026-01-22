@@ -5,7 +5,7 @@ Each generator takes TranscriptionResult and produces a file:
 - transcript.py → transcript.docx (no LLM)
 - tasks.py → tasks.xlsx (Gemini)
 - report.py → report.docx (Gemini)
-- analysis.py → analysis.docx (Gemini)
+- analysis.py → AIAnalysis object for dashboard (Gemini, no file)
 - risk_brief.py → risk_brief.pdf (Gemini, INoT approach)
 """
 

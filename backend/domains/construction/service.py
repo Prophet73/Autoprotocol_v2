@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domains.base import BaseDomainService
 from backend.core.transcription import TranscriptionResult
-from .models import ConstructionReportDB, ReportStatus
+from .models import ConstructionReportDB, ReportStatus, ReportAnalytics, ReportProblem
 from .schemas import (
     ConstructionReport,
     ActionItem,
@@ -21,7 +21,9 @@ from .schemas import (
     ComplianceItem,
     Priority,
     IssueSeverity,
-    IssueStatus
+    IssueStatus,
+    AIAnalysis,
+    Atmosphere,
 )
 from .prompts import CONSTRUCTION_PROMPTS
 
@@ -378,6 +380,7 @@ class ConstructionService(BaseDomainService):
             tasks_path=output_files.get("tasks"),
             report_path=output_files.get("report"),
             analysis_path=output_files.get("analysis"),
+            risk_brief_path=output_files.get("risk_brief"),
             completed_at=datetime.now()
         )
 
@@ -386,3 +389,89 @@ class ConstructionService(BaseDomainService):
         await db.refresh(db_report)
 
         return db_report
+
+    async def save_analytics_to_db(
+        self,
+        db: AsyncSession,
+        report_id: int,
+        ai_analysis: AIAnalysis,
+    ) -> ReportAnalytics:
+        """
+        Save AIAnalysis to ReportAnalytics and ReportProblem tables.
+
+        This enables the manager dashboard to show:
+        - Calendar events with health status colors
+        - KPI counters (total, attention, critical)
+        - Attention items (problems with recommendations)
+
+        Args:
+            db: Database session
+            report_id: ID of the ConstructionReportDB record
+            ai_analysis: AIAnalysis object from generate_analysis()
+
+        Returns:
+            Created ReportAnalytics record
+        """
+        # Map atmosphere to toxicity level (0-100 scale)
+        atmosphere_to_toxicity = {
+            Atmosphere.CALM: 10,
+            Atmosphere.WORKING: 30,
+            Atmosphere.TENSE: 60,
+            Atmosphere.CONFLICT: 90,
+        }
+        toxicity_level = atmosphere_to_toxicity.get(ai_analysis.atmosphere, 30)
+
+        # Format toxicity details
+        toxicity_details = f"{ai_analysis.atmosphere.label_ru}\n\n{ai_analysis.atmosphere_comment}"
+
+        # Convert indicators to dict format expected by frontend
+        key_indicators = [
+            {
+                "indicator_name": ind.name,
+                "status": "Критический" if ind.status == "critical" else "Есть риски" if ind.status == "risk" else "В норме",
+                "comment": ind.comment,
+            }
+            for ind in ai_analysis.indicators
+        ]
+
+        # Convert challenges to dict format expected by frontend
+        challenges = [
+            {
+                "text": ch.problem,
+                "recommendation": ch.recommendation,
+            }
+            for ch in ai_analysis.challenges
+        ]
+
+        # Create ReportAnalytics record
+        analytics = ReportAnalytics(
+            report_id=report_id,
+            health_status=ai_analysis.overall_status.value,
+            summary=ai_analysis.executive_summary,
+            key_indicators=key_indicators,
+            challenges=challenges,
+            achievements=ai_analysis.achievements,
+            toxicity_level=toxicity_level,
+            toxicity_details=toxicity_details,
+        )
+        db.add(analytics)
+        await db.flush()
+        await db.refresh(analytics)
+
+        # Create ReportProblem records for each challenge
+        for challenge in ai_analysis.challenges:
+            # Determine severity based on overall status
+            severity = "critical" if ai_analysis.overall_status.value == "critical" else "attention"
+
+            problem = ReportProblem(
+                analytics_id=analytics.id,
+                problem_text=challenge.problem,
+                recommendation=challenge.recommendation,
+                severity=severity,
+                status="new",
+            )
+            db.add(problem)
+
+        await db.flush()
+
+        return analytics

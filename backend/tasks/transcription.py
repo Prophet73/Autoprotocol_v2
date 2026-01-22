@@ -40,7 +40,7 @@ def _run_domain_generators(
     artifact_options: Dict,
     progress_callback,
     domain_type: Optional[str] = None,
-) -> Dict[str, str]:
+) -> tuple[Dict[str, str], Optional[object]]:
     """
     Run domain-specific generators based on artifact_options and domain_type.
 
@@ -52,15 +52,17 @@ def _run_domain_generators(
         domain_type: Domain type (construction, hr, it)
 
     Returns:
-        Dict mapping artifact type to file path
+        Tuple of (Dict mapping artifact type to file path, AIAnalysis object or None)
     """
     output_files = {}
+    ai_analysis = None  # Will be populated if generate_analysis is called
 
     # Check if Gemini is configured for LLM-based generators
     has_gemini = _check_gemini_configured()
 
-    # Get meeting_type from artifact_options
+    # Get meeting_type and meeting_date from artifact_options
     meeting_type = artifact_options.get("meeting_type")
+    meeting_date = artifact_options.get("meeting_date")
 
     # Default to construction domain
     domain = domain_type or "construction"
@@ -85,12 +87,13 @@ def _run_domain_generators(
 
     # 1. Transcript (no LLM required)
     if artifact_options.get("generate_transcript", True):
-        progress_callback("domain_generators", 92, "Generating transcript.docx...")
+        progress_callback("domain_generators", 92, "Формирование стенограммы...")
         try:
-            if meeting_type:
-                transcript_path = generate_transcript(result, output_path, meeting_type=meeting_type)
-            else:
-                transcript_path = generate_transcript(result, output_path)
+            transcript_path = generate_transcript(
+                result, output_path,
+                meeting_type=meeting_type,
+                meeting_date=meeting_date,
+            )
             output_files["transcript"] = str(transcript_path)
             logger.info(f"Generated transcript: {transcript_path}")
         except Exception as e:
@@ -100,7 +103,7 @@ def _run_domain_generators(
     if has_gemini:
         # 2. Tasks Excel (construction only)
         if artifact_options.get("generate_tasks", False) and generate_tasks:
-            progress_callback("domain_generators", 94, "Generating tasks.xlsx (AI)...")
+            progress_callback("domain_generators", 94, "Формирование списка задач...")
             try:
                 tasks_path = generate_tasks(result, output_path)
                 output_files["tasks"] = str(tasks_path)
@@ -110,30 +113,30 @@ def _run_domain_generators(
 
         # 3. Report Word
         if artifact_options.get("generate_report", False):
-            progress_callback("domain_generators", 96, "Generating report.docx (AI)...")
+            progress_callback("domain_generators", 96, "Формирование отчёта...")
             try:
-                if meeting_type:
-                    report_path = generate_report(result, output_path, meeting_type=meeting_type)
-                else:
-                    report_path = generate_report(result, output_path)
+                report_path = generate_report(
+                    result, output_path,
+                    meeting_type=meeting_type,
+                    meeting_date=meeting_date,
+                )
                 output_files["report"] = str(report_path)
                 logger.info(f"Generated report: {report_path}")
             except Exception as e:
                 logger.error(f"Report generation failed: {e}")
 
-        # 4. Manager brief (construction only)
+        # 4. Manager brief (construction only) - generates AIAnalysis for dashboard
         if artifact_options.get("generate_analysis", False) and generate_analysis:
-            progress_callback("domain_generators", 98, "Generating manager_brief.docx (AI)...")
+            # Silent generation - no progress message for user, no file output
             try:
-                analysis_path = generate_analysis(result, output_path)
-                output_files["analysis"] = str(analysis_path)
-                logger.info(f"Generated manager brief: {analysis_path}")
+                ai_analysis = generate_analysis(result)
+                logger.info("Generated manager brief (AIAnalysis for dashboard)")
             except Exception as e:
                 logger.error(f"Manager brief generation failed: {e}")
 
         # 5. Risk Brief (construction only) - INoT approach, PDF for client
         if artifact_options.get("generate_risk_brief", False) and generate_risk_brief:
-            progress_callback("domain_generators", 99, "Generating risk_brief.pdf (AI/INoT)...")
+            progress_callback("domain_generators", 99, "Формирование риск-брифа...")
             try:
                 risk_brief_path = generate_risk_brief(result, output_path)
                 output_files["risk_brief"] = str(risk_brief_path)
@@ -151,10 +154,10 @@ def _run_domain_generators(
         if llm_requested:
             logger.warning(
                 "LLM generators requested but GOOGLE_API_KEY not set. "
-                "Skipping tasks.xlsx, report.docx, analysis.docx, risk_brief.pdf"
+                "Skipping tasks.xlsx, report.docx, risk_brief.pdf, manager brief"
             )
 
-    return output_files
+    return output_files, ai_analysis
 
 
 def _sync_job_to_db(
@@ -268,9 +271,13 @@ def _save_domain_report(
     output_files: Optional[Dict[str, str]] = None,
     guest_uid: Optional[str] = None,
     uploader_id: Optional[int] = None,
+    ai_analysis: Optional[object] = None,
 ) -> None:
     """
     Save domain-specific report to database after transcription.
+
+    Also saves ReportAnalytics and ReportProblem records if ai_analysis is provided,
+    enabling the manager dashboard to show health status, KPIs, and attention items.
 
     Args:
         job_id: Job identifier
@@ -279,6 +286,7 @@ def _save_domain_report(
         domain_type: Domain type ('construction', 'hr', etc.)
         guest_uid: Guest UUID for anonymous uploads
         uploader_id: User ID for authenticated uploads
+        ai_analysis: AIAnalysis object from generate_analysis() for dashboard integration
     """
     from ..shared.database import async_session_factory
     from ..domains.factory import DomainServiceFactory
@@ -293,7 +301,7 @@ def _save_domain_report(
                 report = service.generate_report_simple(result)
 
                 # Save to database
-                await service.save_report_to_db(
+                db_report = await service.save_report_to_db(
                     db=db,
                     job_id=job_id,
                     project_id=project_id,
@@ -302,6 +310,19 @@ def _save_domain_report(
                     guest_uid=guest_uid,
                     uploader_id=uploader_id,
                 )
+
+                # Save analytics if provided (enables manager dashboard)
+                if ai_analysis is not None and domain_type == "construction":
+                    try:
+                        await service.save_analytics_to_db(
+                            db=db,
+                            report_id=db_report.id,
+                            ai_analysis=ai_analysis,
+                        )
+                        logger.info(f"Analytics saved for report {db_report.id}")
+                    except Exception as e:
+                        logger.error(f"Failed to save analytics (non-fatal): {e}")
+                        # Don't fail the whole save if analytics fails
 
                 await db.commit()
                 logger.info(f"Domain report saved for job {job_id}, project {project_id}")
@@ -410,7 +431,7 @@ def process_transcription_task(
 
         # Run domain generators based on artifact_options
         output_files = {}
-        generated_artifacts = _run_domain_generators(
+        generated_artifacts, ai_analysis = _run_domain_generators(
             result=result,
             output_path=output_path,
             artifact_options=artifact_options,
@@ -434,7 +455,7 @@ def process_transcription_task(
 
         # Save domain report to database if project is linked
         if domain_type and project_id:
-            progress_callback("domain_report", 99, "Saving report to database...")
+            progress_callback("domain_report", 99, "Сохранение в базу данных...")
             try:
                 _save_domain_report(
                     job_id=job_id,
@@ -444,6 +465,7 @@ def process_transcription_task(
                     output_files=output_files,
                     guest_uid=guest_uid,
                     uploader_id=uploader_id,
+                    ai_analysis=ai_analysis,
                 )
             except Exception as e:
                 logger.error(f"Domain report save failed (non-fatal): {e}")
@@ -483,7 +505,7 @@ def process_transcription_task(
 
         # Send email notification if emails are provided
         if notify_emails:
-            progress_callback("email_notification", 100, "Sending email notification...")
+            progress_callback("email_notification", 100, "Отправка уведомления на почту...")
             email_sent = False
             try:
                 from ..core.email.service import send_report_email

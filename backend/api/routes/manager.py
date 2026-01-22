@@ -51,7 +51,8 @@ class KPIResponse(BaseModel):
 
 class CalendarEventResponse(BaseModel):
     """Calendar event for display."""
-    id: int
+    id: int  # report_id
+    analytics_id: Optional[int] = None  # analytics_id for modal
     title: str
     date: str  # ISO date string
     status: str  # critical, attention, stable
@@ -128,6 +129,7 @@ class ReportFiles(BaseModel):
     detailed: Optional[str] = None
     transcript: Optional[str] = None
     tasks: Optional[str] = None
+    risk_brief: Optional[str] = None
 
 
 class AnalyticsDetailResponse(BaseModel):
@@ -146,6 +148,7 @@ class AnalyticsDetailResponse(BaseModel):
     has_detailed_report: bool = False
     has_transcript: bool = False
     has_tasks: bool = False
+    has_risk_brief: bool = False
     filename: str = ""  # Original filename for display
 
 
@@ -289,6 +292,7 @@ async def get_dashboard_view(
         event_date = report.meeting_date or report.created_at
         calendar_events.append(CalendarEventResponse(
             id=report.id,
+            analytics_id=analytics.id if analytics else None,
             title=report.title or f"Отчёт {report.job_id[:8]}",
             date=event_date.date().isoformat() if event_date else datetime.now().date().isoformat(),
             status=health,
@@ -496,6 +500,7 @@ async def get_analytics_detail(
     has_detailed_report = False
     has_transcript = False
     has_tasks = False
+    has_risk_brief = False
     filename = ""
 
     if report:
@@ -510,6 +515,9 @@ async def get_analytics_detail(
         if report.tasks_path:
             report_files.tasks = report.tasks_path
             has_tasks = Path(report.tasks_path).exists() if report.tasks_path else False
+        if report.risk_brief_path:
+            report_files.risk_brief = report.risk_brief_path
+            has_risk_brief = Path(report.risk_brief_path).exists() if report.risk_brief_path else False
         # Original filename
         filename = report.title or report.audio_file_path or f"Отчёт {report.job_id[:8]}"
 
@@ -527,6 +535,7 @@ async def get_analytics_detail(
         has_detailed_report=has_detailed_report,
         has_transcript=has_transcript,
         has_tasks=has_tasks,
+        has_risk_brief=has_risk_brief,
         filename=filename
     )
 
@@ -607,10 +616,10 @@ async def download_analytics_report(
 ):
     """Download report file for analytics."""
 
-    if report_type not in ('main', 'detailed', 'transcript', 'tasks'):
+    if report_type not in ('main', 'detailed', 'transcript', 'tasks', 'risk_brief'):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="report_type must be 'main', 'detailed', 'transcript', or 'tasks'"
+            detail="report_type must be 'main', 'detailed', 'transcript', 'tasks', or 'risk_brief'"
         )
     if report_type == "detailed":
         raise HTTPException(
@@ -648,6 +657,7 @@ async def download_analytics_report(
         "main": report.report_path,
         "transcript": report.transcript_path,
         "tasks": report.tasks_path,
+        "risk_brief": report.risk_brief_path,
     }.get(report_type)
 
     if not file_path_str:
@@ -719,8 +729,8 @@ async def download_analytics_report_all(
     report = analytics.report
     candidates = {
         "report.docx": report.report_path,
-        "transcript": report.transcript_path,
         "tasks.xlsx": report.tasks_path,
+        "risk_brief.pdf": report.risk_brief_path,
     }
 
     files = []

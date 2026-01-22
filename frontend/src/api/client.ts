@@ -69,6 +69,8 @@ export interface TranscribeOptions {
   project_code?: string;
   // Meeting type for domain-specific processing
   meeting_type?: string;
+  // Meeting date (optional)
+  meeting_date?: string;
   // Email notification (optional)
   notify_emails?: string;
 }
@@ -111,6 +113,8 @@ export async function createTranscription(
   if (options.project_code) formData.append('project_code', options.project_code);
   // Meeting type for domain-specific processing
   if (options.meeting_type) formData.append('meeting_type', options.meeting_type);
+  // Meeting date
+  if (options.meeting_date) formData.append('meeting_date', options.meeting_date);
   // Email notification
   if (options.notify_emails) formData.append('notify_emails', options.notify_emails);
 
@@ -245,6 +249,7 @@ export interface ManagerDashboardKPI {
 
 export interface CalendarEvent {
   id: number;
+  analytics_id: number | null;
   title: string;
   date: string;
   status: 'critical' | 'attention' | 'stable';
@@ -316,12 +321,14 @@ export interface AnalyticsDetail {
     detailed?: string;
     transcript?: string;
     tasks?: string;
+    risk_brief?: string;
   };
   // Flags for download buttons (Autoprotocol format)
   has_main_report: boolean;
   has_detailed_report: boolean;
   has_transcript: boolean;
   has_tasks: boolean;
+  has_risk_brief: boolean;
   filename: string;
 }
 
@@ -360,7 +367,7 @@ export async function updateProblemStatus(
 
 export function getAnalyticsReportUrl(
   analyticsId: number,
-  type: 'main' | 'detailed' | 'transcript' | 'tasks'
+  type: 'main' | 'detailed' | 'transcript' | 'tasks' | 'risk_brief'
 ): string {
   return `${getApiBaseUrl()}/api/manager/analytics/${analyticsId}/report/${type}`;
 }
@@ -368,7 +375,7 @@ export function getAnalyticsReportUrl(
 // Download analytics report with authentication
 export async function downloadAnalyticsReport(
   analyticsId: number,
-  type: 'main' | 'detailed' | 'transcript' | 'tasks'
+  type: 'main' | 'detailed' | 'transcript' | 'tasks' | 'risk_brief'
 ): Promise<void> {
   const url = getAnalyticsReportUrl(analyticsId, type);
   const token = localStorage.getItem('token');
@@ -391,6 +398,8 @@ export async function downloadAnalyticsReport(
     ? 'detailed_report.docx'
     : type === 'transcript'
     ? 'transcript.docx'
+    : type === 'risk_brief'
+    ? 'risk_brief.pdf'
     : 'tasks.xlsx';
   if (contentDisposition) {
     const match = contentDisposition.match(/filename="?([^"]+)"?/);
