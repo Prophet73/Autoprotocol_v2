@@ -180,17 +180,6 @@ async def get_user_project_ids(db: AsyncSession, user: User) -> List[int]:
     return [row[0] for row in result.fetchall()]
 
 
-def determine_report_health(report: ConstructionReportDB) -> str:
-    """Determine health status of a report based on analytics."""
-    if hasattr(report, 'analytics') and report.analytics:
-        return report.analytics.health_status
-    if report.status == 'failed':
-        return 'critical'
-    if report.status == 'pending' or report.status == 'processing':
-        return 'attention'
-    return 'stable'
-
-
 # =============================================================================
 # Dashboard View Endpoint
 # =============================================================================
