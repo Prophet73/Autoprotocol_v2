@@ -162,3 +162,8 @@ secrets.json
 test_risk_brief*.py
 risk_brief_v2_*.json
 risk_brief_v2_*.html
+
+# ============================
+# Reference files (local only)
+# ============================
+_reference/
