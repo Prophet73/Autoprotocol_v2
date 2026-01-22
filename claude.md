@@ -229,3 +229,55 @@ npm run dev  # http://localhost:3000
 - История задач
 - Скачивание результатов
 - Админ-панель с авторизацией
+
+## TODO: Будущие фичи
+
+### Менеджерский бриф (высокий приоритет)
+
+Скопировать из прототипа https://github.com/Prophet73/Autoprotokol и интегрировать.
+
+**Суть:** После транскрипции LLM генерирует аналитику для менеджера → сохраняется в БД → показывается в /dashboard.
+
+**Ключевые файлы прототипа:**
+- `prompts.json` — промпты по доменам (construction, IT, general)
+- `app/reports/report_service.py` — функция `generate_all_reports()`
+- `app/reports/schemas.py` — Pydantic-схемы `DynamicIndicator`, `KeyChallenge`
+- `app/stats_service.py` — функция `log_job_analytics()` сохраняет в БД
+- `app/models.py` — модель `JobAnalytics`
+
+**Структура данных:**
+```python
+class ManagerBrief:
+    executive_summary: str        # Резюме для руководителя
+    overall_status: str           # "Критический" | "Требует внимания" | "Стабильный"
+    dynamic_indicators: List[{    # Показатели здоровья
+        indicator_name: str,
+        status: str,
+        comment: str
+    }]
+    key_challenges: List[{        # Проблемы с рекомендациями
+        id: str,
+        problem: str,
+        ai_recommendation: str,
+        status: "new" | "done"
+    }]
+    key_achievements: List[str]
+    toxicity_level: str           # "Высокий" | "Напряженный" | "Нейтральный"
+    toxicity_comment: str
+```
+
+**Текущее состояние:**
+- Таблица `ReportAnalytics` уже есть в `backend/domains/construction/models.py`
+- НО она не заполняется автоматически после транскрипции
+- Нужно: добавить LLM-генерацию + сохранение в celery task
+
+### Артефакты Construction домена
+
+**Клиентские (файлы):**
+1. `transcript.docx` — стенограмма
+2. `tasks.xlsx` — задачи
+3. `report.docx` — отчёт
+4. `risk_brief.pdf` — риск-матрица для инвестора
+
+**Внутренние (БД → Dashboard):**
+1. Менеджерский бриф → календарь + модалка в /dashboard

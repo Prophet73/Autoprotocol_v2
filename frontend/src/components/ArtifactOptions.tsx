@@ -1,10 +1,10 @@
-import { FileText, Table, FileSpreadsheet, Brain, Check } from 'lucide-react';
+import { FileText, Table, FileSpreadsheet, Check, Shield } from 'lucide-react';
 
 export interface ArtifactState {
   transcript: boolean;
   tasks: boolean;
   report: boolean;
-  analysis: boolean;
+  riskBrief: boolean;
 }
 
 interface ArtifactOptionsProps {
@@ -32,10 +32,10 @@ const artifacts = [
     icon: FileText,
   },
   {
-    id: 'analysis' as const,
-    label: 'ИИ Анализ',
-    description: 'Глубокий анализ',
-    icon: Brain,
+    id: 'riskBrief' as const,
+    label: 'Риск-бриф (PDF)',
+    description: 'Матрица рисков (для клиента)',
+    icon: Shield,
   },
 ];
 
@@ -94,5 +94,5 @@ export const defaultArtifactState: ArtifactState = {
   transcript: false,
   tasks: true,
   report: true,
-  analysis: false,
+  riskBrief: false,
 };

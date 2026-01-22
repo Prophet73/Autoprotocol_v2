@@ -361,6 +361,14 @@ class ConcernCategory(str, Enum):
     OTHER = "Прочее"
 
 
+class RiskGroup(BaseModel):
+    """Группа рисков по категории для валидации"""
+    category: RiskCategory = Field(description="Категория риска")
+    count: int = Field(ge=0, description="Количество рисков в категории")
+    critical_count: int = Field(ge=0, description="Количество критических рисков в категории")
+    risk_ids: List[str] = Field(default_factory=list, description="ID рисков в категории")
+
+
 class ProjectRisk(BaseModel):
     """
     Детальный риск проекта с оценкой P×I.
@@ -371,6 +379,14 @@ class ProjectRisk(BaseModel):
     title: str = Field(description="Краткий заголовок риска (3-7 слов)")
     category: RiskCategory = Field(description="Категория риска")
 
+    evidence: Optional[str] = Field(
+        None,
+        description="Фраза/парт текста, подтверждающая риск"
+    )
+    confidence: Literal["high", "medium", "low"] = Field(
+        default="medium",
+        description="Уровень уверенности (high/medium/low)"
+    )
     # Описание
     description: str = Field(
         description="Полное описание ситуации: что происходит, почему это риск"
@@ -516,13 +532,23 @@ class RiskBrief(BaseModel):
     # === CONCERNS (требует внимания) ===
     concerns: List[Concern] = Field(
         default_factory=list,
-        description="Вопросы для руководителя (2-5 шт) — не риски, но важно"
+        description="Вопросы для руководителя — не риски, но важно"
     )
 
     # === ГЛОССАРИЙ ===
     abbreviations: List[Abbreviation] = Field(
         default_factory=list,
-        description="Технические аббревиатуры из совещания (3-7 шт)"
+        description="Технические аббревиатуры из совещания"
+    )
+
+    hypotheses: List[ProjectRisk] = Field(
+        default_factory=list,
+        description="Риски/гипотезы с низкой уверенностью (confidence=low)"
+    )
+
+    risk_groups: List[RiskGroup] = Field(
+        default_factory=list,
+        description="Группировка рисков по категориям"
     )
 
     # === COMPUTED PROPERTIES ===

@@ -5,6 +5,7 @@ Combines: summary + emotions + tasks in a Word document.
 
 import os
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -19,10 +20,12 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from backend.core.transcription.models import TranscriptionResult
 from backend.domains.construction.schemas import BasicReport, TaskCategory
 from backend.domains.construction.prompts import CONSTRUCTION_PROMPTS
+from backend.domains.construction.generators.llm_utils import run_llm_call
 
 
 # Model for reports (pro for quality)
-REPORT_MODEL = "gemini-2.5-flash"
+REPORT_MODEL = os.getenv("GEMINI_REPORT_MODEL", "gemini-2.5-pro")
+logger = logging.getLogger(__name__)
 
 
 def generate_report(
@@ -192,20 +195,22 @@ def _get_basic_report(transcript_text: str) -> BasicReport:
 """.format(transcript=transcript_text[:15000])
 
     try:
-        response = client.models.generate_content(
-            model=REPORT_MODEL,
-            contents=[system_prompt, user_prompt] if system_prompt else user_prompt,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": BasicReport.model_json_schema(),
-            },
+        response = run_llm_call(
+            lambda: client.models.generate_content(
+                model=REPORT_MODEL,
+                contents=[system_prompt, user_prompt] if system_prompt else user_prompt,
+                config={
+                    "response_mime_type": "application/json",
+                    "response_schema": BasicReport.model_json_schema(),
+                },
+            )
         )
 
         report_data = json.loads(response.text)
         return BasicReport.model_validate(report_data)
 
     except Exception as e:
-        print(f"LLM report generation failed: {e}")
+        logger.warning("LLM report generation failed: %s", e)
         return BasicReport(
             meeting_type="production",
             meeting_summary="Ошибка генерации отчёта",

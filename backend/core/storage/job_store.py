@@ -52,6 +52,7 @@ class JobData(BaseModel):
     generate_tasks: bool = False
     generate_report: bool = False
     generate_analysis: bool = False
+    generate_risk_brief: bool = False
 
     # Email notification
     notify_emails: List[str] = []

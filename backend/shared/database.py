@@ -1,8 +1,7 @@
 """
 Database configuration and session management.
 
-Uses SQLAlchemy 2.0 async with SQLite for development
-and PostgreSQL for production.
+Uses SQLAlchemy 2.0 async with PostgreSQL.
 """
 import os
 from typing import AsyncGenerator
@@ -17,10 +16,10 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 
-# Database URL from environment (default: SQLite for development)
+# Database URL from environment (default: PostgreSQL)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "sqlite+aiosqlite:////data/db/whisperx.db"
+    "postgresql+asyncpg://postgres:postgres@postgres:5432/whisperx"
 )
 
 # Convert postgres:// to postgresql+asyncpg:// if needed
@@ -107,3 +106,4 @@ async def close_db() -> None:
     Should be called on application shutdown.
     """
     await engine.dispose()
+

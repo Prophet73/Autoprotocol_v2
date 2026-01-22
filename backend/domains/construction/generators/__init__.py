@@ -6,7 +6,7 @@ Each generator takes TranscriptionResult and produces a file:
 - tasks.py → tasks.xlsx (Gemini)
 - report.py → report.docx (Gemini)
 - analysis.py → analysis.docx (Gemini)
-- risk_brief.py → risk_brief.html (Gemini, INoT approach)
+- risk_brief.py → risk_brief.pdf (Gemini, INoT approach)
 """
 
 from .transcript import generate_transcript

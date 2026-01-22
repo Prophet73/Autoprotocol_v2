@@ -24,6 +24,10 @@ const stageLabels: Record<string, string> = {
   report_generation: 'Генерация отчётов',
   artifacts: 'Создание документов',
   domain_artifacts: 'Создание документов',
+  domain_generators: 'Создание документов',
+  text_extraction: 'Извлечение текста',
+  llm_generation: 'Генерация отчётов',
+  initializing: 'Инициализация',
 };
 
 const stageIcons: Record<string, string> = {
@@ -35,11 +39,17 @@ const stageIcons: Record<string, string> = {
   emotion_analysis: '😊',
   report_generation: '📄',
   domain_artifacts: '📑',
+  domain_generators: '📑',
+  text_extraction: '🧾',
+  llm_generation: '✨',
 };
 
 export function ProgressBar({ percent, stage, message, status }: ProgressBarProps) {
   const stageLabel = stage ? stageLabels[stage] || stage : '';
   const stageIcon = stage ? stageIcons[stage] || '⚙️' : '';
+  const showStage = !!stage && (status === 'processing' || status === 'pending');
+  const stageBadgeClass = status === 'pending' ? 'bg-amber-50' : 'bg-red-50';
+  const stageTextClass = status === 'pending' ? 'text-amber-700' : 'text-severin-red';
 
   return (
     <div className="space-y-4">
@@ -75,10 +85,10 @@ export function ProgressBar({ percent, stage, message, status }: ProgressBarProp
       {/* Stage and message */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {status === 'processing' && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 rounded-lg">
+          {showStage && (
+            <div className={clsx('flex items-center gap-2 px-3 py-1.5 rounded-lg', stageBadgeClass)}>
               <span className="text-lg">{stageIcon}</span>
-              <span className="font-medium text-severin-red">{stageLabel}</span>
+              <span className={clsx('font-medium', stageTextClass)}>{stageLabel}</span>
             </div>
           )}
           {status === 'completed' && (

@@ -33,6 +33,7 @@ import {
   getAnalyticsDetail,
   updateProblemStatus,
   downloadAnalyticsReport,
+  downloadAnalyticsReportAll,
   type ProjectHealth,
   type AttentionItem,
   type AnalyticsDetail,
@@ -703,8 +704,15 @@ function AnalyticsModal({
         </div>
 
         {/* Footer with download buttons - using boolean flags (Autoprotocol format) */}
-        {(detail?.has_main_report || detail?.has_detailed_report) && (
-          <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+        {(detail?.has_main_report || detail?.has_detailed_report || detail?.has_transcript || detail?.has_tasks) && (
+          <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-wrap justify-end gap-3">
+            <button
+              onClick={() => downloadAnalyticsReportAll(analyticsId)}
+              className="px-5 py-2.5 bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors flex items-center gap-2 font-medium shadow-sm cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              Скачать все файлы
+            </button>
             {detail.has_main_report && (
               <button
                 onClick={() => downloadAnalyticsReport(analyticsId, 'main')}
@@ -720,7 +728,25 @@ function AnalyticsModal({
                 className="px-5 py-2.5 bg-severin-red text-white rounded-lg hover:bg-severin-red-dark transition-colors flex items-center gap-2 font-medium shadow-sm cursor-pointer"
               >
                 <Download className="w-4 h-4" />
-                Скачать подробный протокол (DOCX)
+                Скачать менеджерский бриф (DOCX)
+              </button>
+            )}
+            {detail.has_transcript && (
+              <button
+                onClick={() => downloadAnalyticsReport(analyticsId, 'transcript')}
+                className="px-5 py-2.5 bg-slate-500 text-white rounded-lg hover:bg-slate-600 transition-colors flex items-center gap-2 font-medium shadow-sm cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                Скачать транскрипт
+              </button>
+            )}
+            {detail.has_tasks && (
+              <button
+                onClick={() => downloadAnalyticsReport(analyticsId, 'tasks')}
+                className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-2 font-medium shadow-sm cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                Скачать задачи (XLSX)
               </button>
             )}
           </div>

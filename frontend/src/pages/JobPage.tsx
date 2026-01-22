@@ -16,6 +16,7 @@ import { useJobStatus, useJobResult } from '../hooks/useJob';
 import { ProgressBar } from '../components/ProgressBar';
 import { DownloadCard } from '../components/DownloadCard';
 import { cancelJob } from '../api/client';
+import type { JobStatusResponse } from '../api/client';
 
 export function JobPage() {
   const { jobId } = useParams<{ jobId: string }>();
@@ -39,14 +40,6 @@ export function JobPage() {
     );
   }
 
-  if (statusLoading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-      </div>
-    );
-  }
-
   if (statusError) {
     return (
       <div className="max-w-2xl mx-auto">
@@ -66,11 +59,21 @@ export function JobPage() {
     );
   }
 
+  const showInitialLoading = statusLoading && !status;
   const isCompleted = status?.status === 'completed';
   const isFailed = status?.status === 'failed';
-  const isProcessing = status?.status === 'processing' || status?.status === 'pending';
+  const isProcessing = status?.status === 'processing' || status?.status === 'pending' || showInitialLoading;
   const fileName = result?.source_file || status?.message?.split('/').pop() || 'Файл';
   const isVideo = fileName.match(/\.(mp4|mov|avi|mkv)$/i);
+  const loadingStatus: JobStatusResponse = {
+    job_id: jobId ?? '',
+    status: 'pending',
+    current_stage: 'initializing',
+    progress_percent: 0,
+    message: 'Получаем статус задачи...',
+    created_at: new Date().toISOString(),
+  };
+  const progressStatus = status ?? (showInitialLoading ? loadingStatus : undefined);
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -116,6 +119,12 @@ export function JobPage() {
 
             {/* Status badge */}
             <div className="flex-shrink-0">
+              {showInitialLoading && (
+                <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-100 text-slate-600 rounded-full text-sm font-medium">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Подключение...
+                </span>
+              )}
               {isCompleted && (
                 <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-medium">
                   <CheckCircle2 className="w-4 h-4" />
@@ -128,7 +137,7 @@ export function JobPage() {
                   Ошибка
                 </span>
               )}
-              {isProcessing && (
+              {isProcessing && !showInitialLoading && (
                 <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-100 text-severin-red rounded-full text-sm font-medium">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Обработка
@@ -139,13 +148,13 @@ export function JobPage() {
         </div>
 
         {/* Progress section */}
-        {isProcessing && status && (
+        {isProcessing && progressStatus && (
           <div className="p-6 bg-red-50 border-b border-slate-100">
             <ProgressBar
-              percent={status.progress_percent}
-              stage={status.current_stage || undefined}
-              message={status.message || undefined}
-              status={status.status}
+              percent={progressStatus.progress_percent}
+              stage={progressStatus.current_stage || undefined}
+              message={progressStatus.message || undefined}
+              status={progressStatus.status}
             />
 
             {/* Cancel button */}

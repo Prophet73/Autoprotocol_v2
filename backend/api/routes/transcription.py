@@ -20,6 +20,7 @@ from typing import Optional
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Header, Query
 from fastapi.responses import FileResponse
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
@@ -31,12 +32,12 @@ from ...core.storage import get_job_store, JobStore
 from ...core.utils.file_security import validate_file_path
 from ...core.storage.job_store import JobData
 from ...core.transcription.models import TranscriptionRequest, JobStatus
-from ...tasks.transcription import process_transcription_task, _sync_job_to_db
+from ...tasks.transcription import process_transcription_task, _sync_job_to_db, _update_job_in_db, _save_domain_report
 from ...core.utils.text_extraction import is_text_file, extract_text_from_file
 from ...shared.database import get_db
 from ...domains.construction.project_service import ProjectService
 from ...core.auth.dependencies import get_optional_user
-from ...shared.models import User
+from ...shared.models import User, TranscriptionJob
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,8 @@ async def create_transcription(
     generate_transcript: bool = Form(default=True, description="Создать транскрипт (transcript.docx)"),
     generate_tasks: bool = Form(default=False, description="Извлечь задачи через LLM (tasks.xlsx)"),
     generate_report: bool = Form(default=False, description="Создать отчёт через LLM (report.docx)"),
-    generate_analysis: bool = Form(default=False, description="Создать аналитику через LLM (analysis.docx)"),
+    generate_analysis: bool = Form(default=False, description="Создать менеджерский бриф (analysis.docx)"),
+    generate_risk_brief: bool = Form(default=False, description="Создать риск-бриф (risk_brief.pdf)"),
     # Email notification
     notify_emails: Optional[str] = Form(default=None, description="Email адреса для уведомления (через запятую)"),
 ):
@@ -197,6 +199,9 @@ async def create_transcription(
 
     logger.info(f"File uploaded: {input_file}")
 
+    # Manager brief is always generated for construction domain
+    generate_analysis_effective = (domain_type or "construction") == "construction"
+
     # Create job record in Redis
     now = datetime.now()
     # Parse and validate notify emails
@@ -221,7 +226,8 @@ async def create_transcription(
         generate_transcript=generate_transcript,
         generate_tasks=generate_tasks,
         generate_report=generate_report,
-        generate_analysis=generate_analysis,
+        generate_analysis=generate_analysis_effective,
+        generate_risk_brief=generate_risk_brief,
         notify_emails=notify_emails_list,
     )
 
@@ -235,6 +241,7 @@ async def create_transcription(
             domain=domain_type or "construction",
             meeting_type=meeting_type,
             user_id=uploader_id,
+            guest_uid=guest_uid,
             project_id=project_id,
             source_filename=file.filename,
             source_size_bytes=file_size,
@@ -248,7 +255,8 @@ async def create_transcription(
         "generate_transcript": generate_transcript,
         "generate_tasks": generate_tasks,
         "generate_report": generate_report,
-        "generate_analysis": generate_analysis,
+        "generate_analysis": generate_analysis_effective,
+        "generate_risk_brief": generate_risk_brief,
         "meeting_type": meeting_type,
     }
 
@@ -263,6 +271,9 @@ async def create_transcription(
             output_dir=OUTPUT_DIR / job_id,
             artifact_options=artifact_options,
             domain_type=domain_type,
+            project_id=project_id,
+            guest_uid=guest_uid,
+            uploader_id=uploader_id,
             notify_emails=notify_emails_list,
         )
         return JobResponse(
@@ -306,6 +317,11 @@ async def create_transcription(
             skip_translation=skip_translation,
             skip_emotions=skip_emotions,
             artifact_options=artifact_options,
+            # Domain linkage
+            project_id=project_id,
+            domain_type=domain_type,
+            guest_uid=guest_uid,
+            uploader_id=uploader_id,
             notify_emails=notify_emails_list,
         )
 
@@ -323,7 +339,7 @@ async def create_transcription(
     summary="Получить статус задачи",
     description="Возвращает текущий статус обработки, этап и процент выполнения.",
 )
-async def get_job_status(job_id: str):
+async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
     """
     ## Статус задачи
 
@@ -336,8 +352,62 @@ async def get_job_status(job_id: str):
     store = get_store()
     job = store.get(job_id)
 
-    if job is None:
+    result = await db.execute(
+        select(TranscriptionJob).where(TranscriptionJob.job_id == job_id)
+    )
+    db_job = result.scalar_one_or_none()
+
+    if job is None and db_job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    if db_job and job and job.status in [JobStatus.PENDING, JobStatus.PROCESSING]:
+        if db_job.status == "completed":
+            store.update(
+                job_id,
+                status=JobStatus.COMPLETED,
+                current_stage="completed",
+                progress_percent=100,
+                message="Completed successfully",
+                completed_at=db_job.completed_at or datetime.now(),
+            )
+        elif db_job.status == "failed":
+            store.update(
+                job_id,
+                status=JobStatus.FAILED,
+                current_stage="failed",
+                progress_percent=job.progress_percent or 0,
+                message=f"Failed: {db_job.error_message}" if db_job.error_message else "Failed",
+                error=db_job.error_message,
+                completed_at=db_job.completed_at or datetime.now(),
+            )
+        job = store.get(job_id)
+
+    if job is None and db_job:
+        status = db_job.status
+        current_stage = (
+            "completed" if status == "completed"
+            else "failed" if status == "failed"
+            else "processing"
+        )
+        progress_percent = 100 if status == "completed" else 0
+        message = (
+            "Completed successfully" if status == "completed"
+            else db_job.error_message if status == "failed"
+            else "Processing..."
+        )
+        updated_at = db_job.completed_at or db_job.started_at or db_job.created_at
+
+        return JobStatusResponse(
+            job_id=db_job.job_id,
+            status=status,
+            current_stage=current_stage,
+            progress_percent=progress_percent,
+            message=message,
+            created_at=db_job.created_at,
+            updated_at=updated_at,
+            completed_at=db_job.completed_at,
+            error=db_job.error_message,
+        )
 
     return JobStatusResponse(
         job_id=job.job_id,
@@ -410,11 +480,15 @@ async def download_result(job_id: str, file_type: str):
     - **transcript** — транскрипт (DOCX)
     - **tasks** — задачи (XLSX)
     - **report** — отчёт (DOCX)
-    - **analysis** — аналитика (DOCX)
+    - **analysis** — менеджерский бриф (DOCX)
+    - **risk_brief** — риск-бриф (PDF)
     - **protocol_docx** — протокол Word
     - **protocol_txt** — протокол текст
     - **result_json** — сырые данные JSON
     """
+    if file_type == "all":
+        return await download_all_results(job_id)
+
     store = get_store()
     job = store.get(job_id)
 
@@ -425,6 +499,8 @@ async def download_result(job_id: str, file_type: str):
         raise HTTPException(status_code=400, detail="Job not completed")
 
     output_files = job.output_files or {}
+    if file_type == "analysis" and "analysis" not in output_files and "risk_brief" in output_files:
+        file_type = "risk_brief"
     if file_type not in output_files:
         raise HTTPException(status_code=404, detail=f"File type '{file_type}' not found")
 
@@ -443,6 +519,47 @@ async def download_result(job_id: str, file_type: str):
 
 
 @router.get(
+    "/{job_id}/download/all",
+    summary="Скачать все файлы результата",
+    description="Скачивание всех доступных файлов одним архивом.",
+)
+async def download_all_results(job_id: str):
+    """Download all available files for a job as a zip archive."""
+    import zipfile
+    import tempfile
+
+    store = get_store()
+    job = store.get(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Job not completed")
+
+    output_files = job.output_files or {}
+    if not output_files:
+        raise HTTPException(status_code=404, detail="No files available to download")
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file_type, file_path_str in output_files.items():
+            file_path = validate_file_path(
+                file_path=file_path_str,
+                allowed_dir=OUTPUT_DIR,
+                must_exist=True
+            )
+            zf.write(file_path, arcname=file_path.name)
+
+    filename = f"{job_id}_files.zip"
+    return FileResponse(
+        path=tmp.name,
+        filename=filename,
+        media_type="application/zip",
+    )
+
+
+@router.get(
     "",
     summary="Список задач",
     description="Возвращает список последних задач с базовой информацией.",
@@ -451,6 +568,7 @@ async def list_jobs(
     limit: int = Query(default=50, le=100, description="Максимальное количество задач"),
     x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-ID", description="UUID гостя для фильтрации"),
     current_user: Optional[User] = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     ## История задач
@@ -466,24 +584,91 @@ async def list_jobs(
     - **limit** — максимальное количество (по умолчанию 50)
     """
     store = get_store()
-    all_jobs = store.list_jobs(limit=limit * 2)  # Fetch more to filter
 
-    # Filter based on user/guest identity
+    # Authenticated users: read history from PostgreSQL
     if current_user:
-        # Authenticated user - filter by uploader_id
-        jobs = [
-            job for job in all_jobs
-            if getattr(job, 'uploader_id', None) == current_user.id
-        ][:limit]
-    elif x_guest_id:
-        # Guest - filter by guest_uid
-        jobs = [
-            job for job in all_jobs
-            if getattr(job, 'guest_uid', None) == x_guest_id
-        ][:limit]
-    else:
-        # No identity - return empty list
-        jobs = []
+        result = await db.execute(
+            select(TranscriptionJob)
+            .where(TranscriptionJob.user_id == current_user.id)
+            .order_by(desc(TranscriptionJob.created_at))
+            .limit(limit)
+        )
+        jobs = result.scalars().all()
+
+        response_jobs = []
+        for job in jobs:
+            job_state = store.get(job.job_id)
+            status_value = job.status
+            progress_percent = 100 if job.status == "completed" else 0
+            message = None
+            project_code = None
+
+            if job_state:
+                status_value = job_state.status.value if hasattr(job_state.status, "value") else job_state.status
+                progress_percent = job_state.progress_percent
+                message = job_state.message
+                project_code = getattr(job_state, "project_code", None)
+                if status_value != job.status:
+                    _update_job_in_db(job_id=job.job_id, status=status_value)
+            elif job.status == "failed":
+                message = job.error_message
+
+            response_jobs.append({
+                "job_id": job.job_id,
+                "status": status_value,
+                "created_at": job.created_at.isoformat(),
+                "source_file": job.source_filename or "",
+                "progress_percent": progress_percent,
+                "message": message,
+                "project_code": project_code,
+            })
+
+        return {"jobs": response_jobs}
+
+    # Guests: prefer DB history (if guest_uid is stored), fallback to Redis by guest ID
+    if x_guest_id:
+        result = await db.execute(
+            select(TranscriptionJob)
+            .where(TranscriptionJob.guest_uid == x_guest_id)
+            .order_by(desc(TranscriptionJob.created_at))
+            .limit(limit)
+        )
+        jobs = result.scalars().all()
+
+        if jobs:
+            response_jobs = []
+            for job in jobs:
+                job_state = store.get(job.job_id)
+                status_value = job.status
+                progress_percent = 100 if job.status == "completed" else 0
+                message = None
+
+                if job_state:
+                    status_value = job_state.status.value if hasattr(job_state.status, "value") else job_state.status
+                    progress_percent = job_state.progress_percent
+                    message = job_state.message
+                    if status_value != job.status:
+                        _update_job_in_db(job_id=job.job_id, status=status_value)
+                elif job.status == "failed":
+                    message = job.error_message
+
+                response_jobs.append({
+                    "job_id": job.job_id,
+                    "status": status_value,
+                    "created_at": job.created_at.isoformat(),
+                    "source_file": job.source_filename or "",
+                    "progress_percent": progress_percent,
+                    "message": message,
+                    "project_code": None,
+                })
+
+            return {"jobs": response_jobs}
+
+    all_jobs = store.list_jobs(limit=limit * 2)  # Fetch more to filter
+    jobs = [
+        job for job in all_jobs
+        if x_guest_id and getattr(job, 'guest_uid', None) == x_guest_id
+    ][:limit] if x_guest_id else []
 
     return {
         "jobs": [
@@ -554,6 +739,10 @@ async def run_transcription_background(
     skip_translation: bool,
     skip_emotions: bool,
     artifact_options: dict = None,
+    project_id: Optional[int] = None,
+    domain_type: Optional[str] = None,
+    guest_uid: Optional[str] = None,
+    uploader_id: Optional[int] = None,
     notify_emails: list = None,
 ):
     """Background task for transcription (fallback when Celery unavailable)."""
@@ -568,6 +757,7 @@ async def run_transcription_background(
 
     try:
         store.update(job_id, status=JobStatus.PROCESSING)
+        _update_job_in_db(job_id=job_id, status="processing")
 
         request = TranscriptionRequest(
             languages=languages,
@@ -586,7 +776,7 @@ async def run_transcription_background(
         )
 
         # Run domain generators (same logic as Celery task)
-        from ...tasks.transcription import _run_domain_generators
+        from ...tasks.transcription import _run_domain_generators, _save_domain_report
 
         output_files = {}
         generated_artifacts = _run_domain_generators(
@@ -596,6 +786,22 @@ async def run_transcription_background(
             progress_callback=progress_callback,
         )
         output_files.update(generated_artifacts)
+
+        # Save domain report to database if project is linked
+        if domain_type and project_id:
+            progress_callback("domain_report", 99, "Saving report to database...")
+            try:
+                _save_domain_report(
+                    job_id=job_id,
+                    result=result,
+                    project_id=project_id,
+                    domain_type=domain_type,
+                    output_files=output_files,
+                    guest_uid=guest_uid,
+                    uploader_id=uploader_id,
+                )
+            except Exception as e:
+                logger.error(f"Domain report save failed (non-fatal): {e}")
 
         # Find additional pipeline output files
         artifact_patterns = {
@@ -617,6 +823,23 @@ async def run_transcription_background(
             processing_time=result.processing_time_seconds,
             segment_count=result.segment_count,
             language_distribution=result.language_distribution,
+        )
+
+        _update_job_in_db(
+            job_id=job_id,
+            status="completed",
+            processing_time_seconds=result.processing_time_seconds,
+            audio_duration_seconds=getattr(result, "audio_duration_seconds", None),
+            segment_count=result.segment_count,
+            speaker_count=getattr(result, "speaker_count", None),
+            input_tokens=getattr(result, "input_tokens", 0),
+            output_tokens=getattr(result, "output_tokens", 0),
+            artifacts={
+                "transcript": "transcript" in output_files,
+                "tasks": "tasks" in output_files,
+                "report": "report" in output_files,
+                "analysis": "analysis" in output_files,
+            },
         )
 
         logger.info(f"Job {job_id} completed successfully")
@@ -642,6 +865,7 @@ async def run_transcription_background(
     except Exception as e:
         logger.exception(f"Job {job_id} failed: {e}")
         store.fail(job_id, str(e))
+        _update_job_in_db(job_id=job_id, status="failed", error_message=str(e)[:500], error_stage="processing")
 
 
 async def run_text_report_generation(
@@ -650,6 +874,9 @@ async def run_text_report_generation(
     output_dir: Path,
     artifact_options: dict = None,
     domain_type: str = None,
+    project_id: Optional[int] = None,
+    guest_uid: Optional[str] = None,
+    uploader_id: Optional[int] = None,
     notify_emails: list = None,
 ):
     """
@@ -669,6 +896,7 @@ async def run_text_report_generation(
 
     try:
         store.update(job_id, status=JobStatus.PROCESSING)
+        _update_job_in_db(job_id=job_id, status="processing")
         progress_callback("text_extraction", 10, "Extracting text from file...")
 
         # Extract text from file
@@ -711,13 +939,19 @@ async def run_text_report_generation(
                 return f"{mins:02d}:{secs:02d}"
 
         @dataclass
+        class MinimalSpeaker:
+            speaker_id: str
+            total_time_formatted: str = "00:00"
+            dominant_emotion: Optional[object] = None
+
+        @dataclass
         class MinimalResult:
             source_file: str = ""
             segments: List[MinimalSegment] = field(default_factory=list)
             processing_time_seconds: float = 0.0
             segment_count: int = 0
             language_distribution: Dict[str, int] = field(default_factory=dict)
-            speakers: Dict[str, dict] = field(default_factory=dict)
+            speakers: Dict[str, MinimalSpeaker] = field(default_factory=dict)
 
             @property
             def metadata(self) -> MinimalMetadata:
@@ -748,7 +982,7 @@ async def run_text_report_generation(
             segments=segments,
             segment_count=len(segments),
             language_distribution={"ru": len(segments)},
-            speakers={"Speaker 1": {"total_time": 0, "segment_count": len(segments)}},
+            speakers={"Speaker 1": MinimalSpeaker(speaker_id="Speaker 1")},
         )
 
         # Check if Gemini is configured
@@ -767,6 +1001,7 @@ async def run_text_report_generation(
             from ...domains.construction.generators import (
                 generate_tasks,
                 generate_report,
+                generate_analysis,
                 generate_risk_brief,
             )
 
@@ -790,9 +1025,19 @@ async def run_text_report_generation(
                 except Exception as e:
                     logger.error(f"Report generation failed: {e}")
 
-            # Generate risk brief (analysis)
+            # Generate manager brief
             if artifact_options.get("generate_analysis", False):
-                progress_callback("llm_generation", 90, "Generating risk_brief.html...")
+                progress_callback("llm_generation", 85, "Generating manager_brief.docx...")
+                try:
+                    analysis_path = generate_analysis(result, output_dir)
+                    output_files["analysis"] = str(analysis_path)
+                    logger.info(f"Generated manager brief: {analysis_path}")
+                except Exception as e:
+                    logger.error(f"Manager brief generation failed: {e}")
+
+            # Generate risk brief (optional)
+            if artifact_options.get("generate_risk_brief", False):
+                progress_callback("llm_generation", 95, "Generating risk_brief.pdf...")
                 try:
                     risk_brief_path = generate_risk_brief(result, output_dir)
                     output_files["risk_brief"] = str(risk_brief_path)
@@ -807,13 +1052,46 @@ async def run_text_report_generation(
                 f.write(text_content)
             output_files["transcript"] = str(transcript_path)
 
+        # Save domain report to database if project is linked
+        if domain_type and project_id:
+            progress_callback("domain_report", 98, "Saving report to database...")
+            try:
+                _save_domain_report(
+                    job_id=job_id,
+                    result=result,
+                    project_id=project_id,
+                    domain_type=domain_type,
+                    output_files=output_files,
+                    guest_uid=guest_uid,
+                    uploader_id=uploader_id,
+                )
+            except Exception as e:
+                logger.error(f"Domain report save failed (non-fatal): {e}")
+
+        # Hide manager brief from user-facing downloads
+        public_output_files = {k: v for k, v in output_files.items() if k != "analysis"}
+
         # Mark completed
         store.complete(
             job_id=job_id,
-            output_files=output_files,
+            output_files=public_output_files,
             processing_time=0,
             segment_count=len(segments),
             language_distribution={"ru": len(segments)},
+        )
+
+        _update_job_in_db(
+            job_id=job_id,
+            status="completed",
+            processing_time_seconds=0,
+            segment_count=len(segments),
+            speaker_count=result.speaker_count,
+            artifacts={
+                "transcript": "transcript" in output_files,
+                "tasks": "tasks" in output_files,
+                "report": "report" in output_files,
+                "analysis": "analysis" in output_files,
+            },
         )
 
         logger.info(f"Text report job {job_id} completed successfully")
@@ -830,7 +1108,7 @@ async def run_text_report_generation(
                     recipients=notify_emails,
                     job_id=job_id,
                     project_name=project_name,
-                    output_files=output_files,
+                    output_files=public_output_files,
                 )
                 logger.info(f"Email notification sent to {notify_emails}")
             except Exception as e:
@@ -839,3 +1117,4 @@ async def run_text_report_generation(
     except Exception as e:
         logger.exception(f"Text report job {job_id} failed: {e}")
         store.fail(job_id, str(e))
+        _update_job_in_db(job_id=job_id, status="failed", error_message=str(e)[:500], error_stage="text_generation")

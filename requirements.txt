@@ -38,8 +38,7 @@ python-multipart
 # Database
 # =============================================================================
 sqlalchemy[asyncio]>=2.0.0
-aiosqlite  # Async SQLite driver for development
-asyncpg  # PostgreSQL async driver for production (optional)
+asyncpg  # PostgreSQL async driver
 passlib[bcrypt]  # Password hashing
 python-jose[cryptography]  # JWT tokens
 
@@ -55,6 +54,7 @@ flower  # Celery monitoring (optional)
 # =============================================================================
 python-docx
 openpyxl  # Excel generation for tasks.xlsx
+weasyprint  # HTML to PDF for risk_brief.pdf
 
 # =============================================================================
 # Data Validation & Utils
@@ -77,3 +77,4 @@ slowapi>=0.1.9  # Rate limiting for FastAPI
 # pytest
 # pytest-asyncio
 # httpx
+

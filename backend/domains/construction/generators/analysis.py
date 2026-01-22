@@ -5,6 +5,7 @@ Deep AI analysis for managers: status, indicators, challenges, recommendations.
 
 import os
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -18,10 +19,12 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from backend.core.transcription.models import TranscriptionResult
 from backend.domains.construction.schemas import AIAnalysis, OverallStatus, Atmosphere
 from backend.domains.construction.prompts import CONSTRUCTION_PROMPTS
+from backend.domains.construction.generators.llm_utils import run_llm_call
 
 
 # Model for reports (pro for quality)
-REPORT_MODEL = "gemini-2.5-flash"
+REPORT_MODEL = os.getenv("GEMINI_REPORT_MODEL", "gemini-2.5-pro")
+logger = logging.getLogger(__name__)
 
 # Status colors and emojis
 STATUS_CONFIG = {
@@ -223,20 +226,22 @@ def _get_ai_analysis(transcript_text: str) -> AIAnalysis:
 """.format(transcript=transcript_text[:15000])
 
     try:
-        response = client.models.generate_content(
-            model=REPORT_MODEL,
-            contents=[system_prompt, user_prompt] if system_prompt else user_prompt,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": AIAnalysis.model_json_schema(),
-            },
+        response = run_llm_call(
+            lambda: client.models.generate_content(
+                model=REPORT_MODEL,
+                contents=[system_prompt, user_prompt] if system_prompt else user_prompt,
+                config={
+                    "response_mime_type": "application/json",
+                    "response_schema": AIAnalysis.model_json_schema(),
+                },
+            )
         )
 
         analysis_data = json.loads(response.text)
         return AIAnalysis.model_validate(analysis_data)
 
     except Exception as e:
-        print(f"LLM analysis generation failed: {e}")
+        logger.warning("LLM analysis generation failed: %s", e)
         return AIAnalysis(
             overall_status=OverallStatus.ATTENTION,
             executive_summary=f"Ошибка генерации анализа: {e}",

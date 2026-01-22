@@ -155,3 +155,10 @@ docker/.env
 *.key
 credentials.json
 secrets.json
+
+# ============================
+# Тестовые файлы (временные)
+# ============================
+test_risk_brief*.py
+risk_brief_v2_*.json
+risk_brief_v2_*.html

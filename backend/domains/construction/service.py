@@ -345,6 +345,7 @@ class ConstructionService(BaseDomainService):
         job_id: str,
         project_id: int,
         report: ConstructionReport,
+        output_files: Optional[dict] = None,
         guest_uid: Optional[str] = None,
         uploader_id: Optional[int] = None,
     ) -> ConstructionReportDB:
@@ -362,6 +363,7 @@ class ConstructionService(BaseDomainService):
         Returns:
             Созданная запись ConstructionReportDB
         """
+        output_files = output_files or {}
         db_report = ConstructionReportDB(
             job_id=job_id,
             project_id=project_id,
@@ -373,6 +375,10 @@ class ConstructionService(BaseDomainService):
             status=ReportStatus.COMPLETED,
             meeting_date=report.meeting_date,
             result_json=report.model_dump(mode="json"),
+            transcript_path=output_files.get("transcript"),
+            tasks_path=output_files.get("tasks"),
+            report_path=output_files.get("report"),
+            analysis_path=output_files.get("analysis"),
             completed_at=datetime.now()
         )
 

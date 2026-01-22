@@ -34,7 +34,7 @@ class GeminiTranslator:
         target_language: str = "ru",
         context_window: int = 3,
         rate_limit_seconds: float = 0.3,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = None,
     ):
         """
         Initialize translator.
@@ -49,14 +49,14 @@ class GeminiTranslator:
         self.target_language = target_language
         self.context_window = context_window
         self.rate_limit_seconds = rate_limit_seconds
-        self.model_name = model_name
+        self.model_name = model_name or os.getenv("GEMINI_TRANSLATE_MODEL", "gemini-2.5-flash")
 
         # Set API key in env if provided
         if api_key:
             os.environ["GOOGLE_API_KEY"] = api_key
 
         self.client = genai.Client()
-        logger.info(f"Gemini translator initialized: {model_name}")
+        logger.info(f"Gemini translator initialized: {self.model_name}")
 
     def translate(
         self,

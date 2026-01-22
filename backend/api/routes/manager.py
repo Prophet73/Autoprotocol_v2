@@ -127,6 +127,8 @@ class ReportFiles(BaseModel):
     """Report file paths."""
     main: Optional[str] = None
     detailed: Optional[str] = None
+    transcript: Optional[str] = None
+    tasks: Optional[str] = None
 
 
 class AnalyticsDetailResponse(BaseModel):
@@ -143,6 +145,8 @@ class AnalyticsDetailResponse(BaseModel):
     # Flags for download buttons (Autoprotocol format)
     has_main_report: bool = False
     has_detailed_report: bool = False
+    has_transcript: bool = False
+    has_tasks: bool = False
     filename: str = ""  # Original filename for display
 
 
@@ -502,15 +506,22 @@ async def get_analytics_detail(
     report_files = ReportFiles()
     has_main_report = False
     has_detailed_report = False
+    has_transcript = False
+    has_tasks = False
     filename = ""
 
     if report:
         if report.report_path:
             report_files.main = report.report_path
             has_main_report = Path(report.report_path).exists() if report.report_path else False
-        if report.analysis_path:
-            report_files.detailed = report.analysis_path
-            has_detailed_report = Path(report.analysis_path).exists() if report.analysis_path else False
+        # Manager brief is stored in DB but not exposed for download
+        has_detailed_report = False
+        if report.transcript_path:
+            report_files.transcript = report.transcript_path
+            has_transcript = Path(report.transcript_path).exists() if report.transcript_path else False
+        if report.tasks_path:
+            report_files.tasks = report.tasks_path
+            has_tasks = Path(report.tasks_path).exists() if report.tasks_path else False
         # Original filename
         filename = report.title or report.audio_file_path or f"Отчёт {report.job_id[:8]}"
 
@@ -526,6 +537,8 @@ async def get_analytics_detail(
         report_files=report_files,
         has_main_report=has_main_report,
         has_detailed_report=has_detailed_report,
+        has_transcript=has_transcript,
+        has_tasks=has_tasks,
         filename=filename
     )
 
@@ -596,7 +609,7 @@ async def update_problem_status(
 @router.get(
     "/analytics/{analytics_id}/report/{report_type}",
     summary="Download analytics report",
-    description="Download main or detailed report file."
+    description="Download report file by type."
 )
 async def download_analytics_report(
     analytics_id: int,
@@ -606,10 +619,15 @@ async def download_analytics_report(
 ):
     """Download report file for analytics."""
 
-    if report_type not in ('main', 'detailed'):
+    if report_type not in ('main', 'detailed', 'transcript', 'tasks'):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="report_type must be 'main' or 'detailed'"
+            detail="report_type must be 'main', 'detailed', 'transcript', or 'tasks'"
+        )
+    if report_type == "detailed":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Detailed report is not available"
         )
 
     # Get analytics
@@ -638,12 +656,16 @@ async def download_analytics_report(
 
     # Get file path
     report = analytics.report
-    file_path_str = report.report_path if report_type == 'main' else report.analysis_path
+    file_path_str = {
+        "main": report.report_path,
+        "transcript": report.transcript_path,
+        "tasks": report.tasks_path,
+    }.get(report_type)
 
     if not file_path_str:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No {report_type} report file available"
+            detail=f"No {report_type} file available"
         )
 
     # Validate file path is within DATA_DIR (prevents path traversal)
@@ -665,4 +687,80 @@ async def download_analytics_report(
         path=str(path),
         filename=filename,
         media_type=media_type
+    )
+
+
+@router.get(
+    "/analytics/{analytics_id}/report/all",
+    summary="Download all analytics files",
+    description="Download all available report files as a zip archive."
+)
+async def download_analytics_report_all(
+    analytics_id: int,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Download all available files for analytics as a zip archive."""
+    import zipfile
+    import tempfile
+
+    # Get analytics
+    query = (
+        select(ReportAnalytics)
+        .options(selectinload(ReportAnalytics.report))
+        .where(ReportAnalytics.id == analytics_id)
+    )
+    result = await db.execute(query)
+    analytics = result.scalar_one_or_none()
+
+    if not analytics or not analytics.report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analytics with id {analytics_id} not found"
+        )
+
+    # Check access
+    if analytics.report.project_id:
+        project_ids = await get_user_project_ids(db, current_user)
+        if analytics.report.project_id not in project_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this report"
+            )
+
+    report = analytics.report
+    candidates = {
+        "report.docx": report.report_path,
+        "transcript": report.transcript_path,
+        "tasks.xlsx": report.tasks_path,
+    }
+
+    files = []
+    for name, path_str in candidates.items():
+        if not path_str:
+            continue
+        path = validate_file_path(
+            file_path=path_str,
+            allowed_dir=DATA_DIR,
+            must_exist=True
+        )
+        files.append((name, path))
+
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No files available to download"
+        )
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, path in files:
+            arcname = name if name.endswith(path.suffix) else f"{name}{path.suffix}"
+            zf.write(path, arcname=arcname)
+
+    filename = f"analytics_{analytics_id}_files.zip"
+    return FileResponse(
+        path=tmp.name,
+        filename=filename,
+        media_type="application/zip"
     )

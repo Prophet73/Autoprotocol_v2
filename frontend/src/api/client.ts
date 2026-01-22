@@ -64,7 +64,7 @@ export interface TranscribeOptions {
   generate_transcript?: boolean;
   generate_tasks?: boolean;
   generate_report?: boolean;
-  generate_analysis?: boolean;
+  generate_risk_brief?: boolean;
   // Project linkage for Drop Box workflow
   project_code?: string;
   // Meeting type for domain-specific processing
@@ -106,7 +106,7 @@ export async function createTranscription(
   if (options.generate_transcript) formData.append('generate_transcript', 'true');
   if (options.generate_tasks) formData.append('generate_tasks', 'true');
   if (options.generate_report) formData.append('generate_report', 'true');
-  if (options.generate_analysis) formData.append('generate_analysis', 'true');
+  if (options.generate_risk_brief) formData.append('generate_risk_brief', 'true');
   // Project code for Drop Box workflow
   if (options.project_code) formData.append('project_code', options.project_code);
   // Meeting type for domain-specific processing
@@ -132,6 +132,10 @@ export async function getJobResult(jobId: string): Promise<JobResultResponse> {
 
 export function getDownloadUrl(jobId: string, fileType: string): string {
   return `${getApiBaseUrl()}/transcribe/${jobId}/download/${fileType}`;
+}
+
+export function getDownloadAllUrl(jobId: string): string {
+  return `${getApiBaseUrl()}/transcribe/${jobId}/download/all`;
 }
 
 // History types
@@ -310,10 +314,14 @@ export interface AnalyticsDetail {
   report_files: {
     main?: string;
     detailed?: string;
+    transcript?: string;
+    tasks?: string;
   };
   // Flags for download buttons (Autoprotocol format)
   has_main_report: boolean;
   has_detailed_report: boolean;
+  has_transcript: boolean;
+  has_tasks: boolean;
   filename: string;
 }
 
@@ -350,12 +358,18 @@ export async function updateProblemStatus(
   return response.data;
 }
 
-export function getAnalyticsReportUrl(analyticsId: number, type: 'main' | 'detailed'): string {
+export function getAnalyticsReportUrl(
+  analyticsId: number,
+  type: 'main' | 'detailed' | 'transcript' | 'tasks'
+): string {
   return `${getApiBaseUrl()}/api/manager/analytics/${analyticsId}/report/${type}`;
 }
 
 // Download analytics report with authentication
-export async function downloadAnalyticsReport(analyticsId: number, type: 'main' | 'detailed'): Promise<void> {
+export async function downloadAnalyticsReport(
+  analyticsId: number,
+  type: 'main' | 'detailed' | 'transcript' | 'tasks'
+): Promise<void> {
   const url = getAnalyticsReportUrl(analyticsId, type);
   const token = localStorage.getItem('token');
 
@@ -371,7 +385,13 @@ export async function downloadAnalyticsReport(analyticsId: number, type: 'main' 
 
   // Get filename from Content-Disposition header or use default
   const contentDisposition = response.headers.get('Content-Disposition');
-  let filename = type === 'main' ? 'report.docx' : 'detailed_report.docx';
+  let filename = type === 'main'
+    ? 'report.docx'
+    : type === 'detailed'
+    ? 'detailed_report.docx'
+    : type === 'transcript'
+    ? 'transcript.docx'
+    : 'tasks.xlsx';
   if (contentDisposition) {
     const match = contentDisposition.match(/filename="?([^"]+)"?/);
     if (match) {
@@ -380,6 +400,40 @@ export async function downloadAnalyticsReport(analyticsId: number, type: 'main' 
   }
 
   // Create blob and trigger download
+  const blob = await response.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(blobUrl);
+}
+
+export async function downloadAnalyticsReportAll(analyticsId: number): Promise<void> {
+  const url = `${getApiBaseUrl()}/api/manager/analytics/${analyticsId}/report/all`;
+  const token = localStorage.getItem('token');
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Download failed: ${response.status}`);
+  }
+
+  const contentDisposition = response.headers.get('Content-Disposition');
+  let filename = `analytics_${analyticsId}_files.zip`;
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+    if (match) {
+      filename = match[1];
+    }
+  }
+
   const blob = await response.blob();
   const blobUrl = window.URL.createObjectURL(blob);
   const link = document.createElement('a');

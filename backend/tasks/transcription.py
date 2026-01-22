@@ -1,6 +1,7 @@
 """Transcription Celery tasks with Redis job storage."""
 import os
 import logging
+import asyncio
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Dict
@@ -11,6 +12,16 @@ from celery.exceptions import SoftTimeLimitExceeded
 from .celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+def _run_async(coro):
+    """Run a coroutine from sync or async contexts."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(coro)
+    else:
+        loop.create_task(coro)
 
 
 def _check_gemini_configured():
@@ -56,6 +67,7 @@ def _run_domain_generators(
     domain = domain_type or "construction"
 
     # Import generators based on domain
+    generate_analysis = None
     generate_risk_brief = None  # Default - only construction has risk_brief
     if domain == "hr":
         from ..domains.hr.generators import generate_transcript, generate_report
@@ -68,7 +80,8 @@ def _run_domain_generators(
             generate_transcript,
             generate_tasks,
             generate_report,
-            generate_risk_brief,  # INoT approach - HTML for client
+            generate_analysis,  # manager brief (DOCX)
+            generate_risk_brief,  # INoT approach - PDF for client
         )
 
     # 1. Transcript (no LLM required)
@@ -109,9 +122,19 @@ def _run_domain_generators(
             except Exception as e:
                 logger.error(f"Report generation failed: {e}")
 
-        # 4. Risk Brief (construction only) - INoT approach, HTML for client
-        if artifact_options.get("generate_analysis", False) and generate_risk_brief:
-            progress_callback("domain_generators", 98, "Generating risk_brief.html (AI/INoT)...")
+        # 4. Manager brief (construction only)
+        if artifact_options.get("generate_analysis", False) and generate_analysis:
+            progress_callback("domain_generators", 98, "Generating manager_brief.docx (AI)...")
+            try:
+                analysis_path = generate_analysis(result, output_path)
+                output_files["analysis"] = str(analysis_path)
+                logger.info(f"Generated manager brief: {analysis_path}")
+            except Exception as e:
+                logger.error(f"Manager brief generation failed: {e}")
+
+        # 5. Risk Brief (construction only) - INoT approach, PDF for client
+        if artifact_options.get("generate_risk_brief", False) and generate_risk_brief:
+            progress_callback("domain_generators", 99, "Generating risk_brief.pdf (AI/INoT)...")
             try:
                 risk_brief_path = generate_risk_brief(result, output_path)
                 output_files["risk_brief"] = str(risk_brief_path)
@@ -124,11 +147,12 @@ def _run_domain_generators(
             artifact_options.get("generate_tasks", False),
             artifact_options.get("generate_report", False),
             artifact_options.get("generate_analysis", False),
+            artifact_options.get("generate_risk_brief", False),
         ])
         if llm_requested:
             logger.warning(
                 "LLM generators requested but GOOGLE_API_KEY not set. "
-                "Skipping tasks.xlsx, report.docx, analysis.docx"
+                "Skipping tasks.xlsx, report.docx, analysis.docx, risk_brief.pdf"
             )
 
     return output_files
@@ -139,6 +163,7 @@ def _sync_job_to_db(
     domain: str,
     meeting_type: Optional[str],
     user_id: Optional[int],
+    guest_uid: Optional[str],
     project_id: Optional[int],
     source_filename: Optional[str],
     source_size_bytes: Optional[int] = None,
@@ -163,6 +188,7 @@ def _sync_job_to_db(
                     meeting_type=meeting_type,
                     status=status,
                     user_id=user_id,
+                    guest_uid=guest_uid,
                     project_id=project_id,
                     source_filename=source_filename,
                     source_size_bytes=source_size_bytes,
@@ -174,7 +200,7 @@ def _sync_job_to_db(
                 await db.rollback()
                 logger.error(f"Failed to create TranscriptionJob record: {e}")
 
-    asyncio.run(_async_create())
+    _run_async(_async_create())
 
 
 def _update_job_in_db(
@@ -234,7 +260,7 @@ def _update_job_in_db(
                 await db.rollback()
                 logger.error(f"Failed to update TranscriptionJob record: {e}")
 
-    asyncio.run(_async_update())
+    _run_async(_async_update())
 
 
 def _save_domain_report(
@@ -242,6 +268,7 @@ def _save_domain_report(
     result,
     project_id: int,
     domain_type: str,
+    output_files: Optional[Dict[str, str]] = None,
     guest_uid: Optional[str] = None,
     uploader_id: Optional[int] = None,
 ) -> None:
@@ -275,6 +302,7 @@ def _save_domain_report(
                     job_id=job_id,
                     project_id=project_id,
                     report=report,
+                    output_files=output_files or {},
                     guest_uid=guest_uid,
                     uploader_id=uploader_id,
                 )
@@ -288,7 +316,7 @@ def _save_domain_report(
                 raise
 
     # Run async function in sync context
-    asyncio.run(_async_save())
+    _run_async(_async_save())
 
 
 @celery_app.task(
@@ -417,6 +445,7 @@ def process_transcription_task(
                     result=result,
                     project_id=project_id,
                     domain_type=domain_type,
+                    output_files=output_files,
                     guest_uid=guest_uid,
                     uploader_id=uploader_id,
                 )
@@ -424,10 +453,13 @@ def process_transcription_task(
                 logger.error(f"Domain report save failed (non-fatal): {e}")
                 # Don't fail the whole job if domain report fails
 
+        # Hide manager brief from user-facing downloads
+        public_output_files = {k: v for k, v in output_files.items() if k != "analysis"}
+
         # Mark completed in Redis
         store.complete(
             job_id=job_id,
-            output_files=output_files,
+            output_files=public_output_files,
             processing_time=result.processing_time_seconds,
             segment_count=result.segment_count,
             language_distribution=result.language_distribution,
@@ -447,7 +479,7 @@ def process_transcription_task(
                 "transcript": "transcript" in output_files,
                 "tasks": "tasks" in output_files,
                 "report": "report" in output_files,
-                "analysis": "risk_brief" in output_files,
+                "analysis": "analysis" in output_files,
             },
         )
 
@@ -456,6 +488,7 @@ def process_transcription_task(
         # Send email notification if emails are provided
         if notify_emails:
             progress_callback("email_notification", 100, "Sending email notification...")
+            email_sent = False
             try:
                 from ..core.email.service import send_report_email
 
@@ -463,16 +496,28 @@ def process_transcription_task(
                 job_data = store.get(job_id)
                 project_name = getattr(job_data, 'project_code', None)
 
-                send_report_email(
+                email_sent = send_report_email(
                     recipients=notify_emails,
                     job_id=job_id,
                     project_name=project_name,
-                    output_files=output_files,
+                    output_files=public_output_files,
                 )
-                logger.info(f"Email notification sent to {notify_emails}")
+                if email_sent:
+                    logger.info(f"Email notification sent to {notify_emails}")
+                else:
+                    logger.warning(f"Email notification failed for {notify_emails}")
             except Exception as e:
                 logger.error(f"Email notification failed (non-fatal): {e}")
                 # Don't fail the job if email fails
+            finally:
+                store.update(
+                    job_id,
+                    status=JobStatus.COMPLETED,
+                    current_stage="completed",
+                    progress_percent=100,
+                    message="Completed successfully" if email_sent else "Completed; email notification failed",
+                    completed_at=datetime.now(),
+                )
 
         return {
             "job_id": job_id,
@@ -480,7 +525,7 @@ def process_transcription_task(
             "processing_time_seconds": result.processing_time_seconds,
             "segment_count": result.segment_count,
             "language_distribution": result.language_distribution,
-            "output_files": output_files,
+            "output_files": public_output_files,
             "completed_at": datetime.now().isoformat(),
         }
 

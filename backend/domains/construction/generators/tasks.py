@@ -5,6 +5,7 @@ Uses Gemini to extract structured tasks from transcript.
 
 import os
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -18,10 +19,12 @@ from openpyxl.utils import get_column_letter
 from backend.core.transcription.models import TranscriptionResult
 from backend.domains.construction.schemas import BasicReport, Task, TaskCategory
 from backend.domains.construction.prompts import CONSTRUCTION_PROMPTS
+from backend.domains.construction.generators.llm_utils import run_llm_call
 
 
 # Model for reports (pro for quality)
-REPORT_MODEL = "gemini-2.5-flash"
+REPORT_MODEL = os.getenv("GEMINI_REPORT_MODEL", "gemini-2.5-pro")
+logger = logging.getLogger(__name__)
 
 
 def generate_tasks(
@@ -160,13 +163,15 @@ def _extract_tasks_via_llm(transcript_text: str) -> BasicReport:
     )
 
     try:
-        response = client.models.generate_content(
-            model=REPORT_MODEL,
-            contents=[system_prompt, full_prompt] if system_prompt else full_prompt,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": BasicReport.model_json_schema(),
-            },
+        response = run_llm_call(
+            lambda: client.models.generate_content(
+                model=REPORT_MODEL,
+                contents=[system_prompt, full_prompt] if system_prompt else full_prompt,
+                config={
+                    "response_mime_type": "application/json",
+                    "response_schema": BasicReport.model_json_schema(),
+                },
+            )
         )
 
         # Parse response
@@ -174,7 +179,7 @@ def _extract_tasks_via_llm(transcript_text: str) -> BasicReport:
         return BasicReport.model_validate(report_data)
 
     except Exception as e:
-        print(f"LLM task extraction failed: {e}")
+        logger.warning("LLM task extraction failed: %s", e)
         return BasicReport(
             meeting_type="production",
             meeting_summary="Ошибка извлечения задач через LLM",

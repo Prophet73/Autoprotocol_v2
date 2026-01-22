@@ -65,7 +65,7 @@ def generate_report(
 
         # Call Gemini
         model = genai.GenerativeModel(
-            os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash-exp")
+            os.getenv("GEMINI_MODEL_NAME", "gemini-2.5-pro")
         )
 
         response = model.generate_content(

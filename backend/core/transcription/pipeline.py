@@ -175,9 +175,12 @@ class TranscriptionPipeline:
 
             # Stage 5: Translation
             if not request.skip_translation:
-                self._report_progress("translation", 0, "Translating...")
-                segments = self._translate(segments)
-                self._report_progress("translation", 100, "Translation complete")
+                if self._should_translate(request, segments):
+                    self._report_progress("translation", 0, "Translating...")
+                    segments = self._translate(segments)
+                    self._report_progress("translation", 100, "Translation complete")
+                else:
+                    logger.info("Skipping translation: target language already selected")
 
             # Stage 6: Emotions
             if not request.skip_emotions:
@@ -292,6 +295,17 @@ class TranscriptionPipeline:
             )
 
         return self._translator.translate(segments)
+
+    def _should_translate(self, request: TranscriptionRequest, segments: List[Dict]) -> bool:
+        """Determine whether translation should run based on request and detected languages."""
+        target_language = self.config.translation.target_language
+        if request.languages and len(request.languages) == 1 and request.languages[0] == target_language:
+            non_target = [
+                s for s in segments
+                if s.get("language") and s.get("language") not in {target_language, "unknown"}
+            ]
+            return bool(non_target)
+        return True
 
     def _analyze_emotions(self, audio_file: Path, segments: List[Dict]) -> List[Dict]:
         """Stage 6: Analyze emotions."""

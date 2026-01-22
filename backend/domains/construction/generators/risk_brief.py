@@ -1,12 +1,15 @@
 """
-Risk Brief generator - creates risk_brief.html from TranscriptionResult via LLM.
+Risk Brief generator - creates risk_brief.pdf from TranscriptionResult via LLM.
 Executive report for client/investor with risk matrix (INoT approach).
 
-Output: A3 portrait HTML ready for PDF export.
+Output: A4 portrait PDF.
 """
 
 import os
 import json
+import time
+import re
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -15,14 +18,16 @@ from google import genai
 
 from backend.core.transcription.models import TranscriptionResult
 from backend.domains.construction.schemas import (
-    RiskBrief, ProjectRisk, Concern, Abbreviation,
+    RiskBrief, ProjectRisk, Concern, Abbreviation, RiskGroup,
     OverallStatus, Atmosphere, RiskCategory, ConcernCategory
 )
 from backend.domains.construction.prompts import RISK_BRIEF_SYSTEM, RISK_BRIEF_USER
+from backend.domains.construction.generators.llm_utils import run_llm_call
 
 
-# Model for risk analysis (flash for speed and quota)
-REPORT_MODEL = "gemini-2.5-flash"
+# Model for risk analysis (pro for quality)
+REPORT_MODEL = os.getenv("GEMINI_REPORT_MODEL", "gemini-2.5-pro")
+logger = logging.getLogger(__name__)
 
 
 def generate_risk_brief(
@@ -32,7 +37,7 @@ def generate_risk_brief(
     meeting_date: str = None,
 ) -> Path:
     """
-    Generate risk_brief.html from transcription via LLM.
+    Generate risk_brief.pdf from transcription via LLM.
 
     Args:
         result: TranscriptionResult from pipeline
@@ -41,7 +46,7 @@ def generate_risk_brief(
         meeting_date: Optional meeting date string
 
     Returns:
-        Path to generated HTML file
+        Path to generated PDF file
     """
     # Get transcript text
     transcript_text = result.to_plain_text()
@@ -70,15 +75,15 @@ def generate_risk_brief(
         meeting_date=meeting_date or datetime.now().strftime("%Y-%m-%d"),
     )
 
-    # Save HTML
+    # Save PDF
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if filename is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"risk_brief_{timestamp}.html"
+        filename = f"risk_brief_{timestamp}.pdf"
 
     output_path = output_dir / filename
-    output_path.write_text(html_content, encoding="utf-8")
+    _render_pdf(html_content, output_path)
 
     return output_path
 
@@ -90,14 +95,59 @@ def _get_risk_brief(transcript_text: str) -> RiskBrief:
     # Format user prompt with transcript
     user_prompt = RISK_BRIEF_USER.format(transcript=transcript_text[:20000])
 
-    try:
-        response = client.models.generate_content(
-            model=REPORT_MODEL,
-            contents=[RISK_BRIEF_SYSTEM, user_prompt],
-            config={
-                "response_mime_type": "application/json",
-            },
+    def _is_retryable_llm_error(exc: Exception) -> bool:
+        message = str(exc).upper()
+        return (
+            isinstance(exc, TimeoutError)
+            or "503" in message
+            or "UNAVAILABLE" in message
+            or "OVERLOADED" in message
+            or "429" in message
+            or "RESOURCE_EXHAUSTED" in message
         )
+
+    def _extract_retry_delay_seconds(exc: Exception) -> float:
+        message = str(exc)
+        match = re.search(r"retryDelay'\s*:\s*'(\d+)s'", message)
+        if match:
+            return float(match.group(1))
+        return 0.0
+
+    try:
+        response = None
+        last_exc = None
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = run_llm_call(
+                    lambda: client.models.generate_content(
+                        model=REPORT_MODEL,
+                        contents=[RISK_BRIEF_SYSTEM, user_prompt],
+                        config={
+                            "response_mime_type": "application/json",
+                        },
+                    )
+                )
+                break
+            except Exception as e:
+                last_exc = e
+                if attempt < max_attempts and _is_retryable_llm_error(e):
+                    retry_delay = _extract_retry_delay_seconds(e)
+                    if retry_delay <= 0:
+                        retry_delay = 2 ** (attempt - 1)
+                    logger.warning(
+                        "LLM risk brief attempt %s/%s failed (%s). Retrying in %.1fs.",
+                        attempt,
+                        max_attempts,
+                        e,
+                        retry_delay,
+                    )
+                    time.sleep(retry_delay)
+                    continue
+                raise
+
+        if response is None:
+            raise last_exc or RuntimeError("LLM response is empty")
 
         brief_data = json.loads(response.text)
 
@@ -105,6 +155,7 @@ def _get_risk_brief(transcript_text: str) -> RiskBrief:
         concern_category_map = {
             "Schedule": "Срыв сроков",
             "Engineering": "Качество",
+            "Инженерные сети": "Качество",
             "Budget": "Бюджет",
             "Safety": "Безопасность",
             "Coordination": "Координация",
@@ -128,11 +179,14 @@ def _get_risk_brief(transcript_text: str) -> RiskBrief:
 
         # Fix concern categories
         if "concerns" in brief_data and brief_data["concerns"]:
+            valid_concern_values = {item.value for item in ConcernCategory}
             for concern in brief_data["concerns"]:
                 if isinstance(concern, dict) and "category" in concern:
                     cat = concern["category"]
                     if cat in concern_category_map:
                         concern["category"] = concern_category_map[cat]
+                    elif cat not in valid_concern_values:
+                        concern["category"] = ConcernCategory.OTHER.value
 
         # Fix abbreviations if LLM returned strings instead of objects
         if "abbreviations" in brief_data and brief_data["abbreviations"]:
@@ -162,11 +216,12 @@ def _get_risk_brief(transcript_text: str) -> RiskBrief:
                     continue
             brief_data["abbreviations"] = fixed_abbrs
 
-        return RiskBrief.model_validate(brief_data)
+        brief = RiskBrief.model_validate(brief_data)
+        return _normalize_risk_brief(brief)
 
     except Exception as e:
         print(f"LLM risk brief generation failed: {e}")
-        return RiskBrief(
+        brief = RiskBrief(
             overall_status=OverallStatus.ATTENTION,
             executive_summary=f"Ошибка генерации анализа рисков: {e}",
             atmosphere=Atmosphere.WORKING,
@@ -175,6 +230,7 @@ def _get_risk_brief(transcript_text: str) -> RiskBrief:
             concerns=[],
             abbreviations=[],
         )
+        return _normalize_risk_brief(brief)
 
 
 def _render_html(
@@ -184,13 +240,13 @@ def _render_html(
     speakers_count: int,
     meeting_date: str,
 ) -> str:
-    """Render RiskBrief to HTML (A3 portrait)."""
+    """Render RiskBrief to HTML (A4 portrait)."""
 
     # Status configuration
     status_config = {
-        "stable": {"label": "Стабильный", "color": "#2E7D32", "bg": "#E8F5E9"},
-        "attention": {"label": "Требует внимания", "color": "#F9A825", "bg": "#FFF8E1"},
-        "critical": {"label": "Критический", "color": "#C62828", "bg": "#FFEBEE"},
+        "stable": {"label": "Стабильный", "color": "#2f6f3e", "bg": "#eef6f0"},
+        "attention": {"label": "Требует внимания", "color": "#b45309", "bg": "#fff7ed"},
+        "critical": {"label": "Критический", "color": "#b42318", "bg": "#fef2f2"},
     }
     status = status_config.get(
         risk_brief.overall_status.value,
@@ -199,10 +255,10 @@ def _render_html(
 
     # Atmosphere configuration
     atm_config = {
-        "calm": {"label": "Спокойное", "color": "#2E7D32"},
-        "working": {"label": "Рабочее напряжение", "color": "#F9A825"},
-        "tense": {"label": "Напряжённое", "color": "#E65100"},
-        "conflict": {"label": "Конфликтное", "color": "#C62828"},
+        "calm": {"label": "Спокойное", "color": "#2f6f3e"},
+        "working": {"label": "Рабочее напряжение", "color": "#b45309"},
+        "tense": {"label": "Напряжённое", "color": "#b42318"},
+        "conflict": {"label": "Конфликтное", "color": "#7f1d1d"},
     }
     atm = atm_config.get(
         risk_brief.atmosphere.value,
@@ -212,22 +268,20 @@ def _render_html(
     # Build risk matrix cells
     matrix_cells = _build_matrix_cells(risk_brief.risks)
 
-    # Build legend rows
-    legend_rows = _build_legend_rows(risk_brief.risks)
-
     # Build critical risk cards (score >= 16)
-    # Use property if available, otherwise filter manually
-    try:
-        critical_risks = risk_brief.critical_risks
-    except Exception:
-        critical_risks = [
-            r for r in risk_brief.risks
-            if (r.score if hasattr(r, 'score') else r.get('probability', 1) * r.get('impact', 1)) >= 16
-        ]
+    critical_risks = risk_brief.critical_risks
     critical_cards = _build_critical_cards(critical_risks)
+    low_risk_rows = _build_compact_risk_rows(risk_brief.risks)
 
     # Build concern rows
     concern_rows = _build_concern_rows(risk_brief.concerns)
+
+    # Hypothesis cards (low confidence)
+    hypothesis_cards = _build_hypothesis_cards(risk_brief.hypotheses)
+    has_hypotheses = bool(risk_brief.hypotheses)
+
+    # Group table rows
+    group_rows = _build_group_rows(risk_brief.risk_groups)
 
     # Build abbreviations
     abbr_text = _build_abbreviations(risk_brief.abbreviations)
@@ -249,16 +303,14 @@ def _render_html(
     <meta charset="UTF-8">
     <title>Risk Brief — {project_name}</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 
         body {{
-            font-family: 'Inter', -apple-system, sans-serif;
+            font-family: "Segoe UI", Arial, sans-serif;
             font-size: 11px;
             line-height: 1.4;
-            color: #333;
-            background: #e0e0e0;
+            color: #2b2f33;
+            background: #e5e7eb;
         }}
 
         .page-a4 {{
@@ -267,7 +319,7 @@ def _render_html(
             margin: 10px auto;
             padding: 8mm;
             background: white;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
         }}
 
         /* Header */
@@ -276,11 +328,11 @@ def _render_html(
             align-items: center;
             gap: 15px;
             padding-bottom: 8px;
-            border-bottom: 2px solid #C62828;
+            border-bottom: 2px solid #b42318;
             margin-bottom: 10px;
         }}
 
-        .logo {{ font-size: 22px; font-weight: 700; color: #C62828; white-space: nowrap; }}
+        .logo {{ font-size: 22px; font-weight: 700; color: #b42318; white-space: nowrap; }}
 
         .meta-inline {{
             display: flex;
@@ -311,10 +363,10 @@ def _render_html(
         }}
 
         .summary-box {{
-            background: #f8f9fa;
+            background: #f5f6f7;
             padding: 8px 10px;
             border-radius: 4px;
-            border-left: 3px solid #C62828;
+            border-left: 3px solid #b42318;
         }}
 
         .summary-title {{
@@ -333,7 +385,7 @@ def _render_html(
         .atmosphere-box {{
             padding: 8px 10px;
             border-radius: 4px;
-            background: #f8f9fa;
+            background: #f5f6f7;
         }}
 
         .atm-header {{
@@ -353,7 +405,7 @@ def _render_html(
             grid-template-columns: auto 1fr;
             gap: 12px;
             padding: 8px;
-            background: #fafafa;
+            background: #f7f7f8;
             border-radius: 4px;
             margin-bottom: 8px;
         }}
@@ -369,8 +421,8 @@ def _render_html(
         }}
 
         .section-title .badge {{
-            background: #C62828;
-            color: white;
+            background: #f3f4f6;
+            color: #374151;
             padding: 2px 6px;
             border-radius: 8px;
             font-size: 9px;
@@ -382,7 +434,7 @@ def _render_html(
         }}
 
         .matrix-table th {{
-            background: #5F6062;
+            background: #4b5563;
             color: white;
             padding: 4px 6px;
             font-size: 8px;
@@ -415,52 +467,37 @@ def _render_html(
             margin: 1px;
         }}
 
-        .legend-box {{
+        .groups-panel {{
             display: flex;
             flex-direction: column;
+            min-width: 0;
         }}
 
-        .legend-table {{
+        .groups-table {{
             width: 100%;
             border-collapse: collapse;
-            font-size: 9px;
+            font-size: 9.5px;
+            table-layout: fixed;
         }}
 
-        .legend-table tr {{
-            border-bottom: 1px solid #eee;
-        }}
-
-        .legend-table tr:last-child {{
-            border-bottom: none;
-        }}
-
-        .legend-id {{
-            width: 35px;
-            padding: 4px 4px 4px 0;
-            vertical-align: top;
-        }}
-
-        .legend-name {{
+        .groups-table th {{
+            text-align: left;
+            padding: 3px 4px;
+            background: #e5e7eb;
+            color: #374151;
             font-weight: 600;
-            color: #222;
-            padding: 4px 6px;
-            vertical-align: top;
-            font-size: 9px;
-            line-height: 1.3;
         }}
 
-        .legend-desc {{
-            color: #555;
-            padding: 4px 0;
-            line-height: 1.3;
+        .groups-table td {{
+            padding: 3px 4px;
+            border-bottom: 1px solid #eee;
             vertical-align: top;
-            font-size: 9px;
-            word-wrap: break-word;
+            overflow-wrap: anywhere;
         }}
 
         /* Tags */
         .tag-blocker {{
-            background: #7f1d1d;
+            background: #b42318;
             color: white;
             padding: 2px 5px;
             border-radius: 3px;
@@ -469,8 +506,9 @@ def _render_html(
         }}
 
         .tag-deadline {{
-            background: #fee2e2;
-            color: #991b1b;
+            background: #f8fafc;
+            color: #7f1d1d;
+            border: 1px solid #e5e7eb;
             padding: 2px 5px;
             border-radius: 3px;
             font-size: 8px;
@@ -478,8 +516,9 @@ def _render_html(
         }}
 
         .tag-responsible {{
-            background: #dcfce7;
-            color: #166534;
+            background: #f8fafc;
+            color: #14532d;
+            border: 1px solid #e5e7eb;
             padding: 2px 5px;
             border-radius: 3px;
             font-size: 8px;
@@ -487,8 +526,9 @@ def _render_html(
         }}
 
         .tag-no-responsible {{
-            background: #fef3c7;
-            color: #92400e;
+            background: #f8fafc;
+            color: #7c2d12;
+            border: 1px solid #e5e7eb;
             padding: 2px 5px;
             border-radius: 3px;
             font-size: 8px;
@@ -497,22 +537,27 @@ def _render_html(
 
         /* Critical Risks */
         .risks-section {{
-            background: #fafafa;
+            background: #f7f7f8;
             border-radius: 4px;
             padding: 8px;
             margin-bottom: 8px;
+            break-inside: auto;
+            page-break-inside: auto;
         }}
 
         .risks-cards {{
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
+            display: block;
+            break-inside: auto;
+            page-break-inside: auto;
         }}
 
         .risk-card {{
             background: white;
             border-radius: 0 4px 4px 0;
             padding: 8px 10px;
+            break-inside: auto;
+            page-break-inside: auto;
+            margin-bottom: 6px;
         }}
 
         .risk-card-header {{
@@ -552,24 +597,54 @@ def _render_html(
             font-size: 9px;
             margin-bottom: 4px;
             line-height: 1.35;
+            overflow-wrap: anywhere;
         }}
 
         .risk-consequences {{
-            color: #b91c1c;
+            color: #7f1d1d;
             font-size: 9px;
             margin-bottom: 3px;
             line-height: 1.35;
+            overflow-wrap: anywhere;
         }}
 
         .risk-mitigation {{
-            color: #166534;
+            color: #14532d;
             font-size: 9px;
             margin-bottom: 3px;
             line-height: 1.35;
+            overflow-wrap: anywhere;
+        }}
+
+        .risk-evidence {{
+            color: #4b5563;
+            font-size: 8.5px;
+            margin-bottom: 3px;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }}
+
+        .hypothesis-section {{
+            background: #fefaf0;
+            border-radius: 4px;
+            padding: 8px;
+            margin-bottom: 8px;
+            break-inside: auto;
+            page-break-inside: auto;
+        }}
+
+        .hypothesis-card {{
+            background: white;
+            border-left: 4px solid #eab308;
+            border-radius: 0 3px 3px 0;
+            padding: 6px 8px;
+            margin-bottom: 6px;
+            break-inside: auto;
+            page-break-inside: auto;
         }}
 
         .suggested {{
-            color: #1d4ed8;
+            color: #1f2937;
             font-size: 9px;
             font-weight: 500;
             margin-top: 3px;
@@ -577,27 +652,32 @@ def _render_html(
 
         /* Concerns */
         .concerns-section {{
-            background: #fafafa;
+            background: #f7f7f8;
             border-radius: 4px;
             padding: 8px;
             margin-bottom: 8px;
+            break-inside: auto;
+            page-break-inside: auto;
         }}
 
         .concerns-list {{
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
+            display: block;
+            break-inside: auto;
+            page-break-inside: auto;
         }}
 
         .concern-row {{
             background: white;
-            border-left: 3px solid #f59e0b;
+            border-left: 3px solid #d97706;
             border-radius: 0 3px 3px 0;
             padding: 6px 8px;
+            break-inside: auto;
+            page-break-inside: auto;
+            margin-bottom: 5px;
         }}
 
         .concern-row .concern-id {{
-            background: #f59e0b;
+            background: #d97706;
             color: white;
             padding: 2px 5px;
             border-radius: 3px;
@@ -607,8 +687,9 @@ def _render_html(
         }}
 
         .concern-row .concern-priority-tag {{
-            background: #fef3c7;
-            color: #92400e;
+            background: #f8fafc;
+            color: #78350f;
+            border: 1px solid #e5e7eb;
             padding: 2px 5px;
             border-radius: 3px;
             font-size: 8px;
@@ -631,22 +712,77 @@ def _render_html(
             display: block;
             margin-bottom: 4px;
             line-height: 1.35;
+            overflow-wrap: anywhere;
         }}
 
         .concern-row .concern-rec {{
-            background: #eff6ff;
-            color: #1d4ed8;
+            background: #f8fafc;
+            color: #1f2937;
+            border: 1px solid #e5e7eb;
             padding: 4px 6px;
             border-radius: 3px;
             font-size: 9px;
             font-weight: 500;
             display: block;
             line-height: 1.35;
+            overflow-wrap: anywhere;
+        }}
+
+        .compact-risks {{
+            margin-top: 6px;
+        }}
+
+        .compact-title {{
+            font-size: 10px;
+            font-weight: 600;
+            color: #333;
+            margin: 6px 0 4px;
+        }}
+
+        .compact-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8.5px;
+            table-layout: fixed;
+        }}
+
+        .compact-table tr {{
+            border-bottom: 1px solid #eee;
+        }}
+
+        .compact-table tr:last-child {{
+            border-bottom: none;
+        }}
+
+        .compact-id {{
+            width: 36px;
+            padding: 4px 4px 4px 0;
+            vertical-align: top;
+        }}
+
+        .compact-name {{
+            font-weight: 600;
+            color: #222;
+            padding: 4px 6px;
+            vertical-align: top;
+            font-size: 8.8px;
+            line-height: 1.3;
+            overflow-wrap: anywhere;
+        }}
+
+        .compact-desc {{
+            display: block;
+            margin-top: 2px;
+            font-size: 8px;
+            color: #666;
+            font-weight: 400;
+            line-height: 1.3;
+            overflow-wrap: anywhere;
         }}
 
         /* Abbreviations */
         .abbr-section {{
-            background: #f8f9fa;
+            background: #f5f6f7;
             padding: 6px 10px;
             border-radius: 3px;
             margin-bottom: 6px;
@@ -681,34 +817,9 @@ def _render_html(
             padding: 10px;
         }}
 
-        /* PDF Button */
-        .pdf-controls {{
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1000;
-        }}
-
-        .pdf-btn {{
-            background: #C62828;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            transition: background 0.2s;
-        }}
-
-        .pdf-btn:hover {{
-            background: #a21f1f;
-        }}
-
-        .pdf-btn:disabled {{
-            background: #888;
-            cursor: wait;
+        .page-break-before {{
+            break-before: page;
+            page-break-before: always;
         }}
 
         @media print {{
@@ -727,7 +838,7 @@ def _render_html(
 </head>
 <body>
 
-<div class="page-a3">
+<div class="page-a4">
 
     <!-- Header -->
     <div class="header-line">
@@ -760,10 +871,10 @@ def _render_html(
         </div>
     </div>
 
-    <!-- Risk Matrix + Legend -->
+    <!-- Risk Matrix + Groups -->
     <div class="matrix-section">
         <div>
-            <div class="section-title">Матрица рисков <span class="badge">{len(risk_brief.risks)}</span></div>
+            <div class="section-title">Матрица рисков <span class="badge">Всего: {len(risk_brief.risks)}</span></div>
             <table class="matrix-table">
                 <thead>
                     <tr>
@@ -775,73 +886,64 @@ def _render_html(
             </table>
             <div style="text-align:center; font-size:8px; color:#888; margin-top:3px;">Вероятность →</div>
         </div>
-        <div class="legend-box">
-            <div class="section-title">Легенда</div>
-            <table class="legend-table">
-                {legend_rows}
+        <div class="groups-panel">
+            <div class="section-title">Группы рисков</div>
+            <table class="groups-table">
+                <thead>
+                    <tr>
+                        <th>Категория</th>
+                        <th>Всего</th>
+                        <th>Крит.</th>
+                        <th>ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {group_rows}
+                </tbody>
             </table>
         </div>
     </div>
 
-    <!-- Critical Risks -->
+    <!-- Risk Analysis -->
     <div class="risks-section">
-        <div class="section-title">🔴 Критические риски (≥16 баллов) <span class="badge">{len(risk_brief.critical_risks)}</span></div>
+        <div class="section-title">Разбор рисков <span class="badge">Всего: {len(risk_brief.risks)}</span></div>
+        <div class="compact-title">Высокие (≥16 баллов) <span class="badge">Всего: {len(risk_brief.critical_risks)}</span></div>
         <div class="risks-cards">{critical_cards if critical_cards else '<div class="no-items">Критических рисков не выявлено</div>'}</div>
+        <div class="compact-risks">
+            <div class="compact-title">Риски ниже порога (&lt;16 баллов) <span class="badge">Всего: {len(risk_brief.risks) - len(risk_brief.critical_risks)}</span></div>
+            <table class="compact-table">
+                {low_risk_rows}
+            </table>
+        </div>
     </div>
 
-    <!-- Concerns -->
-    <div class="concerns-section">
-        <div class="section-title">⚠️ Требует внимания руководителя <span class="badge">{len(risk_brief.concerns)}</span></div>
-        <div class="concerns-list">{concern_rows if concern_rows else '<div class="no-items">Дополнительных вопросов не выявлено</div>'}</div>
+    {f'''<!-- Hypotheses -->
+    <div class="hypothesis-section">
+        <div class="section-title">Гипотезы (confidence=low)</div>
+        {hypothesis_cards}
+    </div>''' if has_hypotheses else ''}
+
     </div>
 
-    <!-- Abbreviations -->
-    {f'''<div class="abbr-section">
+    <div class="page-a4 page-break-before">
+        <!-- Concerns -->
+        <div class="concerns-section">
+        <div class="section-title">Скрытые проблемы и неявные риски <span class="badge">Всего: {len(risk_brief.concerns)}</span></div>
+            <div class="concerns-list">{concern_rows if concern_rows else '<div class="no-items">Дополнительных вопросов не выявлено</div>'}</div>
+        </div>
+
+        <!-- Abbreviations -->
+        {f'''<div class="abbr-section">
         <div class="abbr-title">Аббревиатуры</div>
         <div class="abbr-list">{abbr_text}</div>
     </div>''' if abbr_text else ''}
 
-    <!-- Footer -->
-    <div class="footer">
-        Сгенерировано: {datetime.now().strftime("%d.%m.%Y %H:%M")} · SEVERIN AI · Risk Brief (INoT) · A4 Portrait
+        <!-- Footer -->
+        <div class="footer">
+            Сгенерировано: {datetime.now().strftime("%d.%m.%Y %H:%M")} · SEVERIN AI · Risk Brief (INoT) · A4 Portrait
+        </div>
+
     </div>
-
-</div>
-
-<!-- PDF Export Button -->
-<div class="pdf-controls no-print">
-    <button onclick="exportPDF()" class="pdf-btn">📄 Скачать PDF</button>
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script>
-function exportPDF() {{
-    const element = document.querySelector('.page-a4');
-    const btn = document.querySelector('.pdf-btn');
-    btn.textContent = '⏳ Генерация...';
-    btn.disabled = true;
-
-    const opt = {{
-        margin: 0,
-        filename: 'risk_brief_{datetime.now().strftime("%Y%m%d")}.pdf',
-        image: {{ type: 'jpeg', quality: 0.98 }},
-        html2canvas: {{
-            scale: 2,
-            useCORS: true
-        }},
-        jsPDF: {{
-            unit: 'mm',
-            format: 'a4',
-            orientation: 'portrait'
-        }}
-    }};
-
-    html2pdf().set(opt).from(element).save().then(() => {{
-        btn.textContent = '📄 Скачать PDF';
-        btn.disabled = false;
-    }});
-}}
-</script>
 
 </body>
 </html>"""
@@ -849,16 +951,31 @@ function exportPDF() {{
     return html
 
 
+def _render_pdf(html_content: str, output_path: Path) -> None:
+    """Render PDF from HTML content using WeasyPrint."""
+    try:
+        from weasyprint import HTML, CSS
+    except Exception as exc:
+        raise RuntimeError(
+            "WeasyPrint is required to generate risk_brief.pdf. "
+            "Install it with: pip install weasyprint"
+        ) from exc
+
+    html = HTML(string=html_content, base_url=str(output_path.parent))
+    css = CSS(string="@page { size: A4 portrait; margin: 0; }")
+    html.write_pdf(str(output_path), stylesheets=[css])
+
+
 def _get_risk_color(probability: int, impact: int) -> str:
     """Get risk color based on P×I score."""
     score = probability * impact
     if score >= 16:
-        return "#C62828"  # Critical - red
+        return "#b42318"  # Critical - red
     elif score >= 9:
-        return "#E65100"  # High - orange
+        return "#c2410c"  # High - orange
     elif score >= 4:
-        return "#F9A825"  # Medium - yellow
-    return "#2E7D32"  # Low - green
+        return "#b45309"  # Medium - amber
+    return "#2f6f3e"  # Low - green
 
 
 def _build_matrix_cells(risks: list) -> str:
@@ -906,10 +1023,15 @@ def _build_matrix_cells(risks: list) -> str:
     return "".join(rows)
 
 
-def _build_legend_rows(risks: list) -> str:
-    """Build legend table rows HTML with defensive handling."""
+def _build_compact_risk_rows(risks: list) -> str:
+    """Build compact risk rows (for risks below critical threshold)."""
     if not risks:
-        return '<tr><td colspan="3" class="no-items">Риски не выявлены</td></tr>'
+        return '<tr><td colspan="2" class="no-items">Риски не выявлены</td></tr>'
+
+    def _protect_protocol_refs(text: str) -> str:
+        if not text:
+            return text
+        return re.sub(r"\b([A-ZА-Я]{2,})-([0-9]+)\b", r"\1&#8209;\2", text)
 
     # Convert to sortable list with scores
     risk_items = []
@@ -932,6 +1054,9 @@ def _build_legend_rows(risks: list) -> str:
             else:
                 continue
 
+            if score >= 16:
+                continue
+
             risk_items.append({
                 'score': score,
                 'color': color,
@@ -942,18 +1067,20 @@ def _build_legend_rows(risks: list) -> str:
         except Exception:
             continue
 
+    if not risk_items:
+        return '<tr><td colspan="2" class="no-items">Рисков ниже порога не выявлено</td></tr>'
+
     # Sort by score descending
     risk_items.sort(key=lambda r: r['score'], reverse=True)
 
     rows = []
     for risk in risk_items:
-        desc = risk['description'][:200]
-        if len(risk['description']) > 200:
-            desc += '...'
+        title = _protect_protocol_refs(risk["title"])
+        desc = _protect_protocol_refs(risk.get("description", ""))
+        desc_html = f'<span class="compact-desc">{desc}</span>' if desc else ""
         rows.append(f"""<tr>
-            <td class="legend-id"><span class="risk-dot" style="background:{risk['color']};">{risk['id']}</span></td>
-            <td class="legend-name">{risk['title']}</td>
-            <td class="legend-desc">{desc}</td>
+            <td class="compact-id"><span class="risk-dot" style="background:{risk['color']};">{risk['id']}</span></td>
+            <td class="compact-name">{title}{desc_html}</td>
         </tr>""")
 
     return "".join(rows)
@@ -1010,6 +1137,10 @@ def _build_critical_cards(critical_risks: list) -> str:
 
             tags_html = " ".join(tags)
 
+            # Evidence
+            evidence = getattr(risk, "evidence", None) or (risk.get("evidence") if isinstance(risk, dict) else "")
+            evidence_html = f'<div class="risk-evidence"><b>Основание:</b> {evidence}</div>' if evidence else ""
+
             # Suggested responsible
             suggested = ""
             if suggested_responsible and not responsible:
@@ -1023,6 +1154,7 @@ def _build_critical_cards(critical_risks: list) -> str:
                 </div>
                 <div class="risk-title-row">{title}</div>
                 <div class="risk-desc">{description}</div>
+                {evidence_html}
                 <div class="risk-consequences"><b>Последствия:</b> {consequences}</div>
                 <div class="risk-mitigation"><b>Меры:</b> {mitigation}</div>
                 {suggested}
@@ -1031,6 +1163,109 @@ def _build_critical_cards(critical_risks: list) -> str:
             continue
 
     return "".join(cards)
+
+
+def _build_hypothesis_cards(hypotheses: list) -> str:
+    """Build low-confidence hypothesis cards."""
+    if not hypotheses:
+        return ""
+
+    cards = []
+    for risk in hypotheses:
+        try:
+            score = risk.score if hasattr(risk, "score") else risk.get("probability", 0) * risk.get("impact", 0)
+            title = risk.title if hasattr(risk, "title") else risk.get("title", "")
+            description = risk.description if hasattr(risk, "description") else risk.get("description", "")
+            evidence = getattr(risk, "evidence", None) or risk.get("evidence", "")
+            cards.append(f"""<div class="hypothesis-card">
+                <div class="risk-title-row">{title}</div>
+                <div class="risk-desc">{description}</div>
+                <div class="risk-consequences">Доказательства: {evidence or 'нет явного факта'}</div>
+                <div class="risk-mitigation">Confidence: {(risk.confidence if hasattr(risk, 'confidence') else risk.get('confidence', 'low')).capitalize()} · Score ~ {score}</div>
+            </div>""")
+        except Exception:
+            continue
+
+    return "".join(cards)
+
+
+def _build_group_rows(groups: list) -> str:
+    """Build risk group rows."""
+    if not groups:
+        return "<tr><td colspan='4' class='no-items'>Риски не выявлены</td></tr>"
+
+    rows = []
+    for group in groups:
+        try:
+            category = group.category.label_ru if hasattr(group.category, "label_ru") else str(group.category)
+            risk_ids = ", ".join(group.risk_ids) if group.risk_ids else "—"
+            rows.append(
+                f"<tr><td>{category}</td><td>{group.count}</td><td>{group.critical_count}</td><td>{risk_ids}</td></tr>"
+            )
+        except Exception:
+            continue
+
+    return "".join(rows)
+
+
+def _normalize_risk_brief(brief: RiskBrief) -> RiskBrief:
+    """Normalize risk brief: move low-confidence or unsupported risks to hypotheses."""
+    risks = list(brief.risks or [])
+    hypotheses = list(brief.hypotheses or [])
+
+    verified = []
+    for risk in risks:
+        evidence = (risk.evidence or "").strip() if hasattr(risk, "evidence") else ""
+        confidence = getattr(risk, "confidence", "medium")
+        if confidence == "low" or not evidence:
+            if not evidence and hasattr(risk, "evidence"):
+                risk.evidence = risk.evidence or ""
+            if confidence != "low" and hasattr(risk, "confidence"):
+                risk.confidence = "low"
+            hypotheses.append(risk)
+        else:
+            verified.append(risk)
+
+    verified.sort(key=lambda r: r.score if hasattr(r, "score") else 0, reverse=True)
+    for idx, risk in enumerate(verified, 1):
+        risk.id = f"R{idx}"
+
+    for idx, risk in enumerate(hypotheses, 1):
+        if not getattr(risk, "id", "") or risk.id.startswith("R"):
+            risk.id = f"H{idx}"
+
+    has_critical = any(r.score >= 16 or r.is_blocker for r in verified)
+    has_high = any(r.score >= 9 for r in verified)
+    has_any = bool(verified or brief.concerns)
+
+    if has_critical:
+        overall_status = OverallStatus.CRITICAL
+    elif has_high or has_any:
+        overall_status = OverallStatus.ATTENTION
+    else:
+        overall_status = OverallStatus.STABLE
+
+    # Group risks by category for validation
+    group_map = {}
+    for risk in verified:
+        category = risk.category
+        group = group_map.get(category)
+        if not group:
+            group = RiskGroup(category=category, count=0, critical_count=0, risk_ids=[])
+            group_map[category] = group
+        group.count += 1
+        if risk.score >= 16 or risk.is_blocker:
+            group.critical_count += 1
+        group.risk_ids.append(risk.id)
+
+    groups = sorted(group_map.values(), key=lambda g: g.count, reverse=True)
+
+    return brief.model_copy(update={
+        "risks": verified,
+        "hypotheses": hypotheses,
+        "overall_status": overall_status,
+        "risk_groups": groups,
+    })
 
 
 def _build_concern_rows(concerns: list) -> str:

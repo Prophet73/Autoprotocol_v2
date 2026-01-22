@@ -1,5 +1,5 @@
-import { Download, FileText, FileSpreadsheet, Brain, FileCode } from 'lucide-react';
-import { getDownloadUrl } from '../api/client';
+import { Download, FileText, FileSpreadsheet, Brain, FileCode, Archive, Shield } from 'lucide-react';
+import { getDownloadUrl, getDownloadAllUrl } from '../api/client';
 
 interface DownloadCardProps {
   jobId: string;
@@ -26,10 +26,16 @@ const fileConfig: Record<string, { label: string; icon: typeof FileText; color: 
     desc: 'Протокол совещания',
   },
   analysis: {
-    label: 'ИИ Анализ',
+    label: 'Менеджерский бриф',
     icon: Brain,
     color: 'border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100',
-    desc: 'Глубокий анализ',
+    desc: 'Аналитика для руководителя',
+  },
+  risk_brief: {
+    label: 'Риск-бриф',
+    icon: Shield,
+    color: 'border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100',
+    desc: 'Матрица рисков (PDF)',
   },
   protocol_docx: {
     label: 'Протокол (Word)',
@@ -52,7 +58,7 @@ const fileConfig: Record<string, { label: string; icon: typeof FileText; color: 
 };
 
 export function DownloadCard({ jobId, outputFiles }: DownloadCardProps) {
-  const files = Object.entries(outputFiles);
+  const files = Object.entries(outputFiles).filter(([fileType]) => fileType !== 'analysis');
 
   if (files.length === 0) {
     return (
@@ -64,6 +70,20 @@ export function DownloadCard({ jobId, outputFiles }: DownloadCardProps) {
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
+      <a
+        href={getDownloadAllUrl(jobId)}
+        download
+        className="flex items-center gap-4 p-4 rounded-xl border-2 border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition-all sm:col-span-2"
+      >
+        <div className="p-2 bg-white rounded-lg shadow-sm">
+          <Archive className="w-6 h-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold">Скачать все файлы</p>
+          <p className="text-sm opacity-70 truncate">Архив со всеми результатами</p>
+        </div>
+        <Download className="w-5 h-5 opacity-50" />
+      </a>
       {files.map(([fileType]) => {
         const config = fileConfig[fileType] || {
           label: fileType,

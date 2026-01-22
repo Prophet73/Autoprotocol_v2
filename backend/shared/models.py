@@ -396,6 +396,11 @@ class TranscriptionJob(Base):
         nullable=True,
         index=True
     )
+    guest_uid: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True
+    )
     tenant_id: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="SET NULL"),

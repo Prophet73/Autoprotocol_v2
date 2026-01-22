@@ -28,6 +28,7 @@ redis>=4.0.0
 # Document Generation
 python-docx
 openpyxl  # Excel generation for tasks.xlsx
+weasyprint  # HTML to PDF for risk_brief.pdf
 
 # Data Validation & Utils
 pydantic[email]>=2.0
@@ -38,10 +39,11 @@ email-validator
 psutil  # System monitoring for admin stats
 
 # Database
-aiosqlite
 sqlalchemy[asyncio]
+asyncpg
 
 # Auth
 python-jose[cryptography]
 bcrypt>=4.0.0,<5.0  # Pin to 4.x for passlib compatibility (MUST be before passlib)
 passlib[bcrypt]
+

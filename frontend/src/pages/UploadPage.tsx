@@ -76,7 +76,7 @@ export function UploadPage() {
         generate_transcript: artifacts.transcript,
         generate_tasks: artifacts.tasks,
         generate_report: artifacts.report,
-        generate_analysis: artifacts.analysis,
+        generate_risk_brief: artifacts.riskBrief,
         // Only send project_code if it's valid (for construction or if manually entered for HR/IT)
         project_code: codeValidation?.valid ? projectCode : undefined,
         meeting_type: showMeetingTypeSelector ? meetingType : undefined,
