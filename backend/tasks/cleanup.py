@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from celery import shared_task
 
 from backend.tasks.celery_app import celery_app
 from backend.shared.database import get_db_context

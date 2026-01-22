@@ -5,12 +5,9 @@ Provides persistent job state management that survives API restarts
 and supports multiple API replicas.
 """
 import os
-import json
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any, List
-from enum import Enum
-from functools import lru_cache
+from typing import Optional, Dict, List
 
 from redis import Redis
 from pydantic import BaseModel

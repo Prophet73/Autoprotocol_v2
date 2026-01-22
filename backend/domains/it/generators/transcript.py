@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from docx import Document
-from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 

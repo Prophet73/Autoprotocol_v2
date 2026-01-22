@@ -8,7 +8,6 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
 
 from google import genai
 
@@ -17,7 +16,7 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
 from backend.core.transcription.models import TranscriptionResult
-from backend.domains.construction.schemas import BasicReport, Task, TaskCategory
+from backend.domains.construction.schemas import BasicReport, TaskCategory
 from backend.domains.construction.prompts import CONSTRUCTION_PROMPTS
 from backend.domains.construction.generators.llm_utils import run_llm_call
 

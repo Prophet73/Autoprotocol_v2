@@ -6,7 +6,7 @@ No LLM required - direct conversion of pipeline output.
 from pathlib import Path
 from datetime import datetime
 from docx import Document
-from docx.shared import Pt, Inches
+from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from backend.core.transcription.models import TranscriptionResult

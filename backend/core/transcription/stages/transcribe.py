@@ -5,16 +5,14 @@ Uses WhisperX to transcribe audio in multiple languages.
 Selects the best transcription based on quality scoring.
 """
 import re
-import torch
 import whisperx
 import numpy as np
 import logging
-from pathlib import Path
 from typing import List, Dict, Optional, Any
 from collections import defaultdict
 
-from ..config import config, HALLUCINATION_PATTERNS
-from ...utils import clean_cuda_cache, get_gpu_manager, log_gpu_memory
+from ..config import HALLUCINATION_PATTERNS
+from ...utils import get_gpu_manager, log_gpu_memory
 
 logger = logging.getLogger(__name__)
 

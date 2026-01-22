@@ -161,7 +161,6 @@ async def get_users_stats(
     service = StatsService(db)
     filters = StatsFilters(date_from=date_from, date_to=date_to, domain=domain)
 
-    from .schemas import TimelineStats
     from datetime import datetime
 
     users = await service.get_users_stats(filters)

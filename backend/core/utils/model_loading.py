@@ -8,7 +8,6 @@ import torch
 import logging
 import warnings
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)

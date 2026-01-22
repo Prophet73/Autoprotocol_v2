@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from backend.core.transcription.result import TranscriptionResult
 
 from backend.config import get_prompt
-from backend.domains.it.schemas import ITReport, ITMeetingType
 
 logger = logging.getLogger(__name__)
 

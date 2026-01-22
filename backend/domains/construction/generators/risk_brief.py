@@ -12,14 +12,13 @@ import re
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
 
 from google import genai
 
 from backend.core.transcription.models import TranscriptionResult
 from backend.domains.construction.schemas import (
-    RiskBrief, ProjectRisk, Concern, Abbreviation, RiskGroup,
-    OverallStatus, Atmosphere, RiskCategory, ConcernCategory
+    RiskBrief, RiskGroup,
+    OverallStatus, Atmosphere, ConcernCategory
 )
 from backend.domains.construction.prompts import RISK_BRIEF_SYSTEM, RISK_BRIEF_USER
 from backend.domains.construction.generators.llm_utils import run_llm_call

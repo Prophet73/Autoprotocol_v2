@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.shared.database import get_db
-from backend.shared.models import User, UserRole, Domain
+from backend.shared.models import UserRole, Domain
 from backend.core.auth.dependencies import SuperUser
 from .service import UserService
 from .schemas import (
@@ -20,9 +20,6 @@ from .schemas import (
     AssignRoleResponse,
     CreateUserRequest,
     UpdateUserRequest,
-    AssignDomainsRequest,
-    GrantProjectAccessRequest,
-    RevokeProjectAccessRequest,
     ProjectAccessResponse,
     UserProjectAccessList,
 )

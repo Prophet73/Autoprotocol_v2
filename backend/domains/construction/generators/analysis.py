@@ -8,12 +8,10 @@ import json
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
 
 from google import genai
 
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from backend.core.transcription.models import TranscriptionResult

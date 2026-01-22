@@ -120,7 +120,7 @@ class ConstructionProject(Base):
 
 
 # Import User and project_managers for relationships
-from backend.shared.models import User, project_managers
+from backend.shared.models import User
 
 
 class ReportStatus(str):

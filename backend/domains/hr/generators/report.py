@@ -4,21 +4,18 @@ HR Report Generator.
 Generates AI-analyzed HR meeting reports using Gemini.
 """
 import os
-import json
 import logging
 from pathlib import Path
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from docx import Document
-from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 if TYPE_CHECKING:
     from backend.core.transcription.result import TranscriptionResult
 
 from backend.config import get_prompt
-from backend.domains.hr.schemas import HRReport, HRMeetingType
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,6 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Dict
 
-from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 
 from .celery_app import celery_app
@@ -174,7 +173,6 @@ def _sync_job_to_db(
 
     Called when job is created to sync Redis -> PostgreSQL.
     """
-    import asyncio
     from ..shared.database import async_session_factory
     from ..shared.models import TranscriptionJob
 
@@ -219,7 +217,6 @@ def _update_job_in_db(
     """
     Update TranscriptionJob record in PostgreSQL after processing completes.
     """
-    import asyncio
     from datetime import datetime
     from sqlalchemy import update
     from ..shared.database import async_session_factory
@@ -283,7 +280,6 @@ def _save_domain_report(
         guest_uid: Guest UUID for anonymous uploads
         uploader_id: User ID for authenticated uploads
     """
-    import asyncio
     from ..shared.database import async_session_factory
     from ..domains.factory import DomainServiceFactory
 

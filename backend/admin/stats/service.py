@@ -12,10 +12,9 @@ import os
 import logging
 from datetime import datetime, date, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
-from collections import defaultdict
+from typing import List, Optional
 
-from sqlalchemy import select, func, and_, or_, case, distinct
+from sqlalchemy import select, func, and_, case, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.shared.models import User, TranscriptionJob
@@ -41,8 +40,6 @@ from .schemas import (
     ArtifactsStats,
     OverviewStatsResponse,
     DomainStatsResponse,
-    UsersStatsResponse,
-    CostStatsResponse,
     FullDashboardResponse,
     # Legacy schemas
     GlobalStatsResponse,

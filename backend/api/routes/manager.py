@@ -12,9 +12,9 @@ from datetime import datetime, timedelta
 from typing import Annotated, Optional, List
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse
-from sqlalchemy import select, func, and_, or_, case, desc
+from sqlalchemy import select, and_, or_, case, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field
@@ -27,7 +27,6 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 from backend.shared.models import User
 from backend.core.auth.dependencies import CurrentUser
 # Import directly from models to avoid heavy dependencies chain
-from backend.shared.database import Base
 from backend.domains.construction.models import (
     ConstructionProject,
     ConstructionReportDB,

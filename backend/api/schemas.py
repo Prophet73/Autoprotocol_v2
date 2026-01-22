@@ -1,6 +1,6 @@
 """Схемы запросов и ответов API."""
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional
 from pydantic import BaseModel, Field
 
 from ..core.transcription.models import JobStatus

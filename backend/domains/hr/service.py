@@ -4,7 +4,6 @@ HR Domain Service.
 Provides HR meeting analysis functionality.
 """
 from typing import Optional
-from pathlib import Path
 
 from backend.domains.base import BaseDomainService
 from backend.config import get_prompt

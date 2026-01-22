@@ -31,7 +31,7 @@ from ..schemas import (
 from ...core.storage import get_job_store, JobStore
 from ...core.utils.file_security import validate_file_path
 from ...core.storage.job_store import JobData
-from ...core.transcription.models import TranscriptionRequest, JobStatus
+from ...core.transcription.models import JobStatus
 from ...tasks.transcription import process_transcription_task, _sync_job_to_db, _update_job_in_db, _save_domain_report
 from ...core.utils.text_extraction import is_text_file, extract_text_from_file
 from ...shared.database import get_db
@@ -718,7 +718,6 @@ async def cancel_job(job_id: str):
 
     # Try to revoke Celery task
     try:
-        from celery.result import AsyncResult
         from ...tasks.celery_app import celery_app
 
         # Revoke the task

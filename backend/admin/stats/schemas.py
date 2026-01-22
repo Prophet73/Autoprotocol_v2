@@ -11,7 +11,7 @@ Supports:
 """
 from datetime import datetime, date
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from backend.domains.base_schemas import DOMAIN_MEETING_TYPES
 

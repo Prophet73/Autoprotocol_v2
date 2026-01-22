@@ -3,8 +3,6 @@ Admin Jobs Router - управление очередью задач.
 """
 import logging
 from pathlib import Path
-from typing import Optional
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -95,7 +93,6 @@ async def cancel_job(
 
     # Try to revoke Celery task
     try:
-        from celery.result import AsyncResult
         from backend.tasks.celery_app import celery_app
 
         celery_app.control.revoke(job_id, terminate=True, signal='SIGTERM')

@@ -5,7 +5,6 @@ Defines data structures for segments, jobs, and results.
 """
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field
 

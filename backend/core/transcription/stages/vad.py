@@ -8,7 +8,7 @@ import torch
 import librosa
 import logging
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 

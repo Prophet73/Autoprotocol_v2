@@ -6,7 +6,6 @@ OAuth2 authentication via Hub (corporate SSO gateway).
 import os
 import secrets
 from datetime import timedelta
-from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, Query

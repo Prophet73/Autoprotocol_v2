@@ -4,7 +4,6 @@ Stage 4: Speaker Diarization
 Uses WhisperX alignment and pyannote for speaker identification.
 Assigns speaker labels to transcribed segments.
 """
-import torch
 import whisperx
 import numpy as np
 import logging

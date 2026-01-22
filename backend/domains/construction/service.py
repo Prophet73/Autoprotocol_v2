@@ -3,17 +3,16 @@
 Генерирует отчёты из транскрипции с помощью LLM.
 """
 
-import json
 from typing import Any, Optional, List
 from datetime import datetime
 from collections import defaultdict
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.domains.base import BaseDomainService, DomainReport
+from backend.domains.base import BaseDomainService
 from backend.core.transcription import TranscriptionResult
-from .models import ConstructionReportDB, ConstructionProject, ReportStatus
+from .models import ConstructionReportDB, ReportStatus
 from .schemas import (
     ConstructionReport,
     ActionItem,

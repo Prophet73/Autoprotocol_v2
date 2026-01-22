@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
-from backend.domains.base_schemas import BaseMeetingReport, ActionItem
+from backend.domains.base_schemas import BaseMeetingReport
 
 
 class ITMeetingType(str, Enum):
