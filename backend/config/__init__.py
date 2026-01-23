@@ -1,9 +1,8 @@
 """Configuration module with YAML prompt loading."""
-import os
 import yaml
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from functools import lru_cache
 
 logger = logging.getLogger(__name__)

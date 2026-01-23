@@ -11,3 +11,16 @@ from .dependencies import (
     OptionalUser,
     SuperUser,
 )
+
+__all__ = [
+    "router",
+    "get_current_user",
+    "get_optional_user",
+    "require_superuser",
+    "verify_password",
+    "get_password_hash",
+    "create_access_token",
+    "CurrentUser",
+    "OptionalUser",
+    "SuperUser",
+]

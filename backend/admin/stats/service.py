@@ -770,7 +770,7 @@ class StatsService:
 
         return total
 
-    def get_domain_stats(self) -> DomainStatsLegacy:
+    def _get_domain_stats_legacy(self) -> DomainStatsLegacy:
         """Get transcription count by domain (legacy)."""
         return DomainStatsLegacy()
 
@@ -779,7 +779,7 @@ class StatsService:
         user_stats = await self.get_user_stats()
         transcription_stats = self.get_transcription_stats()
         storage_stats = self.get_storage_stats()
-        domain_stats = self.get_domain_stats()
+        domain_stats = self._get_domain_stats_legacy()
 
         try:
             job_store = get_job_store()

@@ -528,6 +528,7 @@ export interface ProjectListResponse {
 
 export interface CreateProjectRequest {
   name: string;
+  project_code?: string;  // 4-digit code, auto-generated if not provided
   description?: string;
   manager_id?: number;
 }

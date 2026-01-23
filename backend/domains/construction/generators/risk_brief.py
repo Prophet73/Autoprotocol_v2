@@ -163,18 +163,6 @@ def _get_risk_brief(transcript_text: str) -> RiskBrief:
             "Workers": "Быт рабочих",
             "Other": "Прочее",
         }
-        risk_category_map = {
-            "permits": "permits",
-            "design": "design",
-            "schedule": "schedule",
-            "budget": "budget",
-            "safety": "safety",
-            "contracts": "contracts",
-            "resources": "resources",
-            "quality": "quality",
-            "communication": "communication",
-            "other": "other",
-        }
 
         # Fix concern categories
         if "concerns" in brief_data and brief_data["concerns"]:

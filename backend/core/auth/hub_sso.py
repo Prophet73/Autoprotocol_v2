@@ -130,7 +130,7 @@ async def hub_callback(
     full_name = userinfo.get("name") or userinfo.get("display_name")
     hub_user_id = userinfo.get("sub") or userinfo.get("id")
     is_admin = userinfo.get("is_admin", False)
-    department = userinfo.get("department")
+    _department = userinfo.get("department")  # Reserved for future use
 
     if not email:
         raise HTTPException(

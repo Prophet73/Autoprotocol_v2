@@ -23,6 +23,8 @@ def generate_transcript(
     result: TranscriptionResult,
     output_dir: Path,
     filename: str = None,
+    meeting_type: str = None,
+    meeting_date: str = None,
 ) -> Path:
     """
     Generate transcript.docx from transcription result.
@@ -31,6 +33,8 @@ def generate_transcript(
         result: TranscriptionResult from pipeline
         output_dir: Directory to save the file
         filename: Optional custom filename
+        meeting_type: Type of meeting (for title)
+        meeting_date: Date of meeting (YYYY-MM-DD format)
 
     Returns:
         Path to generated file
@@ -44,15 +48,27 @@ def generate_transcript(
     # Metadata section
     doc.add_heading("Информация о записи", level=1)
 
-    meta_table = doc.add_table(rows=4, cols=2)
+    # Format meeting date for display
+    meeting_date_formatted = None
+    if meeting_date:
+        try:
+            from datetime import datetime as dt
+            parsed_date = dt.strptime(meeting_date, "%Y-%m-%d")
+            meeting_date_formatted = parsed_date.strftime("%d.%m.%Y")
+        except ValueError:
+            meeting_date_formatted = meeting_date
+
+    meta_table = doc.add_table(rows=5 if meeting_date_formatted else 4, cols=2)
     meta_table.style = "Table Grid"
 
     meta_data = [
         ("Файл", result.metadata.source_file),
         ("Длительность", result.metadata.duration_formatted),
-        ("Дата обработки", datetime.now().strftime("%d.%m.%Y %H:%M")),
+        ("Дата встречи", meeting_date_formatted) if meeting_date_formatted else ("Дата обработки", datetime.now().strftime("%d.%m.%Y %H:%M")),
         ("Участников", str(result.speaker_count)),
     ]
+    if meeting_date_formatted:
+        meta_data.insert(3, ("Дата обработки", datetime.now().strftime("%d.%m.%Y %H:%M")))
 
     for i, (label, value) in enumerate(meta_data):
         meta_table.rows[i].cells[0].text = label

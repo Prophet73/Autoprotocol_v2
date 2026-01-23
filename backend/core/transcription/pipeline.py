@@ -150,25 +150,25 @@ class TranscriptionPipeline:
 
         try:
             # Stage 1: Audio extraction
-            self._report_progress("audio_extraction", 0, "Extracting audio...")
+            self._report_progress("audio_extraction", 0, "Извлечение аудио...")
             audio_file = self._extract_audio(input_file, temp_audio)
-            self._report_progress("audio_extraction", 100, "Audio extracted")
+            self._report_progress("audio_extraction", 100, "Аудио извлечено")
 
             # Stage 2: VAD
-            self._report_progress("vad_analysis", 0, "Analyzing voice activity...")
+            self._report_progress("vad_analysis", 0, "Анализ голосовой активности...")
             vad_segments = self._run_vad(audio_file)
-            self._report_progress("vad_analysis", 100, f"Found {len(vad_segments)} segments")
+            self._report_progress("vad_analysis", 100, f"Найдено сегментов: {len(vad_segments)}")
 
             # Stage 3: Transcription
-            self._report_progress("transcription", 0, "Transcribing...")
+            self._report_progress("transcription", 0, "Распознавание речи...")
             segments = self._transcribe(audio_file, vad_segments, request)
-            self._report_progress("transcription", 100, f"Transcribed {len(segments)} segments")
+            self._report_progress("transcription", 100, f"Распознано сегментов: {len(segments)}")
 
             # Stage 4: Diarization
             if not request.skip_diarization:
-                self._report_progress("diarization", 0, "Identifying speakers...")
+                self._report_progress("diarization", 0, "Идентификация спикеров...")
                 segments = self._diarize(segments, audio_file)
-                self._report_progress("diarization", 100, "Speakers identified")
+                self._report_progress("diarization", 100, "Спикеры идентифицированы")
             else:
                 for seg in segments:
                     seg["speaker"] = "SPEAKER_00"
@@ -176,27 +176,27 @@ class TranscriptionPipeline:
             # Stage 5: Translation
             if not request.skip_translation:
                 if self._should_translate(request, segments):
-                    self._report_progress("translation", 0, "Translating...")
+                    self._report_progress("translation", 0, "Перевод на русский...")
                     segments = self._translate(segments)
-                    self._report_progress("translation", 100, "Translation complete")
+                    self._report_progress("translation", 100, "Перевод завершён")
                 else:
                     logger.info("Skipping translation: target language already selected")
 
             # Stage 6: Emotions
             if not request.skip_emotions:
-                self._report_progress("emotion_analysis", 0, "Analyzing emotions...")
+                self._report_progress("emotion_analysis", 0, "Анализ эмоций...")
                 segments = self._analyze_emotions(audio_file, segments)
-                self._report_progress("emotion_analysis", 100, "Emotions analyzed")
+                self._report_progress("emotion_analysis", 100, "Эмоции проанализированы")
             else:
                 for seg in segments:
                     seg["emotion"] = "neutral"
                     seg["emotion_confidence"] = 0.5
 
             # Stage 7: Reports (skipped - handled by domain generators)
-            self._report_progress("report_generation", 0, "Preparing results...")
+            self._report_progress("report_generation", 0, "Подготовка результатов...")
             elapsed = time.time() - start_time
             output_files = {}  # Domain generators create files
-            self._report_progress("report_generation", 100, "Results prepared")
+            self._report_progress("report_generation", 100, "Результаты готовы")
 
             # Build result
             result = self._build_result(

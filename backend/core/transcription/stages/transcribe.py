@@ -12,9 +12,12 @@ from typing import List, Dict, Optional, Any
 from collections import defaultdict
 
 from ..config import HALLUCINATION_PATTERNS
-from ...utils import get_gpu_manager, log_gpu_memory
+from ...utils import get_gpu_manager, log_gpu_memory, clean_cuda_cache
 
 logger = logging.getLogger(__name__)
+
+# Re-export for backward compatibility
+__all__ = ["clean_cuda_cache", "detect_language_by_text", "MultilingualTranscriber"]
 
 
 def clean_repetitions(text: str) -> str:

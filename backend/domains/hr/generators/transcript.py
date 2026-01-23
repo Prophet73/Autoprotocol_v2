@@ -22,6 +22,7 @@ def generate_transcript(
     result: "TranscriptionResult",
     output_dir: Path,
     meeting_type: str = "one_on_one",
+    meeting_date: str = None,
 ) -> Path:
     """
     Generate HR-formatted transcript document.
@@ -30,6 +31,7 @@ def generate_transcript(
         result: Transcription result with segments and speakers
         output_dir: Directory to save the document
         meeting_type: Type of HR meeting
+        meeting_date: Date of meeting (YYYY-MM-DD format)
 
     Returns:
         Path to generated document
@@ -39,6 +41,16 @@ def generate_transcript(
     # Title
     title = doc.add_heading("HR Meeting Transcript", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Format meeting date
+    if meeting_date:
+        try:
+            parsed_date = datetime.strptime(meeting_date, "%Y-%m-%d")
+            date_display = parsed_date.strftime("%d.%m.%Y")
+        except ValueError:
+            date_display = meeting_date
+    else:
+        date_display = datetime.now().strftime('%d.%m.%Y %H:%M')
 
     # Meeting info
     meeting_type_names = {
@@ -50,7 +62,7 @@ def generate_transcript(
     }
 
     doc.add_paragraph(f"Тип встречи: {meeting_type_names.get(meeting_type, meeting_type)}")
-    doc.add_paragraph(f"Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+    doc.add_paragraph(f"Дата встречи: {date_display}")
     doc.add_paragraph(f"Файл: {result.source_file}")
     doc.add_paragraph()
 

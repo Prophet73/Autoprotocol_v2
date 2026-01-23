@@ -22,6 +22,7 @@ def generate_transcript(
     result: "TranscriptionResult",
     output_dir: Path,
     meeting_type: str = "standup",
+    meeting_date: str = None,
 ) -> Path:
     """
     Generate IT-formatted transcript document.
@@ -30,6 +31,7 @@ def generate_transcript(
         result: Transcription result with segments and speakers
         output_dir: Directory to save the document
         meeting_type: Type of IT meeting
+        meeting_date: Date of meeting (YYYY-MM-DD format)
 
     Returns:
         Path to generated document
@@ -39,6 +41,16 @@ def generate_transcript(
     # Title
     title = doc.add_heading("IT Meeting Transcript", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Format meeting date
+    if meeting_date:
+        try:
+            parsed_date = datetime.strptime(meeting_date, "%Y-%m-%d")
+            date_display = parsed_date.strftime("%d.%m.%Y")
+        except ValueError:
+            date_display = meeting_date
+    else:
+        date_display = datetime.now().strftime('%d.%m.%Y %H:%M')
 
     # Meeting info
     meeting_type_names = {
@@ -51,7 +63,7 @@ def generate_transcript(
     }
 
     doc.add_paragraph(f"Meeting Type: {meeting_type_names.get(meeting_type, meeting_type)}")
-    doc.add_paragraph(f"Date: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+    doc.add_paragraph(f"Date: {date_display}")
     doc.add_paragraph(f"Source: {result.source_file}")
     doc.add_paragraph()
 

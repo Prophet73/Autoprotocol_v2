@@ -59,7 +59,7 @@ class AudioExtractor:
         ]
 
         try:
-            result = subprocess.run(
+            subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,

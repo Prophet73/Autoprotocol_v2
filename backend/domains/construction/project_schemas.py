@@ -14,6 +14,13 @@ class ProjectBase(BaseModel):
 
 class ProjectCreate(ProjectBase):
     """Request to create a new project."""
+    project_code: Optional[str] = Field(
+        None,
+        min_length=4,
+        max_length=4,
+        pattern=r'^\d{4}$',
+        description="4-digit project code (e.g., 1001). Auto-generated if not provided."
+    )
     tenant_id: Optional[int] = None
     manager_id: Optional[int] = None
 
@@ -21,6 +28,13 @@ class ProjectCreate(ProjectBase):
 class ProjectUpdate(BaseModel):
     """Request to update a project."""
     name: Optional[str] = Field(None, min_length=1, max_length=255)
+    project_code: Optional[str] = Field(
+        None,
+        min_length=4,
+        max_length=4,
+        pattern=r'^\d{4}$',
+        description="4-digit project code"
+    )
     description: Optional[str] = None
     manager_id: Optional[int] = None
     is_active: Optional[bool] = None

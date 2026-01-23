@@ -18,6 +18,18 @@ from backend.admin.settings.service import SettingsService
 
 logger = logging.getLogger(__name__)
 
+
+def _run_async(coro):
+    """Run async coroutine in sync context (for Celery tasks)."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 # Storage paths
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
@@ -47,17 +59,7 @@ def cleanup_old_audio_files(
     Returns:
         Cleanup statistics
     """
-    import asyncio
-
-    # Run async cleanup in sync context
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(
-            _async_cleanup(retention_days, dry_run)
-        )
-    finally:
-        loop.close()
+    return _run_async(_async_cleanup(retention_days, dry_run))
 
 
 async def _async_cleanup(
@@ -217,16 +219,7 @@ def cleanup_old_error_logs(retention_days: int = 30) -> dict:
     Returns:
         Cleanup statistics
     """
-    import asyncio
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(
-            _cleanup_error_logs(retention_days)
-        )
-    finally:
-        loop.close()
+    return _run_async(_cleanup_error_logs(retention_days))
 
 
 async def _cleanup_error_logs(retention_days: int) -> dict:

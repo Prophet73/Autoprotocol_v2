@@ -24,6 +24,7 @@ def generate_report(
     result: "TranscriptionResult",
     output_dir: Path,
     meeting_type: str = "standup",
+    meeting_date: str = None,
     system_prompt: Optional[str] = None,
     user_prompt: Optional[str] = None,
 ) -> Path:
@@ -34,6 +35,7 @@ def generate_report(
         result: Transcription result
         output_dir: Directory to save report
         meeting_type: Type of IT meeting
+        meeting_date: Date of meeting (YYYY-MM-DD format)
         system_prompt: Optional custom system prompt
         user_prompt: Optional custom user prompt
 

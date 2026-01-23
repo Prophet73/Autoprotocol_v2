@@ -13,37 +13,55 @@ interface ProjectModalProps {
 function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalProps) {
   const [formData, setFormData] = useState({
     name: '',
+    project_code: '',
     description: '',
     manager_id: null as number | null,
   });
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (project) {
-      setFormData({
-        name: project.name,
-        description: project.description || '',
-        manager_id: project.manager_id,
-      });
-    } else {
-      setFormData({
-        name: '',
-        description: '',
-        manager_id: null,
-      });
+    if (isOpen) {
+      if (project) {
+        setFormData({
+          name: project.name,
+          project_code: project.project_code || '',
+          description: project.description || '',
+          manager_id: project.manager_id,
+        });
+      } else {
+        setFormData({
+          name: '',
+          project_code: '',
+          description: '',
+          manager_id: null,
+        });
+      }
+      setError('');
     }
-  }, [project]);
+  }, [project, isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     setSaving(true);
+
+    const payload = {
+      name: formData.name,
+      project_code: formData.project_code || undefined,
+      description: formData.description || undefined,
+      manager_id: formData.manager_id || undefined,
+    };
+
+    console.log('[ProjectModal] Saving project:', JSON.stringify({ isEdit: !!project, payload }, null, 2));
+
     try {
-      await onSave({
-        name: formData.name,
-        description: formData.description || undefined,
-        manager_id: formData.manager_id || undefined,
-      });
+      await onSave(payload);
       onClose();
+    } catch (err: any) {
+      console.error('[ProjectModal] Save error:', err);
+      const errorMessage = err.response?.data?.detail || err.message || 'Ошибка сохранения';
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -60,16 +78,39 @@ function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalP
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Название</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              required
-              placeholder="Название проекта"
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+          {error && (
+            <div className="bg-red-900/50 border border-red-500 rounded-lg p-3">
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Код проекта</label>
+              <input
+                type="text"
+                value={formData.project_code}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                  setFormData({ ...formData, project_code: value });
+                }}
+                placeholder="0000"
+                maxLength={4}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white font-mono text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">4 цифры, авто если пусто</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">Название</label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
+                placeholder="Название проекта"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           </div>
 
           <div>
@@ -103,17 +144,6 @@ function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalP
               ))}
             </select>
           </div>
-
-          {project && (
-            <div className="bg-gray-700 rounded-lg p-3">
-              <p className="text-sm text-gray-400">
-                Код проекта: <code className="text-blue-400 font-mono">{project.project_code}</code>
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Используйте этот код для загрузки транскрипций
-              </p>
-            </div>
-          )}
 
           <div className="flex justify-end space-x-3 pt-4">
             <button
@@ -212,10 +242,13 @@ export default function ProjectsPage() {
   };
 
   const handleSave = async (data: CreateProjectRequest | Partial<Project>) => {
+    console.log('[ProjectsPage] handleSave called:', JSON.stringify({ editingProjectId: editingProject?.id, data }, null, 2));
     if (editingProject) {
-      await projectsApi.update(editingProject.id, data);
+      const result = await projectsApi.update(editingProject.id, data);
+      console.log('[ProjectsPage] Update result:', JSON.stringify(result, null, 2));
     } else {
-      await projectsApi.create(data as CreateProjectRequest);
+      const result = await projectsApi.create(data as CreateProjectRequest);
+      console.log('[ProjectsPage] Create result:', result);
     }
     await loadProjects();
   };

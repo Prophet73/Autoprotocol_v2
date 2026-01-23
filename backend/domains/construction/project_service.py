@@ -40,21 +40,34 @@ class ProjectService:
         tenant_id: Optional[int] = None,
     ) -> ConstructionProject:
         """
-        Create a new project with auto-generated code.
+        Create a new project with specified or auto-generated code.
 
         Args:
-            data: Project creation data
+            data: Project creation data (including optional project_code)
             tenant_id: Override tenant ID
 
         Returns:
             Created project
+
+        Raises:
+            ValueError: If provided project_code already exists
         """
+        # Check if project_code is provided and unique
+        if data.project_code:
+            existing = await self.get_project_by_code(data.project_code)
+            if existing:
+                raise ValueError(f"Project code {data.project_code} already exists")
+
         project = ConstructionProject(
             name=data.name,
             description=data.description,
             tenant_id=tenant_id or data.tenant_id,
             manager_id=data.manager_id,
         )
+
+        # Set project_code if provided (otherwise model default will generate it)
+        if data.project_code:
+            project.project_code = data.project_code
 
         self.db.add(project)
         await self.db.flush()
@@ -158,13 +171,31 @@ class ProjectService:
 
         Returns:
             Updated project or None if not found
+
+        Raises:
+            ValueError: If project_code already exists
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         project = await self.get_project(project_id)
         if not project:
             return None
 
+        logger.info(f"[update_project] Current project: id={project.id}, code={project.project_code}")
+        logger.info(f"[update_project] Update data: name={data.name}, project_code={data.project_code}, description={data.description}, manager_id={data.manager_id}")
+
         if data.name is not None:
             project.name = data.name
+        if data.project_code is not None and data.project_code != project.project_code:
+            logger.info(f"[update_project] Updating project_code from {project.project_code} to {data.project_code}")
+            # Check uniqueness
+            existing = await self.get_project_by_code(data.project_code)
+            if existing and existing.id != project_id:
+                logger.warning(f"[update_project] Code {data.project_code} already exists for project {existing.id}")
+                raise ValueError(f"Project code {data.project_code} already exists")
+            project.project_code = data.project_code
+            logger.info(f"[update_project] Project code updated successfully")
         if data.description is not None:
             project.description = data.description
         if data.manager_id is not None:
@@ -174,6 +205,7 @@ class ProjectService:
 
         await self.db.flush()
         await self.db.refresh(project)
+        logger.info(f"[update_project] After flush - project code is now: {project.project_code}")
         return project
 
     async def archive_project(self, project_id: int) -> bool:

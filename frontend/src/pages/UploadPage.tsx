@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { Loader2, PlayCircle, Check, X, Mail } from 'lucide-react';
+import { Loader2, PlayCircle, Check, X, Mail, Calendar } from 'lucide-react';
 import { FileDropzone } from '../components/FileDropzone';
 import { ArtifactOptions, defaultArtifactState } from '../components/ArtifactOptions';
 import { LanguageSelector, defaultLanguages } from '../components/LanguageSelector';
@@ -28,6 +28,8 @@ export function UploadPage() {
 
   // Meeting type for HR/IT domains
   const [meetingType, setMeetingType] = useState('');
+  // Meeting date (optional)
+  const [meetingDate, setMeetingDate] = useState('');
   // Use active_domain (from domain switcher) or fall back to first domain or 'construction'
   const userDomain = user?.active_domain || user?.domain || (user?.domains?.[0]) || 'construction';
   const showMeetingTypeSelector = userDomain !== 'construction';
@@ -63,6 +65,24 @@ export function UploadPage() {
     setProjectCode(digits);
   };
 
+  // Handle file selection and auto-fill meeting date from file metadata
+  const handleFileSelect = (selectedFile: File) => {
+    setFile(selectedFile);
+
+    // Auto-fill meeting date from file's lastModified timestamp
+    if (selectedFile.lastModified) {
+      const date = new Date(selectedFile.lastModified);
+      // Format as YYYY-MM-DD for input type="date"
+      const formattedDate = date.toISOString().split('T')[0];
+      setMeetingDate(formattedDate);
+    }
+  };
+
+  const handleFileClear = () => {
+    setFile(null);
+    setMeetingDate('');
+  };
+
   const mutation = useMutation({
     mutationFn: async () => {
       if (!file) throw new Error('No file selected');
@@ -80,6 +100,7 @@ export function UploadPage() {
         // Only send project_code if it's valid (for construction or if manually entered for HR/IT)
         project_code: codeValidation?.valid ? projectCode : undefined,
         meeting_type: showMeetingTypeSelector ? meetingType : undefined,
+        meeting_date: meetingDate || undefined,
         notify_emails: notifyEmails.trim() || undefined,
       });
 
@@ -104,7 +125,7 @@ export function UploadPage() {
         {showProjectCodeRequired ? (
         <div className="px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-red-50/30">
           <h2 className="text-sm font-semibold text-slate-800 mb-2">
-            <span className="text-severin-red">1.</span> Введите код проекта
+            <span className="text-severin-red">1.</span> Введите код проекта и дату встречи
           </h2>
           <div className="flex items-center gap-4">
             <div className="relative">
@@ -139,6 +160,15 @@ export function UploadPage() {
                 </div>
               )}
             </div>
+            <div className="relative">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <input
+                type="date"
+                value={meetingDate}
+                onChange={(e) => setMeetingDate(e.target.value)}
+                className="w-40 pl-10 pr-3 py-2 border-2 border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent"
+              />
+            </div>
             <div className="flex-1">
               {codeValidation?.valid === true && codeValidation.projectName && (
                 <div className="text-severin-red font-medium">
@@ -159,13 +189,24 @@ export function UploadPage() {
         {showMeetingTypeSelector && (
           <div className="px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-purple-50/30">
             <h2 className="text-sm font-semibold text-slate-800 mb-2">
-              <span className="text-severin-red">1.</span> Выберите тип встречи
+              <span className="text-severin-red">1.</span> Выберите тип и дату встречи
             </h2>
-            <MeetingTypeSelector
-              domain={userDomain}
-              value={meetingType}
-              onChange={setMeetingType}
-            />
+            <div className="flex items-center gap-4">
+              <MeetingTypeSelector
+                domain={userDomain}
+                value={meetingType}
+                onChange={setMeetingType}
+              />
+              <div className="relative">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                <input
+                  type="date"
+                  value={meetingDate}
+                  onChange={(e) => setMeetingDate(e.target.value)}
+                  className="w-40 pl-10 pr-3 py-2 border-2 border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent"
+                />
+              </div>
+            </div>
           </div>
         )}
 
@@ -175,9 +216,9 @@ export function UploadPage() {
             <span className="text-severin-red">2.</span> Загрузите аудио или видео файл
           </h2>
           <FileDropzone
-            onFileSelect={setFile}
+            onFileSelect={handleFileSelect}
             selectedFile={file}
-            onClear={() => setFile(null)}
+            onClear={handleFileClear}
           />
         </div>
 
