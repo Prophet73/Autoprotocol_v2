@@ -114,6 +114,13 @@ class ConstructionProject(Base):
         lazy="selectin",
         backref="managed_projects"
     )
+    # Contractors (organizations with roles)
+    contractors: Mapped[List["ProjectContractor"]] = relationship(
+        "ProjectContractor",
+        back_populates="project",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<ConstructionProject(id={self.id}, name='{self.name}', code='{self.project_code}')>"
@@ -255,6 +262,12 @@ class ConstructionReportDB(Base):
         foreign_keys=[uploaded_by_id],
         lazy="selectin"
     )
+    attendees: Mapped[List["MeetingAttendee"]] = relationship(
+        "MeetingAttendee",
+        back_populates="report",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
 
     # Indexes for common queries
     __table_args__ = (
@@ -381,3 +394,219 @@ class ReportProblem(Base):
 
     def __repr__(self) -> str:
         return f"<ReportProblem(id={self.id}, severity='{self.severity}', status='{self.status}')>"
+
+
+# =============================================================================
+# УЧАСТНИКИ СОВЕЩАНИЙ
+# =============================================================================
+
+class ContractorRole(str):
+    """Стандартные роли контрагентов на проекте."""
+    CUSTOMER = "customer"                # Заказчик
+    TECH_CUSTOMER = "tech_customer"      # Технический заказчик
+    GENERAL_CONTRACTOR = "general"       # Генподрядчик
+    SUBCONTRACTOR = "subcontractor"      # Субподрядчик
+    DESIGNER = "designer"                # Проектировщик
+    AUTHOR_SUPERVISION = "author"        # Авторский надзор
+    CONSTRUCTION_CONTROL = "control"     # Стройконтроль
+
+    @classmethod
+    def labels(cls) -> dict:
+        return {
+            cls.CUSTOMER: "Заказчик",
+            cls.TECH_CUSTOMER: "Технический заказчик",
+            cls.GENERAL_CONTRACTOR: "Генподрядчик",
+            cls.SUBCONTRACTOR: "Субподрядчик",
+            cls.DESIGNER: "Проектировщик",
+            cls.AUTHOR_SUPERVISION: "Авторский надзор",
+            cls.CONSTRUCTION_CONTROL: "Стройконтроль",
+        }
+
+
+class Organization(Base):
+    """
+    Организация-контрагент на проекте.
+
+    Например: ООО "Монолит", НПО "Проект", Severin Development
+    """
+    __tablename__ = "organizations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    short_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    # Relationships
+    project_roles: Mapped[List["ProjectContractor"]] = relationship(
+        "ProjectContractor",
+        back_populates="organization",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
+    persons: Mapped[List["Person"]] = relationship(
+        "Person",
+        back_populates="organization",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Organization(id={self.id}, name='{self.name}')>"
+
+
+class ProjectContractor(Base):
+    """
+    Связь проекта с организацией и её ролью.
+
+    Одна организация может иметь разные роли на разных проектах.
+    """
+    __tablename__ = "project_contractors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    project_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("construction_projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    organization_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    role: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False
+    )  # ContractorRole values
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    # Relationships
+    project: Mapped["ConstructionProject"] = relationship(
+        "ConstructionProject",
+        lazy="selectin"
+    )
+    organization: Mapped["Organization"] = relationship(
+        "Organization",
+        back_populates="project_roles",
+        lazy="selectin"
+    )
+
+    # Unique constraint: one org can have one role per project
+    __table_args__ = (
+        Index("ix_project_contractors_unique", "project_id", "organization_id", "role", unique=True),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ProjectContractor(project_id={self.project_id}, org_id={self.organization_id}, role='{self.role}')>"
+
+
+class Person(Base):
+    """
+    Человек в организации.
+
+    Может участвовать в совещаниях от имени организации.
+    """
+    __tablename__ = "persons"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    organization_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    position: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # ГИП, директор, инженер
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    # Relationships
+    organization: Mapped["Organization"] = relationship(
+        "Organization",
+        back_populates="persons",
+        lazy="selectin"
+    )
+    attendances: Mapped[List["MeetingAttendee"]] = relationship(
+        "MeetingAttendee",
+        back_populates="person",
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Person(id={self.id}, name='{self.full_name}')>"
+
+
+class MeetingAttendee(Base):
+    """
+    Участник конкретного совещания.
+
+    Связывает отчёт (совещание) с человеком.
+    """
+    __tablename__ = "meeting_attendees"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
+    report_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("construction_reports.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    person_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("persons.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    # Relationships
+    report: Mapped["ConstructionReportDB"] = relationship(
+        "ConstructionReportDB",
+        lazy="selectin"
+    )
+    person: Mapped["Person"] = relationship(
+        "Person",
+        back_populates="attendances",
+        lazy="selectin"
+    )
+
+    # Unique constraint: person can attend meeting only once
+    __table_args__ = (
+        Index("ix_meeting_attendees_unique", "report_id", "person_id", unique=True),
+    )
+
+    def __repr__(self) -> str:
+        return f"<MeetingAttendee(report_id={self.report_id}, person_id={self.person_id})>"

@@ -275,6 +275,8 @@ async def create_transcription(
     generate_risk_brief: bool = Form(default=False, description="Создать риск-бриф (risk_brief.pdf)"),
     # Email notification
     notify_emails: Optional[str] = Form(default=None, description="Email адреса для уведомления (через запятую)"),
+    # Meeting participants (person IDs, comma-separated)
+    participant_ids: Optional[str] = Form(default=None, description="ID участников совещания через запятую"),
 ):
     """
     ## Загрузка файла и запуск транскрипции
@@ -314,6 +316,7 @@ async def create_transcription(
     project_id = None
     tenant_id = None
     domain_type = None
+    project_name = None  # For risk brief header
     if project_code:
         project_service = ProjectService(db)
         validation = await project_service.validate_code(project_code)
@@ -325,7 +328,8 @@ async def create_transcription(
         project_id = validation.project_id
         tenant_id = validation.tenant_id
         domain_type = getattr(validation, 'domain_type', 'construction')
-        logger.info(f"Job linked to project {project_id} via code {project_code}")
+        project_name = getattr(validation, 'project_name', None)
+        logger.info(f"Job linked to project {project_id} ({project_name}) via code {project_code}")
 
     # Determine uploader identity
     uploader_id = current_user.id if current_user else None
@@ -353,6 +357,17 @@ async def create_transcription(
     now = datetime.now()
     # Parse and validate notify emails
     notify_emails_list = validate_email_list(notify_emails)
+
+    # Parse participant IDs
+    participant_ids_list = []
+    if participant_ids:
+        try:
+            participant_ids_list = [int(pid.strip()) for pid in participant_ids.split(",") if pid.strip()]
+            logger.info(f"[DEBUG] Parsed participant_ids: {participant_ids} -> {participant_ids_list}")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid participant_ids format")
+    else:
+        logger.info("[DEBUG] No participant_ids provided in form data")
 
     job_data = JobData(
         job_id=job_id,
@@ -418,7 +433,11 @@ async def create_transcription(
         "generate_risk_brief": generate_risk_brief,
         "meeting_type": meeting_type,
         "meeting_date": effective_meeting_date,
+        "participant_ids": participant_ids_list,
+        "project_name": project_name,  # For risk brief header
+        "project_code": project_code,  # For risk brief header
     }
+    logger.info(f"[DEBUG] artifact_options participant_ids: {artifact_options.get('participant_ids')}")
 
     # Check if this is a text file (direct report generation without transcription)
     if is_text_file(file.filename):
@@ -1166,7 +1185,28 @@ async def run_text_report_generation(
             if artifact_options.get("generate_risk_brief", False):
                 progress_callback("llm_generation", 95, "Формирование риск-брифа...")
                 try:
-                    risk_brief_path = generate_risk_brief(result, output_dir)
+                    # Fetch participants from DB if participant_ids provided
+                    participant_ids = artifact_options.get("participant_ids", [])
+                    logger.info(f"[RISK BRIEF] participant_ids from artifact_options: {participant_ids}")
+                    participants = None
+                    if participant_ids:
+                        try:
+                            from ...tasks.transcription import _fetch_participants_for_risk_brief_async
+                            participants = await _fetch_participants_for_risk_brief_async(participant_ids)
+                            logger.info(f"[RISK BRIEF] Fetched {len(participants)} participant groups")
+                        except Exception as e:
+                            logger.error(f"[RISK BRIEF] ERROR fetching participants: {e}")
+                    else:
+                        logger.info("[RISK BRIEF] No participant_ids provided")
+
+                    risk_brief_path = generate_risk_brief(
+                        result,
+                        output_dir,
+                        meeting_date=artifact_options.get("meeting_date"),
+                        project_name=artifact_options.get("project_name"),
+                        project_code=artifact_options.get("project_code"),
+                        participants=participants,
+                    )
                     output_files["risk_brief"] = str(risk_brief_path)
                     logger.info(f"Generated risk brief: {risk_brief_path}")
                 except Exception as e:

@@ -35,7 +35,7 @@ from backend.domains.construction.models import (
 )
 
 
-router = APIRouter(prefix="/manager", tags=["Manager Dashboard"])
+router = APIRouter(tags=["Manager Dashboard"])
 
 
 # =============================================================================
@@ -761,4 +761,201 @@ async def download_analytics_report_all(
         path=tmp.name,
         filename=filename,
         media_type="application/zip"
+    )
+
+
+# =============================================================================
+# Project Contractors & Participants
+# =============================================================================
+
+class PersonResponse(BaseModel):
+    """Person in organization."""
+    id: int
+    full_name: str
+    position: Optional[str] = None
+    email: Optional[str] = None
+
+
+class ContractorResponse(BaseModel):
+    """Contractor (organization with role) for project."""
+    id: int
+    organization_id: int
+    organization_name: str
+    role: str
+    role_label: str
+    persons: List[PersonResponse] = []
+
+
+class RoleResponse(BaseModel):
+    """Standard contractor role."""
+    value: str
+    label: str
+
+
+@router.get(
+    "/projects/{project_code}/contractors",
+    response_model=List[ContractorResponse],
+    summary="Get project contractors",
+    description="Returns list of contractors (organizations with persons) for a project."
+)
+async def get_project_contractors(
+    project_code: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> List[ContractorResponse]:
+    """Get contractors for a project by code."""
+    from backend.domains.construction.project_service import ProjectService
+
+    service = ProjectService(db)
+
+    # Get project by code
+    project = await service.get_project_by_code(project_code)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project with code {project_code} not found"
+        )
+
+    contractors = await service.get_project_contractors(project.id)
+    return [ContractorResponse(**c) for c in contractors]
+
+
+@router.get(
+    "/roles",
+    response_model=List[RoleResponse],
+    summary="Get standard contractor roles",
+    description="Returns list of standard roles for contractors."
+)
+async def get_standard_roles(
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> List[RoleResponse]:
+    """Get standard contractor roles."""
+    from backend.domains.construction.project_service import ProjectService
+
+    service = ProjectService(db)
+    roles = await service.get_standard_roles()
+    return [RoleResponse(**r) for r in roles]
+
+
+class CreateContractorRequest(BaseModel):
+    """Request to create a contractor for project."""
+    organization_name: str
+    role: str
+    short_name: Optional[str] = None
+
+
+class CreatePersonRequest(BaseModel):
+    """Request to add a person to organization."""
+    full_name: str
+    position: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+
+@router.post(
+    "/projects/{project_code}/contractors",
+    response_model=ContractorResponse,
+    summary="Add contractor to project",
+    description="Add a new contractor (organization with role) to the project."
+)
+async def create_project_contractor(
+    project_code: str,
+    request: CreateContractorRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ContractorResponse:
+    """Add contractor to project."""
+    from backend.domains.construction.project_service import ProjectService
+
+    service = ProjectService(db)
+
+    # Get project by code
+    project = await service.get_project_by_code(project_code)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Project with code {project_code} not found"
+        )
+
+    # Create contractor
+    contractor = await service.add_contractor(
+        project_id=project.id,
+        organization_name=request.organization_name,
+        role=request.role,
+        short_name=request.short_name,
+    )
+    await db.commit()
+
+    # Reload with organization
+    from backend.domains.construction.models import ProjectContractor, Organization, ContractorRole
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(ProjectContractor)
+        .options(selectinload(ProjectContractor.organization).selectinload(Organization.persons))
+        .where(ProjectContractor.id == contractor.id)
+    )
+    contractor = result.scalar_one()
+
+    role_labels = ContractorRole.labels()
+    org = contractor.organization
+
+    return ContractorResponse(
+        id=contractor.id,
+        organization_id=org.id,
+        organization_name=org.short_name or org.name,
+        role=contractor.role,
+        role_label=role_labels.get(contractor.role, contractor.role),
+        persons=[
+            PersonResponse(
+                id=p.id,
+                full_name=p.full_name,
+                position=p.position,
+                email=p.email,
+            )
+            for p in org.persons if p.is_active
+        ],
+    )
+
+
+@router.post(
+    "/organizations/{organization_id}/persons",
+    response_model=PersonResponse,
+    summary="Add person to organization",
+    description="Add a new person to the organization."
+)
+async def create_person(
+    organization_id: int,
+    request: CreatePersonRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PersonResponse:
+    """Add person to organization."""
+    from backend.domains.construction.project_service import ProjectService
+    from backend.domains.construction.models import Organization
+
+    # Check organization exists
+    result = await db.execute(
+        select(Organization).where(Organization.id == organization_id)
+    )
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Organization with id {organization_id} not found"
+        )
+
+    service = ProjectService(db)
+    person = await service.add_person(
+        organization_id=organization_id,
+        full_name=request.full_name,
+        position=request.position,
+        email=request.email,
+        phone=request.phone,
+    )
+    await db.commit()
+
+    return PersonResponse(
+        id=person.id,
+        full_name=person.full_name,
+        position=person.position,
+        email=person.email,
     )

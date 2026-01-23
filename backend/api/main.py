@@ -174,7 +174,7 @@ app.include_router(domains.router, prefix="/api")
 app.include_router(construction_router.router, prefix="/api/domains")
 
 # Manager dashboard router
-app.include_router(manager.router, prefix="/api")
+app.include_router(manager.router, prefix="/api/manager")
 
 
 @app.get("/")

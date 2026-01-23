@@ -320,33 +320,44 @@ class ConstructionReport(BaseModel):
 # =============================================================================
 
 class RiskCategory(str, Enum):
-    """Категория риска для строительного проекта"""
-    PERMITS = "permits"           # ИРД, разрешения, согласования
-    DESIGN = "design"             # Проектирование, РД, ПД
-    CONSTRUCTION = "construction" # СМР, технология, качество
-    ENGINEERING = "engineering"   # Инженерные сети, коммуникации
-    SUPPLY = "supply"             # Снабжение, материалы, логистика
-    FINANCE = "finance"           # Финансы, бюджет, оплаты
-    LEGAL = "legal"               # Юридические, договоры, визы
-    SAFETY = "safety"             # Безопасность, ОТ, экология
-    SCHEDULE = "schedule"         # Сроки, график, зависимости
-    RESOURCES = "resources"       # Кадры, техника, мощности
+    """
+    Категория риска для строительного проекта.
+    7 категорий по этапам ЖЦ и областям.
+    """
+    EXTERNAL = "external"         # Внешние: регуляторы, иски, форс-мажор
+    PREINVEST = "preinvest"       # Прединвестиционные: землеотвод, ТЭО, исходные данные
+    DESIGN = "design"             # Проектные: ПИР, экспертиза, техрешения
+    PRODUCTION = "production"     # Строительные: СМР, ресурсы, сроки, качество
+    MANAGEMENT = "management"     # Управленческие: финансы, координация, коммуникации
+    OPERATIONAL = "operational"   # Эксплуатационные: пусконаладка, гарантии, сервис
+    SAFETY = "safety"             # Безопасность: охрана труда, экология
 
     @property
     def label_ru(self) -> str:
         labels = {
-            "permits": "Разрешения и согласования",
-            "design": "Проектирование",
-            "construction": "Строительство",
-            "engineering": "Инженерные сети",
-            "supply": "Снабжение",
-            "finance": "Финансы",
-            "legal": "Юридические вопросы",
-            "safety": "Безопасность",
-            "schedule": "Сроки",
-            "resources": "Ресурсы"
+            "external": "Внешние",
+            "preinvest": "Прединвестиционные",
+            "design": "Проектные",
+            "production": "Строительные",
+            "management": "Управленческие",
+            "operational": "Эксплуатационные",
+            "safety": "Безопасность"
         }
         return labels.get(self.value, self.value)
+
+    @property
+    def description_ru(self) -> str:
+        """Расширенное описание категории"""
+        descriptions = {
+            "external": "Регуляторы, иски, форс-мажор",
+            "preinvest": "Землеотвод, ТЭО, исходные данные",
+            "design": "ПИР, экспертиза, техрешения",
+            "production": "СМР, ресурсы, сроки, качество",
+            "management": "Финансы, координация, коммуникации",
+            "operational": "Пусконаладка, гарантии, сервис",
+            "safety": "Охрана труда, экология"
+        }
+        return descriptions.get(self.value, "")
 
 
 class ConcernCategory(str, Enum):

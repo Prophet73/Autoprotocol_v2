@@ -34,6 +34,90 @@ def get_job_store():
     return get_job_store()
 
 
+async def _fetch_participants_for_risk_brief_async(participant_ids: List[int]) -> List[dict]:
+    """
+    Fetch participants from DB and group by organization for risk brief (async version).
+
+    Args:
+        participant_ids: List of person IDs
+
+    Returns:
+        List of dicts with format:
+        [
+            {
+                "role": "Заказчик",
+                "organization": "ООО СтройМонтаж",
+                "people": ["Иванов И.И. (директор)", "Петров П.П."]
+            },
+            ...
+        ]
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from ..shared.database import async_session_factory
+    from ..domains.construction.models import Person, ProjectContractor
+
+    async with async_session_factory() as db:
+        # Fetch persons with their organizations eagerly loaded
+        result = await db.execute(
+            select(Person)
+            .options(selectinload(Person.organization))
+            .where(Person.id.in_(participant_ids))
+        )
+        persons = result.scalars().all()
+
+        # Group by organization
+        org_map = {}  # org_id -> {org, persons, role}
+        for person in persons:
+            if person.organization_id:
+                org = person.organization
+                if org.id not in org_map:
+                    # Try to find role from ProjectContractor
+                    contractor_result = await db.execute(
+                        select(ProjectContractor).where(
+                            ProjectContractor.organization_id == org.id
+                        )
+                    )
+                    contractor = contractor_result.scalar_one_or_none()
+                    role = contractor.role if contractor else "Участник"
+                    role_label = _get_role_label(role)
+                    org_map[org.id] = {
+                        "organization": org.name,
+                        "role": role_label,
+                        "people": []
+                    }
+                # Format person name with position
+                name = person.full_name
+                if person.position:
+                    name += f" ({person.position})"
+                org_map[org.id]["people"].append(name)
+
+        return list(org_map.values())
+
+
+def _fetch_participants_for_risk_brief(participant_ids: List[int]) -> List[dict]:
+    """
+    Fetch participants from DB (sync wrapper for Celery worker).
+    Use _fetch_participants_for_risk_brief_async for async contexts.
+    """
+    return asyncio.run(_fetch_participants_for_risk_brief_async(participant_ids))
+
+
+def _get_role_label(role: str) -> str:
+    """Get Russian label for contractor role."""
+    role_labels = {
+        "customer": "Заказчик",
+        "tech_customer": "Технический заказчик",
+        "general_contractor": "Генподрядчик",
+        "designer": "Проектировщик",
+        "subcontractor": "Субподрядчик",
+        "supplier": "Поставщик",
+        "inspector": "Контролирующий орган",
+        "other": "Прочее",
+    }
+    return role_labels.get(role, role)
+
+
 def _run_domain_generators(
     result,
     output_path: Path,
@@ -138,7 +222,38 @@ def _run_domain_generators(
         if artifact_options.get("generate_risk_brief", False) and generate_risk_brief:
             progress_callback("domain_generators", 99, "Формирование риск-брифа...")
             try:
-                risk_brief_path = generate_risk_brief(result, output_path)
+                # Get participant_ids and project_name for risk brief
+                participant_ids = artifact_options.get("participant_ids", [])
+                project_name = artifact_options.get("project_name")
+                # Debug logging
+                print(f"[RISK BRIEF DEBUG] artifact_options keys: {list(artifact_options.keys())}")
+                print(f"[RISK BRIEF DEBUG] participant_ids from artifact_options: {participant_ids}")
+                print(f"[RISK BRIEF DEBUG] project_name: {project_name}")
+                logger.info(f"Risk brief params: participant_ids={participant_ids}, project_name={project_name}")
+
+                # Fetch participants from DB if participant_ids provided
+                participants = None
+                if participant_ids:
+                    print(f"[RISK BRIEF DEBUG] Fetching participants for IDs: {participant_ids}")
+                    try:
+                        participants = _fetch_participants_for_risk_brief(participant_ids)
+                        print(f"[RISK BRIEF DEBUG] Fetched participants: {participants}")
+                        logger.info(f"Fetched participants: {participants}")
+                    except Exception as e:
+                        print(f"[RISK BRIEF DEBUG] ERROR fetching participants: {e}")
+                        logger.warning(f"Failed to fetch participants (non-fatal): {e}", exc_info=True)
+                else:
+                    print("[RISK BRIEF DEBUG] No participant_ids provided, skipping fetch")
+
+                project_code = artifact_options.get("project_code")
+                risk_brief_path = generate_risk_brief(
+                    result,
+                    output_path,
+                    meeting_date=meeting_date,
+                    project_name=project_name,
+                    project_code=project_code,
+                    participants=participants,
+                )
                 output_files["risk_brief"] = str(risk_brief_path)
                 logger.info(f"Generated risk brief: {risk_brief_path}")
             except Exception as e:
@@ -272,6 +387,7 @@ def _save_domain_report(
     guest_uid: Optional[str] = None,
     uploader_id: Optional[int] = None,
     ai_analysis: Optional[object] = None,
+    artifact_options: Optional[Dict] = None,
 ) -> None:
     """
     Save domain-specific report to database after transcription.
@@ -287,9 +403,12 @@ def _save_domain_report(
         guest_uid: Guest UUID for anonymous uploads
         uploader_id: User ID for authenticated uploads
         ai_analysis: AIAnalysis object from generate_analysis() for dashboard integration
+        artifact_options: Dict with artifact options including participant_ids
     """
     from ..shared.database import async_session_factory
     from ..domains.factory import DomainServiceFactory
+
+    artifact_options = artifact_options or {}
 
     async def _async_save():
         async with async_session_factory() as db:
@@ -323,6 +442,23 @@ def _save_domain_report(
                     except Exception as e:
                         logger.error(f"Failed to save analytics (non-fatal): {e}")
                         # Don't fail the whole save if analytics fails
+
+                # Save meeting attendees if provided (construction domain)
+                participant_ids = artifact_options.get("participant_ids")
+                if participant_ids and domain_type == "construction":
+                    try:
+                        from ..domains.construction.models import MeetingAttendee
+
+                        for person_id in participant_ids:
+                            attendee = MeetingAttendee(
+                                report_id=db_report.id,
+                                person_id=person_id,
+                            )
+                            db.add(attendee)
+                        logger.info(f"Saved {len(participant_ids)} meeting attendees for report {db_report.id}")
+                    except Exception as e:
+                        logger.error(f"Failed to save meeting attendees (non-fatal): {e}")
+                        # Don't fail the whole save if attendees save fails
 
                 await db.commit()
                 logger.info(f"Domain report saved for job {job_id}, project {project_id}")
@@ -466,6 +602,7 @@ def process_transcription_task(
                     guest_uid=guest_uid,
                     uploader_id=uploader_id,
                     ai_analysis=ai_analysis,
+                    artifact_options=artifact_options,
                 )
             except Exception as e:
                 logger.error(f"Domain report save failed (non-fatal): {e}")

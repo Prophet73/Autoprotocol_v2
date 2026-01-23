@@ -13,7 +13,15 @@ from sqlalchemy import select, func, and_, insert, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .models import ConstructionProject, ConstructionReportDB, ReportStatus
+from .models import (
+    ConstructionProject,
+    ConstructionReportDB,
+    ReportStatus,
+    Organization,
+    ProjectContractor,
+    Person,
+    ContractorRole,
+)
 from backend.shared.models import User, project_managers
 from .project_schemas import (
     ProjectCreate,
@@ -595,3 +603,127 @@ class ProjectService:
             "open_risks": 0,  # TODO: Implement risk counting from result_json
             "last_report_date": last_report,
         }
+
+    # =========================================================================
+    # CONTRACTORS & PARTICIPANTS
+    # =========================================================================
+
+    async def get_project_contractors(self, project_id: int) -> List[dict]:
+        """
+        Get all contractors (organizations with roles and persons) for a project.
+
+        Returns list of contractors with structure:
+        [
+            {
+                "id": 1,
+                "organization_id": 5,
+                "organization_name": "ООО Монолит",
+                "role": "general",
+                "role_label": "Генподрядчик",
+                "persons": [
+                    {"id": 1, "full_name": "Иванов И.И.", "position": "ГИП"},
+                    ...
+                ]
+            },
+            ...
+        ]
+        """
+        # Get contractors with organizations
+        result = await self.db.execute(
+            select(ProjectContractor)
+            .options(
+                selectinload(ProjectContractor.organization).selectinload(Organization.persons)
+            )
+            .where(ProjectContractor.project_id == project_id)
+            .order_by(ProjectContractor.role)
+        )
+        contractors = result.scalars().all()
+
+        role_labels = ContractorRole.labels()
+        response = []
+
+        for contractor in contractors:
+            org = contractor.organization
+            persons = [
+                {
+                    "id": p.id,
+                    "full_name": p.full_name,
+                    "position": p.position,
+                    "email": p.email,
+                }
+                for p in org.persons if p.is_active
+            ]
+
+            response.append({
+                "id": contractor.id,
+                "organization_id": org.id,
+                "organization_name": org.short_name or org.name,
+                "role": contractor.role,
+                "role_label": role_labels.get(contractor.role, contractor.role),
+                "persons": persons,
+            })
+
+        return response
+
+    async def add_contractor(
+        self,
+        project_id: int,
+        organization_name: str,
+        role: str,
+        short_name: Optional[str] = None,
+    ) -> ProjectContractor:
+        """
+        Add a contractor (organization with role) to a project.
+
+        Creates organization if not exists.
+        """
+        # Find or create organization
+        result = await self.db.execute(
+            select(Organization).where(Organization.name == organization_name)
+        )
+        org = result.scalar_one_or_none()
+
+        if not org:
+            org = Organization(name=organization_name, short_name=short_name)
+            self.db.add(org)
+            await self.db.flush()
+
+        # Create contractor link
+        contractor = ProjectContractor(
+            project_id=project_id,
+            organization_id=org.id,
+            role=role,
+        )
+        self.db.add(contractor)
+        await self.db.flush()
+        await self.db.refresh(contractor)
+
+        return contractor
+
+    async def add_person(
+        self,
+        organization_id: int,
+        full_name: str,
+        position: Optional[str] = None,
+        email: Optional[str] = None,
+        phone: Optional[str] = None,
+    ) -> Person:
+        """Add a person to an organization."""
+        person = Person(
+            organization_id=organization_id,
+            full_name=full_name,
+            position=position,
+            email=email,
+            phone=phone,
+        )
+        self.db.add(person)
+        await self.db.flush()
+        await self.db.refresh(person)
+        return person
+
+    async def get_standard_roles(self) -> List[dict]:
+        """Get list of standard contractor roles."""
+        return [
+            {"value": k, "label": v}
+            for k, v in ContractorRole.labels().items()
+        ]

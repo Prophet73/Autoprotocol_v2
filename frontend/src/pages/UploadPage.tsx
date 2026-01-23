@@ -6,6 +6,7 @@ import { FileDropzone } from '../components/FileDropzone';
 import { ArtifactOptions, defaultArtifactState } from '../components/ArtifactOptions';
 import { LanguageSelector, defaultLanguages } from '../components/LanguageSelector';
 import { MeetingTypeSelector } from '../components/MeetingTypeSelector';
+import { ParticipantSelector } from '../components/ParticipantSelector';
 import type { ArtifactState } from '../components/ArtifactOptions';
 import { createTranscription, validateProjectCode } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
@@ -38,6 +39,9 @@ export function UploadPage() {
 
   // Email notification (optional)
   const [notifyEmails, setNotifyEmails] = useState('');
+
+  // Meeting participants
+  const [selectedParticipants, setSelectedParticipants] = useState<number[]>([]);
 
   // Validate project code when it changes
   useEffect(() => {
@@ -102,6 +106,7 @@ export function UploadPage() {
         meeting_type: showMeetingTypeSelector ? meetingType : undefined,
         meeting_date: meetingDate || undefined,
         notify_emails: notifyEmails.trim() || undefined,
+        participant_ids: selectedParticipants.length > 0 ? selectedParticipants : undefined,
       });
 
       return response;
@@ -184,6 +189,17 @@ export function UploadPage() {
           </div>
         </div>
         ) : null}
+
+        {/* Participant selector (for construction domain with valid code) */}
+        {showProjectCodeRequired && codeValidation?.valid && (
+          <div className="px-5 py-3 border-b border-slate-100">
+            <ParticipantSelector
+              projectCode={projectCode}
+              selectedPersonIds={selectedParticipants}
+              onChange={setSelectedParticipants}
+            />
+          </div>
+        )}
 
         {/* Meeting type selector (for HR/IT domains) */}
         {showMeetingTypeSelector && (

@@ -73,6 +73,8 @@ export interface TranscribeOptions {
   meeting_date?: string;
   // Email notification (optional)
   notify_emails?: string;
+  // Meeting participants (person IDs)
+  participant_ids?: number[];
 }
 
 // Meeting type info from backend
@@ -117,6 +119,10 @@ export async function createTranscription(
   if (options.meeting_date) formData.append('meeting_date', options.meeting_date);
   // Email notification
   if (options.notify_emails) formData.append('notify_emails', options.notify_emails);
+  // Meeting participants
+  if (options.participant_ids && options.participant_ids.length > 0) {
+    formData.append('participant_ids', options.participant_ids.join(','));
+  }
 
   const response = await api.post<JobResponse>('/transcribe', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -452,4 +458,72 @@ export async function downloadAnalyticsReportAll(analyticsId: number): Promise<v
   link.click();
   document.body.removeChild(link);
   window.URL.revokeObjectURL(blobUrl);
+}
+
+// =============================================================================
+// Project Contractors & Participants
+// =============================================================================
+
+export interface Person {
+  id: number;
+  full_name: string;
+  position?: string;
+  email?: string;
+}
+
+export interface Contractor {
+  id: number;
+  organization_id: number;
+  organization_name: string;
+  role: string;
+  role_label: string;
+  persons: Person[];
+}
+
+export interface StandardRole {
+  value: string;
+  label: string;
+}
+
+export async function getProjectContractors(projectCode: string): Promise<Contractor[]> {
+  const response = await api.get<Contractor[]>(`/api/manager/projects/${projectCode}/contractors`);
+  return response.data;
+}
+
+export async function getStandardRoles(): Promise<StandardRole[]> {
+  const response = await api.get<StandardRole[]>('/api/manager/roles');
+  return response.data;
+}
+
+// Create a contractor for project
+export async function createProjectContractor(
+  projectCode: string,
+  data: {
+    organization_name: string;
+    role: string;
+    short_name?: string;
+  }
+): Promise<Contractor> {
+  const response = await api.post<Contractor>(
+    `/api/manager/projects/${projectCode}/contractors`,
+    data
+  );
+  return response.data;
+}
+
+// Add a person to organization
+export async function addPersonToOrganization(
+  organizationId: number,
+  data: {
+    full_name: string;
+    position?: string;
+    email?: string;
+    phone?: string;
+  }
+): Promise<Person> {
+  const response = await api.post<Person>(
+    `/api/manager/organizations/${organizationId}/persons`,
+    data
+  );
+  return response.data;
 }
