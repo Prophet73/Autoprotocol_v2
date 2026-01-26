@@ -12,7 +12,7 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
 from backend.core.transcription.models import TranscriptionResult
-from backend.domains.construction.schemas import BasicReport, TaskCategory, TaskPriority
+from backend.domains.construction.schemas import BasicReport, TaskCategory, TaskPriority, TaskConfidence
 
 
 logger = logging.getLogger(__name__)
@@ -57,14 +57,20 @@ def generate_tasks(
     )
 
     # Headers
-    headers = ["№", "Приоритет", "Категория", "Задача", "Ответственный", "Срок", "Примечания", "Тайм-код", "Источник"]
-    col_widths = [5, 12, 22, 50, 20, 15, 25, 15, 40]
+    headers = ["№", "Уверенность", "Приоритет", "Категория", "Задача", "Ответственный", "Срок", "Примечания", "Тайм-код", "Источник"]
+    col_widths = [5, 14, 12, 22, 50, 20, 15, 25, 15, 40]
 
     # Priority colors
     priority_fills = {
         "high": PatternFill(start_color="FFCDD2", end_color="FFCDD2", fill_type="solid"),    # Light red
         "medium": PatternFill(start_color="FFF9C4", end_color="FFF9C4", fill_type="solid"),  # Light yellow
         "low": PatternFill(start_color="C8E6C9", end_color="C8E6C9", fill_type="solid"),     # Light green
+    }
+
+    # Confidence fills
+    confidence_fills = {
+        "high": PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid"),     # White (явная)
+        "medium": PatternFill(start_color="E3F2FD", end_color="E3F2FD", fill_type="solid"),   # Light blue (из контекста)
     }
 
     for col, (header, width) in enumerate(zip(headers, col_widths), 1):
@@ -82,11 +88,17 @@ def generate_tasks(
         priority_labels = {"high": "Высокий", "medium": "Средний", "low": "Низкий"}
         priority_label = priority_labels.get(priority_val, priority_val)
 
+        # Confidence label
+        confidence_val = task.confidence.value if isinstance(task.confidence, TaskConfidence) else str(getattr(task, 'confidence', 'high'))
+        confidence_labels = {"high": "Явная", "medium": "Из контекста"}
+        confidence_label = confidence_labels.get(confidence_val, confidence_val)
+
         # Time codes as string
         time_codes_str = ", ".join(task.time_codes) if task.time_codes else ""
 
         row_data = [
             row_num - 1,
+            confidence_label,
             priority_label,
             task.category.value if isinstance(task.category, TaskCategory) else str(task.category),
             task.description,
@@ -105,6 +117,10 @@ def generate_tasks(
             # Apply priority color to entire row
             if priority_val in priority_fills:
                 cell.fill = priority_fills[priority_val]
+
+            # Apply confidence background to "Уверенность" column (col=2)
+            if col == 2 and confidence_val in confidence_fills:
+                cell.fill = confidence_fills[confidence_val]
 
     # Add metadata sheet
     ws_meta = wb.create_sheet("Метаданные")

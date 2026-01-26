@@ -103,3 +103,10 @@ class UserProjectAccessList(BaseModel):
     """List of projects user has access to."""
     user_id: int
     project_ids: List[int]
+
+
+class ProjectUserAccessList(BaseModel):
+    """List of users who have access to a project."""
+    project_id: int
+    user_ids: List[int]
+    users: List[UserResponse] = []  # Optional: full user info

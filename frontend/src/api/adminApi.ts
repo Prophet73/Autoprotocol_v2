@@ -101,6 +101,25 @@ export const authApi = {
 // Users API
 // =============================================================================
 
+// Project access response types
+export interface ProjectAccessResponse {
+  user_id: number;
+  project_id: number;
+  granted: boolean;
+  message: string;
+}
+
+export interface UserProjectAccessList {
+  user_id: number;
+  project_ids: number[];
+}
+
+export interface ProjectUserAccessList {
+  project_id: number;
+  user_ids: number[];
+  users: AdminUser[];
+}
+
 export const usersApi = {
   list: async (params?: { skip?: number; limit?: number; role?: string; domain?: string }): Promise<UserListResponse> => {
     const response = await adminApi.get('/api/admin/users', { params });
@@ -129,6 +148,52 @@ export const usersApi = {
   assignRole: async (data: AssignRoleRequest): Promise<AdminUser> => {
     const response = await adminApi.post('/api/admin/users/assign-role', data);
     return response.data.user;
+  },
+
+  // Project access management
+  getUserProjects: async (userId: number): Promise<UserProjectAccessList> => {
+    const response = await adminApi.get(`/api/admin/users/${userId}/projects`);
+    return response.data;
+  },
+
+  grantProjectAccess: async (userId: number, projectId: number): Promise<ProjectAccessResponse> => {
+    const response = await adminApi.post(`/api/admin/users/${userId}/projects/${projectId}`);
+    return response.data;
+  },
+
+  revokeProjectAccess: async (userId: number, projectId: number): Promise<ProjectAccessResponse> => {
+    const response = await adminApi.delete(`/api/admin/users/${userId}/projects/${projectId}`);
+    return response.data;
+  },
+
+  // Batch update project access (convenience method)
+  updateProjectAccess: async (userId: number, projectIds: number[]): Promise<void> => {
+    // Get current access
+    const current = await usersApi.getUserProjects(userId);
+    const currentSet = new Set(current.project_ids);
+    const newSet = new Set(projectIds);
+
+    // Revoke access to projects no longer in the list
+    for (const id of current.project_ids) {
+      if (!newSet.has(id)) {
+        await usersApi.revokeProjectAccess(userId, id);
+      }
+    }
+
+    // Grant access to new projects
+    for (const id of projectIds) {
+      if (!currentSet.has(id)) {
+        await usersApi.grantProjectAccess(userId, id);
+      }
+    }
+  },
+
+  // Get users who have access to a project
+  getProjectUsers: async (projectId: number, includeDetails: boolean = false): Promise<ProjectUserAccessList> => {
+    const response = await adminApi.get(`/api/admin/users/by-project/${projectId}`, {
+      params: { include_details: includeDetails },
+    });
+    return response.data;
   },
 };
 

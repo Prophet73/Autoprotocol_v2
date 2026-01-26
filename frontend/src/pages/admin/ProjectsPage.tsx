@@ -53,13 +53,10 @@ function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalP
       manager_id: formData.manager_id || undefined,
     };
 
-    console.log('[ProjectModal] Saving project:', JSON.stringify({ isEdit: !!project, payload }, null, 2));
-
     try {
       await onSave(payload);
       onClose();
     } catch (err: any) {
-      console.error('[ProjectModal] Save error:', err);
       const errorMessage = err.response?.data?.detail || err.message || 'Ошибка сохранения';
       setError(errorMessage);
     } finally {
@@ -167,6 +164,217 @@ function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalP
   );
 }
 
+// ============================================================================
+// User Access Modal (manage users who have access to a project)
+// ============================================================================
+
+interface UserAccessModalProps {
+  isOpen: boolean;
+  project: Project | null;
+  allUsers: User[];
+  onClose: () => void;
+  onSave: (projectId: number, userIds: number[]) => Promise<void>;
+}
+
+function UserAccessModal({ isOpen, project, allUsers, onClose, onSave }: UserAccessModalProps) {
+  const [selectedUsers, setSelectedUsers] = useState<Set<number>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (isOpen && project) {
+      loadProjectUsers();
+    }
+  }, [isOpen, project]);
+
+  const loadProjectUsers = async () => {
+    if (!project) return;
+    setLoading(true);
+    try {
+      const response = await usersApi.getProjectUsers(project.id);
+      setSelectedUsers(new Set(response.user_ids));
+    } catch (err) {
+      console.error('Error loading project users:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleUser = (userId: number) => {
+    setSelectedUsers(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) {
+        next.delete(userId);
+      } else {
+        next.add(userId);
+      }
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedUsers(new Set(filteredUsers.map(u => u.id)));
+  };
+
+  const selectNone = () => {
+    setSelectedUsers(new Set());
+  };
+
+  const handleSave = async () => {
+    if (!project) return;
+    setSaving(true);
+    try {
+      await onSave(project.id, Array.from(selectedUsers));
+      onClose();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Ошибка сохранения доступов');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!isOpen || !project) return null;
+
+  const filteredUsers = allUsers.filter(u =>
+    (u.full_name?.toLowerCase().includes(search.toLowerCase()) || false) ||
+    u.email.toLowerCase().includes(search.toLowerCase())
+  );
+
+  // Sort: selected first, then by name
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    const aSelected = selectedUsers.has(a.id);
+    const bSelected = selectedUsers.has(b.id);
+    if (aSelected && !bSelected) return -1;
+    if (!aSelected && bSelected) return 1;
+    return (a.full_name || a.email).localeCompare(b.full_name || b.email);
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
+      <div className="relative bg-gray-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-white">Доступ пользователей</h2>
+            <p className="text-gray-400 text-sm mt-1">
+              {project.name} ({project.project_code})
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="mb-4">
+          <input
+            type="text"
+            placeholder="Поиск по имени или email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        {/* Quick actions */}
+        <div className="flex items-center gap-4 mb-4">
+          <button
+            onClick={selectAll}
+            className="text-sm text-blue-400 hover:text-blue-300"
+          >
+            Выбрать все
+          </button>
+          <button
+            onClick={selectNone}
+            className="text-sm text-blue-400 hover:text-blue-300"
+          >
+            Снять все
+          </button>
+          <span className="text-sm text-gray-400 ml-auto">
+            Выбрано: {selectedUsers.size} из {allUsers.length}
+          </span>
+        </div>
+
+        {/* User list */}
+        <div className="flex-1 overflow-y-auto min-h-[200px] max-h-[400px] border border-gray-700 rounded-lg">
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            </div>
+          ) : sortedUsers.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              Пользователи не найдены
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-700">
+              {sortedUsers.map((user) => (
+                <label
+                  key={user.id}
+                  className={`flex items-center px-4 py-3 cursor-pointer transition ${
+                    selectedUsers.has(user.id)
+                      ? 'bg-blue-900/30'
+                      : 'hover:bg-gray-700/50'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedUsers.has(user.id)}
+                    onChange={() => toggleUser(user.id)}
+                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                  />
+                  <div className="ml-3 flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-medium truncate">
+                        {user.full_name || 'Без имени'}
+                      </span>
+                      <span className={`px-1.5 py-0.5 text-xs rounded ${
+                        user.is_superuser ? 'bg-purple-900/50 text-purple-400' :
+                        user.role === 'admin' ? 'bg-blue-900/50 text-blue-400' :
+                        user.role === 'manager' ? 'bg-green-900/50 text-green-400' :
+                        'bg-gray-700 text-gray-400'
+                      }`}>
+                        {user.is_superuser ? 'Super' : user.role}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-400 truncate">
+                      {user.email}
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end space-x-3 mt-4 pt-4 border-t border-gray-700">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || loading}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-lg transition"
+          >
+            {saving ? 'Сохранение...' : 'Сохранить'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Main Page
+// ============================================================================
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -176,6 +384,13 @@ export default function ProjectsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+
+  // User access modal
+  const [accessModalOpen, setAccessModalOpen] = useState(false);
+  const [accessProject, setAccessProject] = useState<Project | null>(null);
+
+  // Project user counts
+  const [projectUserCounts, setProjectUserCounts] = useState<Record<number, number>>({});
 
   useEffect(() => {
     loadProjects();
@@ -208,6 +423,26 @@ export default function ProjectsPage() {
       setLoading(false);
     }
   };
+
+  // Load user counts for projects
+  useEffect(() => {
+    const loadUserCounts = async () => {
+      const counts: Record<number, number> = {};
+      for (const project of projects) {
+        try {
+          const response = await usersApi.getProjectUsers(project.id);
+          counts[project.id] = response.user_ids.length;
+        } catch {
+          counts[project.id] = 0;
+        }
+      }
+      setProjectUserCounts(counts);
+    };
+
+    if (projects.length > 0 && projects.length <= 50) {
+      loadUserCounts();
+    }
+  }, [projects]);
 
   const handleCreate = () => {
     setEditingProject(null);
@@ -242,15 +477,44 @@ export default function ProjectsPage() {
   };
 
   const handleSave = async (data: CreateProjectRequest | Partial<Project>) => {
-    console.log('[ProjectsPage] handleSave called:', JSON.stringify({ editingProjectId: editingProject?.id, data }, null, 2));
     if (editingProject) {
-      const result = await projectsApi.update(editingProject.id, data);
-      console.log('[ProjectsPage] Update result:', JSON.stringify(result, null, 2));
+      await projectsApi.update(editingProject.id, data);
     } else {
-      const result = await projectsApi.create(data as CreateProjectRequest);
-      console.log('[ProjectsPage] Create result:', result);
+      await projectsApi.create(data as CreateProjectRequest);
     }
     await loadProjects();
+  };
+
+  const handleOpenAccessModal = (project: Project) => {
+    setAccessProject(project);
+    setAccessModalOpen(true);
+  };
+
+  const handleSaveUserAccess = async (projectId: number, userIds: number[]) => {
+    // Get current users
+    const current = await usersApi.getProjectUsers(projectId);
+    const currentSet = new Set(current.user_ids);
+    const newSet = new Set(userIds);
+
+    // Revoke access from users no longer in the list
+    for (const userId of current.user_ids) {
+      if (!newSet.has(userId)) {
+        await usersApi.revokeProjectAccess(userId, projectId);
+      }
+    }
+
+    // Grant access to new users
+    for (const userId of userIds) {
+      if (!currentSet.has(userId)) {
+        await usersApi.grantProjectAccess(userId, projectId);
+      }
+    }
+
+    // Update count
+    setProjectUserCounts(prev => ({
+      ...prev,
+      [projectId]: userIds.length,
+    }));
   };
 
   const copyCode = (code: string) => {
@@ -352,18 +616,41 @@ export default function ProjectsPage() {
                 <p className="text-gray-400 text-sm mb-4 line-clamp-2">{project.description}</p>
               )}
 
-              <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
+              <div className="flex items-center justify-between text-sm text-gray-500 mb-2">
                 <span>Отчётов: {project.report_count}</span>
                 <span>{new Date(project.created_at).toLocaleDateString('ru-RU')}</span>
               </div>
 
-              {project.manager_name && (
-                <div className="text-sm text-gray-400 mb-4">
-                  Менеджер: {project.manager_name}
-                </div>
-              )}
+              {/* User access count */}
+              <div className="flex items-center justify-between text-sm mb-4">
+                {project.manager_name && (
+                  <span className="text-gray-400">
+                    РПУ: {project.manager_name}
+                  </span>
+                )}
+                <button
+                  onClick={() => handleOpenAccessModal(project)}
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition ml-auto"
+                  title="Настроить доступы пользователей"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                  </svg>
+                  {projectUserCounts[project.id] !== undefined ? (
+                    <span>{projectUserCounts[project.id]} чел.</span>
+                  ) : (
+                    <span className="w-6 h-3 bg-gray-600 rounded animate-pulse"></span>
+                  )}
+                </button>
+              </div>
 
               <div className="flex justify-end space-x-2 pt-4 border-t border-gray-700">
+                <button
+                  onClick={() => handleOpenAccessModal(project)}
+                  className="px-3 py-1.5 text-sm text-green-400 hover:text-green-300 hover:bg-gray-700 rounded transition"
+                >
+                  Доступы
+                </button>
                 <button
                   onClick={() => handleEdit(project)}
                   className="px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded transition"
@@ -375,7 +662,7 @@ export default function ProjectsPage() {
                     onClick={() => handleArchive(project)}
                     className="px-3 py-1.5 text-sm text-yellow-400 hover:text-yellow-300 hover:bg-gray-700 rounded transition"
                   >
-                    Архивировать
+                    Архив
                   </button>
                 ) : (
                   <button
@@ -391,13 +678,25 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Modal */}
+      {/* Project Modal */}
       <ProjectModal
         isOpen={modalOpen}
         project={editingProject}
         users={users}
         onClose={() => setModalOpen(false)}
         onSave={handleSave}
+      />
+
+      {/* User Access Modal */}
+      <UserAccessModal
+        isOpen={accessModalOpen}
+        project={accessProject}
+        allUsers={users}
+        onClose={() => {
+          setAccessModalOpen(false);
+          setAccessProject(null);
+        }}
+        onSave={handleSaveUserAccess}
       />
     </div>
   );

@@ -14,13 +14,14 @@ logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    """Run a coroutine from sync or async contexts."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        asyncio.run(coro)
-    else:
-        loop.create_task(coro)
+    """Run a coroutine in sync Celery worker context.
+
+    Always creates a new event loop and runs to completion.
+    This ensures the async operation completes before returning.
+    """
+    # Always use asyncio.run() - creates new loop and blocks until complete
+    # This is correct for sync Celery workers where we need to wait for DB operations
+    return asyncio.run(coro)
 
 
 def _check_gemini_configured():

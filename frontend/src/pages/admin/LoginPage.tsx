@@ -331,25 +331,6 @@ export default function LoginPage() {
               </div>
 
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                {/* Quick role buttons */}
-                <p className="text-xs text-orange-600 mb-2">Создать/войти по роли:</p>
-                <div className="flex gap-2 mb-4">
-                  {['admin', 'manager', 'user'].map((role) => (
-                    <button
-                      key={role}
-                      onClick={() => handleDevLogin(role)}
-                      disabled={!!devLoading}
-                      className={`flex-1 py-2 px-3 text-sm font-medium rounded-md border transition ${ROLE_COLORS[role]} hover:opacity-80 disabled:opacity-50`}
-                    >
-                      {devLoading === role ? (
-                        <span className="animate-pulse">...</span>
-                      ) : (
-                        role.charAt(0).toUpperCase() + role.slice(1)
-                      )}
-                    </button>
-                  ))}
-                </div>
-
                 {/* Existing users from DB */}
                 {devUsers.length > 0 && (
                   <>

@@ -24,7 +24,7 @@ from backend.core.utils.file_security import validate_file_path
 
 # Base data directory for file validation
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
-from backend.shared.models import User
+from backend.shared.models import User, user_project_access
 from backend.core.auth.dependencies import CurrentUser
 # Import directly from models to avoid heavy dependencies chain
 from backend.domains.construction.models import (
@@ -163,23 +163,29 @@ class ProblemStatusUpdate(BaseModel):
 # =============================================================================
 
 async def get_user_project_ids(db: AsyncSession, user: User) -> List[int]:
-    """Get project IDs accessible by user."""
-    if user.is_superuser:
-        # Superuser sees all projects
-        result = await db.execute(
-            select(ConstructionProject.id)
-        )
-    else:
-        # Manager sees their assigned projects
-        result = await db.execute(
-            select(ConstructionProject.id)
-            .where(
-                or_(
-                    ConstructionProject.manager_id == user.id,
-                    ConstructionProject.tenant_id == user.tenant_id
-                )
+    """
+    Get project IDs accessible by user via user_project_access.
+
+    ALL users (including superusers) must have explicit access granted.
+    This prevents dashboard from being cluttered with all projects.
+
+    User sees projects where:
+    1. They are assigned as manager (manager_id)
+    2. They have explicit access via user_project_access table
+    """
+    access_subquery = (
+        select(user_project_access.c.project_id)
+        .where(user_project_access.c.user_id == user.id)
+    )
+    result = await db.execute(
+        select(ConstructionProject.id)
+        .where(
+            or_(
+                ConstructionProject.manager_id == user.id,
+                ConstructionProject.id.in_(access_subquery)
             )
         )
+    )
     return [row[0] for row in result.fetchall()]
 
 

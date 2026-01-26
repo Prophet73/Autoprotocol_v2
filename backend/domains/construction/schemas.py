@@ -120,6 +120,17 @@ class TaskPriority(str, Enum):
         return emojis.get(self.value, "⚪")
 
 
+class TaskConfidence(str, Enum):
+    """Уровень уверенности в задаче"""
+    HIGH = "high"      # Явно сказано: "нужно сделать", "поручаю"
+    MEDIUM = "medium"  # Выведено из контекста: проблема → задача
+
+    @property
+    def label_ru(self) -> str:
+        labels = {"high": "Явная", "medium": "Из контекста"}
+        return labels.get(self.value, self.value)
+
+
 class Task(BaseModel):
     """Задача из совещания"""
     category: TaskCategory = Field(description="Категория задачи")
@@ -128,6 +139,7 @@ class Task(BaseModel):
     deadline: Optional[str] = Field(None, description="Срок выполнения")
     notes: Optional[str] = Field(None, description="Примечания, статус")
     priority: TaskPriority = Field(default=TaskPriority.MEDIUM, description="Приоритет: high/medium/low")
+    confidence: TaskConfidence = Field(default=TaskConfidence.HIGH, description="Уровень уверенности: high=явная, medium=из контекста")
     time_codes: List[str] = Field(default_factory=list, description="Тайм-коды где упоминается задача")
     evidence: Optional[str] = Field(None, description="Краткая цитата из стенограммы, подтверждающая задачу")
 

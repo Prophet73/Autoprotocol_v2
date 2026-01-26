@@ -11,7 +11,8 @@ from typing import Optional, List
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.shared.models import User, UserRole, Domain, UserDomainAssignment, UserProjectAccessRecord
+from sqlalchemy import insert, delete
+from backend.shared.models import User, UserRole, Domain, UserDomainAssignment, user_project_access
 from backend.core.auth.dependencies import get_password_hash
 from .schemas import (
     UserResponse,
@@ -308,22 +309,23 @@ class UserService:
         """
         # Check if access already exists
         result = await self.db.execute(
-            select(UserProjectAccessRecord).where(
-                UserProjectAccessRecord.user_id == user_id,
-                UserProjectAccessRecord.project_id == project_id
+            select(user_project_access).where(
+                user_project_access.c.user_id == user_id,
+                user_project_access.c.project_id == project_id
             )
         )
-        existing = result.scalar_one_or_none()
+        existing = result.first()
         if existing:
             return False  # Already has access
 
-        access = UserProjectAccessRecord(
-            user_id=user_id,
-            project_id=project_id,
-            granted_by_id=granted_by_id
+        await self.db.execute(
+            insert(user_project_access).values(
+                user_id=user_id,
+                project_id=project_id,
+                granted_by=granted_by_id
+            )
         )
-        self.db.add(access)
-        await self.db.flush()
+        await self.db.commit()
         return True
 
     async def revoke_project_access(self, user_id: int, project_id: int) -> bool:
@@ -338,24 +340,19 @@ class UserService:
             True if revoked, False if access didn't exist
         """
         result = await self.db.execute(
-            select(UserProjectAccessRecord).where(
-                UserProjectAccessRecord.user_id == user_id,
-                UserProjectAccessRecord.project_id == project_id
+            delete(user_project_access).where(
+                user_project_access.c.user_id == user_id,
+                user_project_access.c.project_id == project_id
             )
         )
-        access = result.scalar_one_or_none()
-        if not access:
-            return False
-
-        await self.db.delete(access)
-        await self.db.flush()
-        return True
+        await self.db.commit()
+        return result.rowcount > 0
 
     async def get_user_project_ids(self, user_id: int) -> List[int]:
         """Get list of project IDs user has access to."""
         result = await self.db.execute(
-            select(UserProjectAccessRecord.project_id).where(
-                UserProjectAccessRecord.user_id == user_id
+            select(user_project_access.c.project_id).where(
+                user_project_access.c.user_id == user_id
             )
         )
         return [row[0] for row in result.all()]
@@ -363,8 +360,8 @@ class UserService:
     async def get_project_user_ids(self, project_id: int) -> List[int]:
         """Get list of user IDs who have access to a project."""
         result = await self.db.execute(
-            select(UserProjectAccessRecord.user_id).where(
-                UserProjectAccessRecord.project_id == project_id
+            select(user_project_access.c.user_id).where(
+                user_project_access.c.project_id == project_id
             )
         )
         return [row[0] for row in result.all()]

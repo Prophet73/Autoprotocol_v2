@@ -22,6 +22,7 @@ from .schemas import (
     UpdateUserRequest,
     ProjectAccessResponse,
     UserProjectAccessList,
+    ProjectUserAccessList,
 )
 
 
@@ -318,3 +319,37 @@ async def get_user_projects(
     service = UserService(db)
     project_ids = await service.get_user_project_ids(user_id)
     return UserProjectAccessList(user_id=user_id, project_ids=project_ids)
+
+
+# =============================================================================
+# Project Users Endpoint (reverse lookup)
+# =============================================================================
+
+@router.get(
+    "/by-project/{project_id}",
+    response_model=ProjectUserAccessList,
+    summary="Пользователи проекта",
+    description="Получить список пользователей, имеющих доступ к проекту."
+)
+async def get_project_users(
+    project_id: int,
+    current_user: SuperUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    include_details: bool = False,
+) -> ProjectUserAccessList:
+    """Get list of users who have access to a project."""
+    service = UserService(db)
+    user_ids = await service.get_project_user_ids(project_id)
+
+    result = ProjectUserAccessList(project_id=project_id, user_ids=user_ids)
+
+    # Optionally include full user details
+    if include_details and user_ids:
+        users = []
+        for user_id in user_ids:
+            user = await service.get_user(user_id)
+            if user:
+                users.append(UserResponse.model_validate(user))
+        result.users = users
+
+    return result
