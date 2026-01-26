@@ -773,6 +773,12 @@ def _render_html(
             margin-bottom: 6px;
         }}
 
+        .ai-hint {{
+            color: #888;
+            font-weight: normal;
+            font-size: 8px;
+        }}
+
         /* Risk Drivers */
         .drivers-section {{
             margin-top: 8px;
@@ -1240,7 +1246,7 @@ def _render_html(
 
     <!-- FOOTER -->
     <div class="footer">
-        SEVERIN DEVELOPMENT · Risk Brief v2.0 · Сгенерировано: {datetime.now().strftime("%d.%m.%Y %H:%M")}
+        SEVERIN DEVELOPMENT · Сгенерировано: {datetime.now().strftime("%d.%m.%Y")}
     </div>
 
 </div>
@@ -1476,7 +1482,7 @@ def _build_critical_cards(critical_risks: list) -> str:
 
             # Evidence
             evidence = getattr(risk, "evidence", None) or (risk.get("evidence") if isinstance(risk, dict) else "")
-            evidence_html = f'<div class="risk-evidence"><b>Основание:</b> {evidence}</div>' if evidence else ""
+            evidence_html = f'<div class="risk-evidence"><b>Основание:</b> «{evidence}»</div>' if evidence else ""
 
             # Suggested responsible
             suggested = ""
@@ -1492,8 +1498,8 @@ def _build_critical_cards(critical_risks: list) -> str:
                 <div class="risk-title-row">{title}</div>
                 <div class="risk-desc">{description}</div>
                 {evidence_html}
-                <div class="risk-consequences"><b>Последствия:</b> {consequences}</div>
-                <div class="risk-mitigation"><b>Меры:</b> {mitigation}</div>
+                <div class="risk-consequences"><b>Последствия</b> <span class="ai-hint">(прогноз ИИ)</span><b>:</b> {consequences}</div>
+                <div class="risk-mitigation"><b>Меры</b> <span class="ai-hint">(рекомендации ИИ)</span><b>:</b> {mitigation}</div>
                 {suggested}
             </div>""")
         except Exception:
@@ -1800,7 +1806,7 @@ def _build_critical_cards_v2(critical_risks: list) -> str:
             tags_html = " ".join(tags)
 
             # Evidence
-            evidence_html = f'<div class="risk-evidence"><b>Основание:</b> {evidence}</div>' if evidence else ""
+            evidence_html = f'<div class="risk-evidence"><b>Основание:</b> «{evidence}»</div>' if evidence else ""
 
             # Drivers section
             drivers_html = _build_drivers_section(drivers) if drivers else ""
@@ -1813,8 +1819,8 @@ def _build_critical_cards_v2(critical_risks: list) -> str:
                 <div class="risk-title-row">{title}</div>
                 <div class="risk-desc">{description}</div>
                 {evidence_html}
-                <div class="risk-consequences"><b>Последствия:</b> {consequences}</div>
-                <div class="risk-mitigation"><b>Меры:</b> {mitigation}</div>
+                <div class="risk-consequences"><b>Последствия</b> <span class="ai-hint">(прогноз ИИ)</span><b>:</b> {consequences}</div>
+                <div class="risk-mitigation"><b>Меры</b> <span class="ai-hint">(рекомендации ИИ)</span><b>:</b> {mitigation}</div>
                 {drivers_html}
             </div>""")
         except Exception:
@@ -1977,7 +1983,8 @@ def _build_participants_section(participants: list) -> str:
     for p in participants:
         try:
             raw_role = p.get('role', 'Участник')
-            role = role_labels.get(raw_role, raw_role)  # Use mapping or keep original
+            # Try exact match, then uppercase
+            role = role_labels.get(raw_role) or role_labels.get(raw_role.upper(), raw_role)
             org_name = p.get('organization', '')
             people = p.get('people', [])
             people_str = ", ".join(people) if people else ""
