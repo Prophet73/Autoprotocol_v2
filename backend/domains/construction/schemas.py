@@ -32,28 +32,28 @@ class MeetingType(str, Enum):
 
 
 class TaskCategory(str, Enum):
-    """Категории задач"""
-    IRD = "ИРД"                    # Исходно-разрешительная документация
-    DESIGN = "Проектирование"     # ПД + РД
-    CONSTRUCTION = "Общестрой"    # СМР, бетон, каркас, отделка
-    ENGINEERING = "Инженерка"     # ОВиК, ВК, электрика, слаботочка
-    SAFETY = "ОТ и ТБ"            # Охрана труда, безопасность
-    SUPPLY = "Снабжение"          # Материалы, оборудование, логистика
-    FINANCE = "Финансы"           # КС, акты, сметы, договоры
-    HR = "Кадры"                  # Люди, бригады, визы
+    """Категории задач (8 категорий для стройконтроля)"""
+    IRD = "ИРД"                           # Исходно-разрешительная документация
+    DESIGN = "Проектирование и РД"        # ПД + РД
+    CONSTRUCTION = "СМР"                  # Строительно-монтажные работы
+    ENGINEERING = "Инженерные системы"    # ОВиК, ВК, электрика, слаботочка
+    SAFETY = "ОТ и ТБ"                    # Охрана труда, безопасность
+    FINANCE = "Финансы"                   # КС, акты, сметы, договоры
+    COORDINATION = "Взаимодействие"       # С Заказчиком, ведомствами
+    ORG = "Организация"                   # Организационные вопросы
 
     @property
     def label_ru(self) -> str:
         """Полное название категории"""
         labels = {
             "ИРД": "Исходно-разрешительная документация",
-            "Проектирование": "Проектная и рабочая документация",
-            "Общестрой": "Общестроительные работы",
-            "Инженерка": "Инженерные системы",
+            "Проектирование и РД": "Проектная и рабочая документация",
+            "СМР": "Строительно-монтажные работы",
+            "Инженерные системы": "Инженерные системы",
             "ОТ и ТБ": "Охрана труда и техника безопасности",
-            "Снабжение": "Снабжение и логистика",
-            "Финансы": "Финансы и договоры",
-            "Кадры": "Кадры и организация"
+            "Финансы": "Финансовые и коммерческие вопросы",
+            "Взаимодействие": "Взаимодействие с Заказчиком и ведомствами",
+            "Организация": "Организационные вопросы"
         }
         return labels.get(self.value, self.value)
 
@@ -103,6 +103,23 @@ class Atmosphere(str, Enum):
 
 # === БАЗОВЫЙ ОТЧЁТ (для Gemini structured output) ===
 
+class TaskPriority(str, Enum):
+    """Приоритет задачи"""
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+    @property
+    def label_ru(self) -> str:
+        labels = {"high": "Высокий", "medium": "Средний", "low": "Низкий"}
+        return labels.get(self.value, self.value)
+
+    @property
+    def emoji(self) -> str:
+        emojis = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+        return emojis.get(self.value, "⚪")
+
+
 class Task(BaseModel):
     """Задача из совещания"""
     category: TaskCategory = Field(description="Категория задачи")
@@ -110,6 +127,9 @@ class Task(BaseModel):
     responsible: Optional[str] = Field(None, description="Ответственный (ФИО или организация)")
     deadline: Optional[str] = Field(None, description="Срок выполнения")
     notes: Optional[str] = Field(None, description="Примечания, статус")
+    priority: TaskPriority = Field(default=TaskPriority.MEDIUM, description="Приоритет: high/medium/low")
+    time_codes: List[str] = Field(default_factory=list, description="Тайм-коды где упоминается задача")
+    evidence: Optional[str] = Field(None, description="Краткая цитата из стенограммы, подтверждающая задачу")
 
 
 class BasicReport(BaseModel):
@@ -319,6 +339,47 @@ class ConstructionReport(BaseModel):
 # RISK BRIEF — Отчёт для заказчика с матрицей рисков (INoT approach)
 # =============================================================================
 
+class DriverType(str, Enum):
+    """
+    Тип связанного фактора (драйвера) риска.
+    Три типа для декомпозиции причин.
+    """
+    ROOT_CAUSE = "root_cause"    # Первопричина — ПОЧЕМУ это происходит
+    AGGRAVATOR = "aggravator"    # Усугубляет — ЧТО делает хуже
+    BLOCKER = "blocker"          # Блокирует — ЧТО мешает решить
+
+    @property
+    def label_ru(self) -> str:
+        labels = {
+            "root_cause": "Первопричина",
+            "aggravator": "Усугубляет",
+            "blocker": "Блокирует"
+        }
+        return labels.get(self.value, self.value)
+
+    @property
+    def color(self) -> str:
+        """Цвет для визуализации в PDF"""
+        colors = {
+            "root_cause": "#7f1d1d",   # Тёмно-красный
+            "aggravator": "#b45309",   # Оранжевый
+            "blocker": "#6b21a8"       # Фиолетовый
+        }
+        return colors.get(self.value, "#666666")
+
+
+class RiskDriver(BaseModel):
+    """
+    Связанный фактор (драйвер) риска.
+    Декомпозиция риска на первопричины, усугубляющие и блокирующие факторы.
+    """
+    id: str = Field(description="ID драйвера: R1.1, R1.2...")
+    type: DriverType = Field(description="Тип: root_cause/aggravator/blocker")
+    title: str = Field(description="Краткий заголовок (3-7 слов)")
+    description: str = Field(description="Развёрнутое описание фактора")
+    evidence: str = Field(description="Цитата из стенограммы с тайм-кодом")
+
+
 class RiskCategory(str, Enum):
     """
     Категория риска для строительного проекта.
@@ -437,6 +498,12 @@ class ProjectRisk(BaseModel):
     is_blocker: bool = Field(
         default=False,
         description="Блокирует ли риск начало/продолжение работ"
+    )
+
+    # Связанные факторы (драйверы) — для рисков score >= 9
+    drivers: List[RiskDriver] = Field(
+        default_factory=list,
+        description="Связанные факторы: первопричины, усугубляющие, блокирующие (для score >= 9)"
     )
 
     @property

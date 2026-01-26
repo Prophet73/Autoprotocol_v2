@@ -1,61 +1,43 @@
 """
-Tasks generator - creates tasks.xlsx from TranscriptionResult via LLM.
-Uses Gemini to extract structured tasks from transcript.
+Tasks generator - creates tasks.xlsx from BasicReport.
+Receives pre-generated BasicReport (from shared LLM call) and formats as Excel.
 """
 
-import os
-import json
 import logging
 from pathlib import Path
 from datetime import datetime
-
-from google import genai
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
 from backend.core.transcription.models import TranscriptionResult
-from backend.domains.construction.schemas import BasicReport, TaskCategory
-from backend.domains.construction.prompts import CONSTRUCTION_PROMPTS
-from backend.domains.construction.generators.llm_utils import run_llm_call
+from backend.domains.construction.schemas import BasicReport, TaskCategory, TaskPriority
 
 
-# Model for reports (pro for quality)
-REPORT_MODEL = os.getenv("GEMINI_REPORT_MODEL", "gemini-2.5-pro")
 logger = logging.getLogger(__name__)
 
 
 def generate_tasks(
     result: TranscriptionResult,
     output_dir: Path,
+    basic_report: BasicReport,
     filename: str = None,
+    participants: list = None,
 ) -> Path:
     """
-    Generate tasks.xlsx from transcription via LLM.
+    Generate tasks.xlsx from BasicReport.
 
     Args:
-        result: TranscriptionResult from pipeline
+        result: TranscriptionResult from pipeline (for metadata)
         output_dir: Directory to save the file
+        basic_report: Pre-generated BasicReport from shared LLM call
         filename: Optional custom filename
+        participants: Optional list of participants
 
     Returns:
         Path to generated file
     """
-    # Get transcript text
-    transcript_text = result.to_plain_text()
-
-    # Call LLM for task extraction
-    if os.getenv("GOOGLE_API_KEY"):
-        basic_report = _extract_tasks_via_llm(transcript_text)
-    else:
-        # Fallback: empty report
-        basic_report = BasicReport(
-            meeting_type="production",
-            meeting_summary="Транскрипция обработана без LLM анализа",
-            expert_analysis="GOOGLE_API_KEY не настроен",
-            tasks=[],
-        )
 
     # Create Excel workbook
     wb = Workbook()
@@ -75,8 +57,15 @@ def generate_tasks(
     )
 
     # Headers
-    headers = ["№", "Категория", "Задача", "Ответственный", "Срок", "Примечания"]
-    col_widths = [5, 25, 50, 20, 15, 30]
+    headers = ["№", "Приоритет", "Категория", "Задача", "Ответственный", "Срок", "Примечания", "Тайм-код", "Источник"]
+    col_widths = [5, 12, 22, 50, 20, 15, 25, 15, 40]
+
+    # Priority colors
+    priority_fills = {
+        "high": PatternFill(start_color="FFCDD2", end_color="FFCDD2", fill_type="solid"),    # Light red
+        "medium": PatternFill(start_color="FFF9C4", end_color="FFF9C4", fill_type="solid"),  # Light yellow
+        "low": PatternFill(start_color="C8E6C9", end_color="C8E6C9", fill_type="solid"),     # Light green
+    }
 
     for col, (header, width) in enumerate(zip(headers, col_widths), 1):
         cell = ws.cell(row=1, column=col, value=header)
@@ -88,19 +77,34 @@ def generate_tasks(
 
     # Data rows
     for row_num, task in enumerate(basic_report.tasks, 2):
+        # Priority label
+        priority_val = task.priority.value if isinstance(task.priority, TaskPriority) else str(task.priority)
+        priority_labels = {"high": "Высокий", "medium": "Средний", "low": "Низкий"}
+        priority_label = priority_labels.get(priority_val, priority_val)
+
+        # Time codes as string
+        time_codes_str = ", ".join(task.time_codes) if task.time_codes else ""
+
         row_data = [
             row_num - 1,
+            priority_label,
             task.category.value if isinstance(task.category, TaskCategory) else str(task.category),
             task.description,
             task.responsible or "",
             task.deadline or "",
             task.notes or "",
+            time_codes_str,
+            task.evidence or "",
         ]
 
         for col, value in enumerate(row_data, 1):
             cell = ws.cell(row=row_num, column=col, value=value)
             cell.border = thin_border
             cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+            # Apply priority color to entire row
+            if priority_val in priority_fills:
+                cell.fill = priority_fills[priority_val]
 
     # Add metadata sheet
     ws_meta = wb.create_sheet("Метаданные")
@@ -120,6 +124,64 @@ def generate_tasks(
     ws_meta.column_dimensions["A"].width = 20
     ws_meta.column_dimensions["B"].width = 80
 
+    # Add participants sheet if provided
+    if participants:
+        ws_part = wb.create_sheet("Участники")
+
+        # Role labels mapping
+        role_labels = {
+            "GENERAL": "Генподрядчик",
+            "CUSTOMER": "Заказчик",
+            "ЗАКАЗЧИК": "Заказчик",
+            "TECHNICAL_CUSTOMER": "Технический заказчик",
+            "ТЕХНИЧЕСКИЙ ЗАКАЗЧИК": "Технический заказчик",
+            "DESIGNER": "Проектировщик",
+            "SUBCONTRACTOR": "Субподрядчик",
+            "SUPPLIER": "Поставщик",
+            "INVESTOR": "Инвестор",
+        }
+
+        # Headers
+        part_headers = ["Организация", "Роль", "ФИО", "Должность"]
+        for col, header in enumerate(part_headers, 1):
+            cell = ws_part.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = thin_border
+
+        # Data rows
+        row_num = 2
+        for org in participants:
+            org_name = org.get("organization", "")
+            role_raw = org.get("role", "")
+            role = role_labels.get(role_raw.upper(), role_raw)
+
+            for person in org.get("people", []):
+                ws_part.cell(row=row_num, column=1, value=org_name).border = thin_border
+                ws_part.cell(row=row_num, column=2, value=role).border = thin_border
+                # Handle both formats: string "Name (Position)" or dict {"name": ..., "position": ...}
+                if isinstance(person, str):
+                    # Parse "Иванов Иван Петрови (Директор)" format
+                    if "(" in person and person.endswith(")"):
+                        name_part = person[:person.rfind("(")].strip()
+                        position_part = person[person.rfind("(")+1:-1].strip()
+                    else:
+                        name_part = person
+                        position_part = ""
+                    ws_part.cell(row=row_num, column=3, value=name_part).border = thin_border
+                    ws_part.cell(row=row_num, column=4, value=position_part).border = thin_border
+                else:
+                    ws_part.cell(row=row_num, column=3, value=person.get("name", "")).border = thin_border
+                    ws_part.cell(row=row_num, column=4, value=person.get("position", "")).border = thin_border
+                row_num += 1
+
+        # Column widths
+        ws_part.column_dimensions["A"].width = 30
+        ws_part.column_dimensions["B"].width = 20
+        ws_part.column_dimensions["C"].width = 30
+        ws_part.column_dimensions["D"].width = 25
+
     # Save workbook
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -131,57 +193,3 @@ def generate_tasks(
     wb.save(str(output_path))
 
     return output_path
-
-
-def _extract_tasks_via_llm(transcript_text: str) -> BasicReport:
-    """Extract tasks from transcript using LLM."""
-    client = genai.Client()
-
-    # Get prompts
-    system_prompt = CONSTRUCTION_PROMPTS.get("system", "")
-    user_prompt = CONSTRUCTION_PROMPTS.get("reports", {}).get("basic", "")
-
-    if not user_prompt:
-        user_prompt = """
-Проанализируй стенограмму совещания и извлеки:
-1. Тип совещания (production/working/negotiation/inspection)
-2. Краткое содержание (2-3 предложения)
-3. Экспертный анализ (1-2 предложения)
-4. Список задач с категориями
-
-Стенограмма:
-{transcript}
-
-Ответь в формате JSON согласно схеме BasicReport.
-"""
-
-    # Format prompt with available variables (meeting_date defaults to current date)
-    full_prompt = user_prompt.format(
-        transcript=transcript_text[:15000],
-        meeting_date=datetime.now().strftime("%d.%m.%Y"),
-    )
-
-    try:
-        response = run_llm_call(
-            lambda: client.models.generate_content(
-                model=REPORT_MODEL,
-                contents=[system_prompt, full_prompt] if system_prompt else full_prompt,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_schema": BasicReport.model_json_schema(),
-                },
-            )
-        )
-
-        # Parse response
-        report_data = json.loads(response.text)
-        return BasicReport.model_validate(report_data)
-
-    except Exception as e:
-        logger.warning("LLM task extraction failed: %s", e)
-        return BasicReport(
-            meeting_type="production",
-            meeting_summary="Ошибка извлечения задач через LLM",
-            expert_analysis=str(e),
-            tasks=[],
-        )

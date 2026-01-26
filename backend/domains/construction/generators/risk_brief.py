@@ -181,6 +181,7 @@ def _get_risk_brief(transcript_text: str) -> RiskBrief:
                         contents=[RISK_BRIEF_SYSTEM, user_prompt],
                         config={
                             "response_mime_type": "application/json",
+                            "temperature": 0.3,  # Low temp for stable risk extraction
                         },
                     )
                 )
@@ -476,6 +477,8 @@ def _render_html(
             align-items: center;
             gap: 10px;
             margin-bottom: 8px;
+            page-break-after: avoid;
+            break-after: avoid;
         }}
 
         .block-num {{
@@ -679,6 +682,8 @@ def _render_html(
             display: flex;
             align-items: center;
             gap: 8px;
+            page-break-after: avoid;
+            break-after: avoid;
         }}
 
         .risk-card {{
@@ -768,6 +773,91 @@ def _render_html(
             margin-bottom: 6px;
         }}
 
+        /* Risk Drivers */
+        .drivers-section {{
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed #ddd;
+        }}
+
+        .drivers-title {{
+            font-size: 9px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 6px;
+        }}
+
+        .driver-item {{
+            display: flex;
+            gap: 8px;
+            margin-bottom: 6px;
+            padding: 6px 8px;
+            background: #fafafa;
+            border-radius: 3px;
+            border-left: 3px solid #ccc;
+        }}
+
+        .driver-item.driver-root-cause {{
+            border-left-color: #7f1d1d;
+            background: #fef2f2;
+        }}
+
+        .driver-item.driver-aggravator {{
+            border-left-color: #b45309;
+            background: #fffbeb;
+        }}
+
+        .driver-item.driver-blocker {{
+            border-left-color: #6b21a8;
+            background: #faf5ff;
+        }}
+
+        .driver-id {{
+            font-weight: 700;
+            font-size: 9px;
+            color: #444;
+            min-width: 35px;
+        }}
+
+        .driver-content {{
+            flex: 1;
+        }}
+
+        .driver-type-tag {{
+            font-size: 7px;
+            padding: 1px 5px;
+            border-radius: 2px;
+            color: white;
+            font-weight: 600;
+            margin-left: 6px;
+        }}
+
+        .driver-type-tag.root-cause {{ background: #7f1d1d; }}
+        .driver-type-tag.aggravator {{ background: #b45309; }}
+        .driver-type-tag.blocker {{ background: #6b21a8; }}
+
+        .driver-title {{
+            font-weight: 600;
+            font-size: 9px;
+            color: #333;
+        }}
+
+        .driver-desc {{
+            font-size: 8.5px;
+            color: #555;
+            margin-top: 2px;
+        }}
+
+        .driver-evidence {{
+            font-size: 8px;
+            color: #666;
+            font-style: italic;
+            margin-top: 3px;
+            padding: 3px 6px;
+            background: white;
+            border-radius: 2px;
+        }}
+
         /* Compact risks */
         .compact-table {{
             width: 100%;
@@ -779,6 +869,54 @@ def _render_html(
         .compact-id {{ width: 40px; padding: 4px; vertical-align: top; }}
         .compact-name {{ padding: 4px 8px; vertical-align: top; }}
         .compact-desc {{ display: block; color: #666; font-size: 8.5px; margin-top: 2px; }}
+
+        /* Compact drivers for secondary risks */
+        .compact-drivers {{
+            margin-top: 6px;
+            padding-top: 4px;
+            border-top: 1px dashed #ddd;
+        }}
+
+        .compact-driver {{
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 4px;
+            margin-bottom: 3px;
+            font-size: 8px;
+        }}
+
+        .compact-driver-id {{
+            font-weight: 600;
+            color: #666;
+            min-width: 30px;
+        }}
+
+        .compact-driver-title {{
+            font-weight: 500;
+            color: #444;
+        }}
+
+        .compact-driver-type {{
+            font-size: 7px;
+            padding: 1px 4px;
+            border-radius: 2px;
+            color: white;
+            font-weight: 600;
+        }}
+
+        .compact-driver-type.type-root_cause {{ background: #7f1d1d; }}
+        .compact-driver-type.type-aggravator {{ background: #b45309; }}
+        .compact-driver-type.type-blocker {{ background: #6b21a8; }}
+
+        .compact-driver-desc {{
+            display: block;
+            width: 100%;
+            color: #666;
+            font-size: 8px;
+            margin-top: 1px;
+            padding-left: 34px;
+        }}
 
         /* Two columns - keep together on same page */
         .two-columns {{
@@ -1091,7 +1229,7 @@ def _render_html(
     </div>''' if has_hypotheses or risk_brief.concerns else ''}
 
     <!-- GLOSSARY (always shown, even if empty) -->
-    <div class="abbr-section section-break">
+    <div class="abbr-section">
         <div class="block-title">
             <span class="block-num">Блок {'8' if participants_html else '7'}</span>
             <span class="block-name">Глоссарий</span>
@@ -1185,7 +1323,7 @@ def _build_matrix_cells(risks: list) -> str:
 
 
 def _build_compact_risk_rows(risks: list) -> str:
-    """Build compact risk rows (for risks below critical threshold)."""
+    """Build compact risk rows (for risks below critical threshold) with optional drivers."""
     if not risks:
         return '<tr><td colspan="2" class="no-items">Риски не выявлены</td></tr>'
 
@@ -1193,6 +1331,13 @@ def _build_compact_risk_rows(risks: list) -> str:
         if not text:
             return text
         return re.sub(r"\b([A-ZА-Я]{2,})-([0-9]+)\b", r"\1&#8209;\2", text)
+
+    # Type labels for drivers
+    driver_type_labels = {
+        "root_cause": "Первопричина",
+        "aggravator": "Усугубляет",
+        "blocker": "Блокирует",
+    }
 
     # Convert to sortable list with scores
     risk_items = []
@@ -1204,6 +1349,7 @@ def _build_compact_risk_rows(risks: list) -> str:
                 risk_id = risk.id
                 title = risk.title
                 description = risk.description
+                drivers = getattr(risk, 'drivers', [])
             elif isinstance(risk, dict):
                 prob = risk.get('probability', 1)
                 imp = risk.get('impact', 1)
@@ -1212,6 +1358,7 @@ def _build_compact_risk_rows(risks: list) -> str:
                 risk_id = risk.get('id', 'R?')
                 title = risk.get('title', '')
                 description = risk.get('description', '')
+                drivers = risk.get('drivers', [])
             else:
                 continue
 
@@ -1223,7 +1370,8 @@ def _build_compact_risk_rows(risks: list) -> str:
                 'color': color,
                 'id': risk_id,
                 'title': title,
-                'description': description
+                'description': description,
+                'drivers': drivers or []
             })
         except Exception:
             continue
@@ -1239,9 +1387,36 @@ def _build_compact_risk_rows(risks: list) -> str:
         title = _protect_protocol_refs(risk["title"])
         desc = _protect_protocol_refs(risk.get("description", ""))
         desc_html = f'<span class="compact-desc">{desc}</span>' if desc else ""
+
+        # Build compact drivers HTML (only title + type tag)
+        drivers_html = ""
+        if risk.get('drivers'):
+            driver_items = []
+            for d in risk['drivers']:
+                try:
+                    d_id = d.id if hasattr(d, 'id') else d.get('id', '')
+                    d_title = d.title if hasattr(d, 'title') else d.get('title', '')
+                    d_type = (d.type.value if hasattr(d, 'type') and hasattr(d.type, 'value')
+                              else d.get('type', 'root_cause'))
+                    d_desc = d.description if hasattr(d, 'description') else d.get('description', '')
+                    type_label = driver_type_labels.get(d_type, d_type)
+
+                    driver_items.append(
+                        f'<div class="compact-driver">'
+                        f'<span class="compact-driver-id">{d_id}</span> '
+                        f'<span class="compact-driver-title">{d_title}</span> '
+                        f'<span class="compact-driver-type type-{d_type}">{type_label}</span>'
+                        f'<span class="compact-driver-desc">{d_desc}</span>'
+                        f'</div>'
+                    )
+                except Exception:
+                    continue
+            if driver_items:
+                drivers_html = f'<div class="compact-drivers">{"".join(driver_items)}</div>'
+
         rows.append(f"""<tr>
             <td class="compact-id"><span class="risk-dot" style="background:{risk['color']};">{risk['id']}</span></td>
-            <td class="compact-name">{title}{desc_html}</td>
+            <td class="compact-name">{title}{desc_html}{drivers_html}</td>
         </tr>""")
 
     return "".join(rows)
@@ -1580,7 +1755,7 @@ def _get_category_label(category) -> str:
 
 
 def _build_critical_cards_v2(critical_risks: list) -> str:
-    """Build critical risk cards HTML with category tags and СТОП-ФАКТОР."""
+    """Build critical risk cards HTML with category tags, СТОП-ФАКТОР, and drivers."""
     if not critical_risks:
         return ""
 
@@ -1598,6 +1773,7 @@ def _build_critical_cards_v2(critical_risks: list) -> str:
                 color = risk.color
                 category = _get_category_label(risk.category) if hasattr(risk, 'category') else ""
                 evidence = getattr(risk, "evidence", "")
+                drivers = getattr(risk, "drivers", [])
             elif isinstance(risk, dict):
                 risk_id = risk.get('id', 'R?')
                 title = risk.get('title', '')
@@ -1611,6 +1787,7 @@ def _build_critical_cards_v2(critical_risks: list) -> str:
                 color = _get_risk_color(prob, imp)
                 category = risk.get('category', '')
                 evidence = risk.get('evidence', '')
+                drivers = risk.get('drivers', [])
             else:
                 continue
 
@@ -1624,6 +1801,9 @@ def _build_critical_cards_v2(critical_risks: list) -> str:
             # Evidence
             evidence_html = f'<div class="risk-evidence"><b>Основание:</b> {evidence}</div>' if evidence else ""
 
+            # Drivers section
+            drivers_html = _build_drivers_section(drivers) if drivers else ""
+
             cards.append(f"""<div class="risk-card" style="border-left: 4px solid {color};">
                 <div class="risk-card-header">
                     <span class="risk-id-badge" style="background:{color};">{risk_id}</span>
@@ -1634,11 +1814,66 @@ def _build_critical_cards_v2(critical_risks: list) -> str:
                 {evidence_html}
                 <div class="risk-consequences"><b>Последствия:</b> {consequences}</div>
                 <div class="risk-mitigation"><b>Меры:</b> {mitigation}</div>
+                {drivers_html}
             </div>""")
         except Exception:
             continue
 
     return "".join(cards)
+
+
+def _build_drivers_section(drivers: list) -> str:
+    """Build drivers section HTML for a risk card."""
+    if not drivers:
+        return ""
+
+    # Type labels and CSS classes
+    type_config = {
+        "root_cause": {"label": "Первопричина", "class": "root-cause"},
+        "aggravator": {"label": "Усугубляет", "class": "aggravator"},
+        "blocker": {"label": "Блокирует", "class": "blocker"},
+    }
+
+    items = []
+    for driver in drivers:
+        try:
+            # Handle both model and dict
+            if hasattr(driver, 'id'):
+                driver_id = driver.id
+                driver_type = driver.type.value if hasattr(driver.type, 'value') else str(driver.type)
+                title = driver.title
+                description = driver.description
+                evidence = driver.evidence
+            elif isinstance(driver, dict):
+                driver_id = driver.get('id', '?')
+                driver_type = driver.get('type', 'root_cause')
+                title = driver.get('title', '')
+                description = driver.get('description', '')
+                evidence = driver.get('evidence', '')
+            else:
+                continue
+
+            config = type_config.get(driver_type, type_config["root_cause"])
+
+            items.append(f"""<div class="driver-item driver-{config['class']}">
+                <span class="driver-id">{driver_id}</span>
+                <div class="driver-content">
+                    <span class="driver-title">{title}</span>
+                    <span class="driver-type-tag {config['class']}">{config['label']}</span>
+                    <div class="driver-desc">{description}</div>
+                    <div class="driver-evidence">"{evidence}"</div>
+                </div>
+            </div>""")
+        except Exception:
+            continue
+
+    if not items:
+        return ""
+
+    return f"""<div class="drivers-section">
+        <div class="drivers-title">Связанные факторы ({len(items)}):</div>
+        {"".join(items)}
+    </div>"""
 
 
 def _build_group_rows_fixed(risks: list) -> str:

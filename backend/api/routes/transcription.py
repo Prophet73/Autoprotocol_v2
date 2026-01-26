@@ -1146,27 +1146,65 @@ async def run_text_report_generation(
 
         if domain == "construction":
             from ...domains.construction.generators import (
+                get_basic_report,
                 generate_tasks,
                 generate_report,
                 generate_analysis,
                 generate_risk_brief,
             )
 
-            # Generate tasks
-            if artifact_options.get("generate_tasks", False):
+            # Fetch participants once for all generators
+            participant_ids = artifact_options.get("participant_ids", [])
+            participants = None
+            if participant_ids:
+                try:
+                    from ...tasks.transcription import _fetch_participants_for_risk_brief_async
+                    participants = await _fetch_participants_for_risk_brief_async(participant_ids)
+                    logger.info(f"Fetched {len(participants)} participant groups for generators")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch participants: {e}")
+
+            # Generate BasicReport ONCE for both tasks.xlsx and report.docx
+            basic_report = None
+            needs_basic_report = (
+                artifact_options.get("generate_tasks", False) or
+                artifact_options.get("generate_report", False)
+            )
+            if needs_basic_report:
+                progress_callback("llm_generation", 40, "Анализ совещания через LLM...")
+                try:
+                    basic_report = get_basic_report(
+                        result,
+                        meeting_date=artifact_options.get("meeting_date"),
+                    )
+                    logger.info(f"BasicReport generated: {len(basic_report.tasks)} tasks")
+                except Exception as e:
+                    logger.error(f"BasicReport generation failed: {e}")
+
+            # Generate tasks - uses pre-generated BasicReport
+            if artifact_options.get("generate_tasks", False) and basic_report:
                 progress_callback("llm_generation", 50, "Формирование списка задач...")
                 try:
-                    tasks_path = generate_tasks(result, output_dir)
+                    tasks_path = generate_tasks(
+                        result, output_dir,
+                        basic_report=basic_report,
+                        participants=participants,
+                    )
                     output_files["tasks"] = str(tasks_path)
                     logger.info(f"Generated tasks: {tasks_path}")
                 except Exception as e:
                     logger.error(f"Tasks generation failed: {e}")
 
-            # Generate report
-            if artifact_options.get("generate_report", False):
+            # Generate report - uses pre-generated BasicReport
+            if artifact_options.get("generate_report", False) and basic_report:
                 progress_callback("llm_generation", 70, "Формирование отчёта...")
                 try:
-                    report_path = generate_report(result, output_dir)
+                    report_path = generate_report(
+                        result, output_dir,
+                        basic_report=basic_report,
+                        meeting_date=artifact_options.get("meeting_date"),
+                        participants=participants,
+                    )
                     output_files["report"] = str(report_path)
                     logger.info(f"Generated report: {report_path}")
                 except Exception as e:
@@ -1181,24 +1219,10 @@ async def run_text_report_generation(
                 except Exception as e:
                     logger.error(f"Manager brief generation failed: {e}")
 
-            # Generate risk brief (optional)
+            # Generate risk brief (optional) - reuses participants fetched above
             if artifact_options.get("generate_risk_brief", False):
                 progress_callback("llm_generation", 95, "Формирование риск-брифа...")
                 try:
-                    # Fetch participants from DB if participant_ids provided
-                    participant_ids = artifact_options.get("participant_ids", [])
-                    logger.info(f"[RISK BRIEF] participant_ids from artifact_options: {participant_ids}")
-                    participants = None
-                    if participant_ids:
-                        try:
-                            from ...tasks.transcription import _fetch_participants_for_risk_brief_async
-                            participants = await _fetch_participants_for_risk_brief_async(participant_ids)
-                            logger.info(f"[RISK BRIEF] Fetched {len(participants)} participant groups")
-                        except Exception as e:
-                            logger.error(f"[RISK BRIEF] ERROR fetching participants: {e}")
-                    else:
-                        logger.info("[RISK BRIEF] No participant_ids provided")
-
                     risk_brief_path = generate_risk_brief(
                         result,
                         output_dir,

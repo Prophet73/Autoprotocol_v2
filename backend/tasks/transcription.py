@@ -154,6 +154,7 @@ def _run_domain_generators(
     # Import generators based on domain
     generate_analysis = None
     generate_risk_brief = None  # Default - only construction has risk_brief
+    get_basic_report = None  # Only construction has shared basic report
     if domain == "hr":
         from ..domains.hr.generators import generate_transcript, generate_report
         generate_tasks = None  # HR doesn't have separate tasks generator
@@ -162,6 +163,7 @@ def _run_domain_generators(
         generate_tasks = None  # IT doesn't have separate tasks generator
     else:  # construction (default)
         from ..domains.construction.generators import (
+            get_basic_report,  # Shared LLM call for tasks.xlsx and report.docx
             generate_transcript,
             generate_tasks,
             generate_report,
@@ -185,24 +187,54 @@ def _run_domain_generators(
 
     # LLM-based generators (require Gemini via GOOGLE_API_KEY)
     if has_gemini:
-        # 2. Tasks Excel (construction only)
-        if artifact_options.get("generate_tasks", False) and generate_tasks:
+        # Fetch participants once for all generators that need them
+        participant_ids = artifact_options.get("participant_ids", [])
+        participants = None
+        if participant_ids:
+            try:
+                participants = _fetch_participants_for_risk_brief(participant_ids)
+                logger.info(f"Fetched participants for generators: {len(participants)} orgs")
+            except Exception as e:
+                logger.warning(f"Failed to fetch participants: {e}")
+
+        # Generate BasicReport ONCE for both tasks.xlsx and report.docx (construction only)
+        basic_report = None
+        needs_basic_report = (
+            artifact_options.get("generate_tasks", False) or
+            artifact_options.get("generate_report", False)
+        )
+        if needs_basic_report and get_basic_report:
+            progress_callback("domain_generators", 93, "Анализ совещания через LLM...")
+            try:
+                basic_report = get_basic_report(result, meeting_date=meeting_date)
+                logger.info(f"BasicReport generated: {len(basic_report.tasks)} tasks")
+            except Exception as e:
+                logger.error(f"BasicReport generation failed: {e}")
+
+        # 2. Tasks Excel (construction only) - uses pre-generated BasicReport
+        if artifact_options.get("generate_tasks", False) and generate_tasks and basic_report:
             progress_callback("domain_generators", 94, "Формирование списка задач...")
             try:
-                tasks_path = generate_tasks(result, output_path)
+                tasks_path = generate_tasks(
+                    result, output_path,
+                    basic_report=basic_report,
+                    participants=participants,
+                )
                 output_files["tasks"] = str(tasks_path)
                 logger.info(f"Generated tasks: {tasks_path}")
             except Exception as e:
                 logger.error(f"Tasks generation failed: {e}")
 
-        # 3. Report Word
-        if artifact_options.get("generate_report", False):
+        # 3. Report Word - uses pre-generated BasicReport
+        if artifact_options.get("generate_report", False) and basic_report:
             progress_callback("domain_generators", 96, "Формирование отчёта...")
             try:
                 report_path = generate_report(
                     result, output_path,
+                    basic_report=basic_report,
                     meeting_type=meeting_type,
                     meeting_date=meeting_date,
+                    participants=participants,
                 )
                 output_files["report"] = str(report_path)
                 logger.info(f"Generated report: {report_path}")
@@ -222,30 +254,11 @@ def _run_domain_generators(
         if artifact_options.get("generate_risk_brief", False) and generate_risk_brief:
             progress_callback("domain_generators", 99, "Формирование риск-брифа...")
             try:
-                # Get participant_ids and project_name for risk brief
-                participant_ids = artifact_options.get("participant_ids", [])
+                # Reuse participants already fetched above
                 project_name = artifact_options.get("project_name")
-                # Debug logging
-                print(f"[RISK BRIEF DEBUG] artifact_options keys: {list(artifact_options.keys())}")
-                print(f"[RISK BRIEF DEBUG] participant_ids from artifact_options: {participant_ids}")
-                print(f"[RISK BRIEF DEBUG] project_name: {project_name}")
-                logger.info(f"Risk brief params: participant_ids={participant_ids}, project_name={project_name}")
-
-                # Fetch participants from DB if participant_ids provided
-                participants = None
-                if participant_ids:
-                    print(f"[RISK BRIEF DEBUG] Fetching participants for IDs: {participant_ids}")
-                    try:
-                        participants = _fetch_participants_for_risk_brief(participant_ids)
-                        print(f"[RISK BRIEF DEBUG] Fetched participants: {participants}")
-                        logger.info(f"Fetched participants: {participants}")
-                    except Exception as e:
-                        print(f"[RISK BRIEF DEBUG] ERROR fetching participants: {e}")
-                        logger.warning(f"Failed to fetch participants (non-fatal): {e}", exc_info=True)
-                else:
-                    print("[RISK BRIEF DEBUG] No participant_ids provided, skipping fetch")
-
                 project_code = artifact_options.get("project_code")
+                logger.info(f"Risk brief params: project_name={project_name}, participants={len(participants) if participants else 0} orgs")
+
                 risk_brief_path = generate_risk_brief(
                     result,
                     output_path,
