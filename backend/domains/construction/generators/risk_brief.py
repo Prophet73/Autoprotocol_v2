@@ -918,24 +918,18 @@ def _render_html(
             padding-left: 34px;
         }}
 
-        /* Two columns - keep together on same page */
-        .two-columns {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
+        /* Linear sections (hypotheses, questions) */
+        .linear-section {{
+            background: var(--bg-light);
+            border-radius: 4px;
+            padding: 10px;
             margin-bottom: 10px;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
         }}
 
-        .column-box {{
-            background: var(--bg-light);
-            border-radius: 4px;
-            padding: 10px;
-        }}
-
-        .column-box.hypotheses {{ border-left: 3px solid #eab308; }}
-        .column-box.questions {{ border-left: 3px solid #6366f1; }}
+        .linear-section.hypotheses {{ border-left: 3px solid #eab308; }}
+        .linear-section.questions {{ border-left: 3px solid #6366f1; }}
 
         .column-item {{
             background: white;
@@ -1210,23 +1204,23 @@ def _render_html(
         </table>
     </div>
 
-    <!-- BLOCK 5: HYPOTHESES + QUESTIONS -->
-    {f'''<div class="two-columns">
-        <div class="column-box hypotheses">
-            <div class="block-title">
-                <span class="block-num">Блок {'6' if participants_html else '5'}</span>
-                <span class="block-name">Гипотезы</span>
-            </div>
-            {hypothesis_items}
+    <!-- BLOCK 5: HYPOTHESES -->
+    {f'''<div class="linear-section hypotheses">
+        <div class="block-title">
+            <span class="block-num">Блок {'6' if participants_html else '5'}</span>
+            <span class="block-name">Гипотезы</span>
         </div>
-        <div class="column-box questions">
-            <div class="block-title">
-                <span class="block-num">Блок {'7' if participants_html else '6'}</span>
-                <span class="block-name">Открытые вопросы</span>
-            </div>
-            {_build_question_items(risk_brief.concerns)}
+        {hypothesis_items}
+    </div>''' if has_hypotheses else ''}
+
+    <!-- BLOCK 6: OPEN QUESTIONS -->
+    {f'''<div class="linear-section questions">
+        <div class="block-title">
+            <span class="block-num">Блок {'7' if participants_html else '6'}</span>
+            <span class="block-name">Незакрытые вопросы</span>
         </div>
-    </div>''' if has_hypotheses or risk_brief.concerns else ''}
+        {_build_question_items(risk_brief.concerns)}
+    </div>''' if risk_brief.concerns else ''}
 
     <!-- GLOSSARY (always shown, even if empty) -->
     <div class="abbr-section">
