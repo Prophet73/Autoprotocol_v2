@@ -41,18 +41,33 @@ cd frontend && npm run dev
 ```
 
 ### Docker
+
+**ВАЖНО #1:** Все docker-compose команды выполнять из папки `docker/`, иначе context path `..` разрешается некорректно и в образ копируются старые файлы!
+
+**ВАЖНО #2:** Базовый образ whisperx имеет `VOLUME /app` — Docker создаёт анонимный volume, который затеняет новый код старыми данными! Если после пересборки изменения не применяются:
 ```bash
+docker inspect whisperx-worker --format '{{json .Mounts}}'  # проверить
+docker-compose down && docker volume prune && docker-compose up -d  # исправить
+```
+
+```bash
+# Перейти в папку docker (ОБЯЗАТЕЛЬНО!)
+cd docker
+
 # Запуск всего стека (API + Worker + Redis)
-docker-compose -f docker/docker-compose.yml up -d
+docker-compose up -d
 
 # С мониторингом Flower
-docker-compose -f docker/docker-compose.yml --profile monitoring up -d
+docker-compose --profile monitoring up -d
 
 # Логи воркера
-docker-compose -f docker/docker-compose.yml logs -f worker
+docker-compose logs -f worker
 
-# Пересборка
-docker-compose -f docker/docker-compose.yml build --no-cache
+# Пересборка с очисткой кеша
+docker-compose build --no-cache
+
+# Пересборка + перезапуск (с удалением старых volumes)
+docker-compose down && docker volume prune -f && docker-compose build --no-cache && docker-compose up -d
 ```
 
 ### Установка

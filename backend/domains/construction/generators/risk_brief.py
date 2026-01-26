@@ -931,6 +931,13 @@ def _render_html(
         .linear-section.hypotheses {{ border-left: 3px solid #eab308; }}
         .linear-section.questions {{ border-left: 3px solid #6366f1; }}
 
+        .empty-block {{
+            color: #888;
+            font-style: italic;
+            font-size: 9px;
+            padding: 8px 0;
+        }}
+
         .column-item {{
             background: white;
             padding: 6px 10px;
@@ -1204,23 +1211,23 @@ def _render_html(
         </table>
     </div>
 
-    <!-- BLOCK 5: HYPOTHESES -->
-    {f'''<div class="linear-section hypotheses">
+    <!-- BLOCK 6: HYPOTHESES (always shown) -->
+    <div class="linear-section hypotheses">
         <div class="block-title">
             <span class="block-num">Блок {'6' if participants_html else '5'}</span>
             <span class="block-name">Гипотезы</span>
         </div>
-        {hypothesis_items}
-    </div>''' if has_hypotheses else ''}
+        {hypothesis_items if has_hypotheses else '<div class="empty-block">Не выявлено</div>'}
+    </div>
 
-    <!-- BLOCK 6: OPEN QUESTIONS -->
-    {f'''<div class="linear-section questions">
+    <!-- BLOCK 7: OPEN QUESTIONS (always shown) -->
+    <div class="linear-section questions">
         <div class="block-title">
             <span class="block-num">Блок {'7' if participants_html else '6'}</span>
             <span class="block-name">Незакрытые вопросы</span>
         </div>
-        {_build_question_items(risk_brief.concerns)}
-    </div>''' if risk_brief.concerns else ''}
+        {_build_question_items(risk_brief.concerns) if risk_brief.concerns else '<div class="empty-block">Не выявлено</div>'}
+    </div>
 
     <!-- GLOSSARY (always shown, even if empty) -->
     <div class="abbr-section">
