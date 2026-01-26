@@ -441,20 +441,40 @@ async def create_transcription(
 
     # Check if this is a text file (direct report generation without transcription)
     if is_text_file(file.filename):
-        logger.info(f"Text file detected: {file.filename}, using direct report generation")
-        # Run direct report generation in background (no GPU needed)
-        background_tasks.add_task(
-            run_text_report_generation,
-            job_id=job_id,
-            input_file=input_file,
-            output_dir=OUTPUT_DIR / job_id,
-            artifact_options=artifact_options,
-            domain_type=domain_type,
-            project_id=project_id,
-            guest_uid=guest_uid,
-            uploader_id=uploader_id,
-            notify_emails=notify_emails_list,
-        )
+        logger.info(f"Text file detected: {file.filename}, using Celery for report generation")
+        # Queue to Celery (same as media files) to avoid blocking API
+        try:
+            from ...tasks.transcription import process_text_task
+            process_text_task.apply_async(
+                kwargs={
+                    "job_id": job_id,
+                    "input_file": str(input_file),
+                    "output_dir": str(OUTPUT_DIR / job_id),
+                    "artifact_options": artifact_options,
+                    "domain_type": domain_type,
+                    "project_id": project_id,
+                    "guest_uid": guest_uid,
+                    "uploader_id": uploader_id,
+                    "notify_emails": notify_emails_list,
+                },
+                task_id=job_id,  # Use job_id as Celery task_id for proper revoke
+            )
+            logger.info(f"Text job {job_id} queued to Celery (task_id={job_id})")
+        except Exception as e:
+            logger.warning(f"Celery unavailable for text task, using background: {e}")
+            # Fallback to background task if Celery unavailable
+            background_tasks.add_task(
+                run_text_report_generation,
+                job_id=job_id,
+                input_file=input_file,
+                output_dir=OUTPUT_DIR / job_id,
+                artifact_options=artifact_options,
+                domain_type=domain_type,
+                project_id=project_id,
+                guest_uid=guest_uid,
+                uploader_id=uploader_id,
+                notify_emails=notify_emails_list,
+            )
         return JobResponse(
             job_id=job_id,
             status=JobStatus.PENDING,
@@ -464,25 +484,28 @@ async def create_transcription(
 
     # Queue Celery task for audio/video files
     try:
-        process_transcription_task.delay(
-            job_id=job_id,
-            input_file=str(input_file),
-            output_dir=str(OUTPUT_DIR / job_id),
-            languages=lang_list,
-            skip_diarization=skip_diarization,
-            skip_translation=skip_translation,
-            skip_emotions=skip_emotions,
-            artifact_options=artifact_options,
-            # Domain-specific parameters
-            project_id=project_id,
-            domain_type=domain_type,
-            meeting_type=meeting_type,
-            guest_uid=guest_uid,
-            uploader_id=uploader_id,
-            # Email notification
-            notify_emails=notify_emails_list,
+        process_transcription_task.apply_async(
+            kwargs={
+                "job_id": job_id,
+                "input_file": str(input_file),
+                "output_dir": str(OUTPUT_DIR / job_id),
+                "languages": lang_list,
+                "skip_diarization": skip_diarization,
+                "skip_translation": skip_translation,
+                "skip_emotions": skip_emotions,
+                "artifact_options": artifact_options,
+                # Domain-specific parameters
+                "project_id": project_id,
+                "domain_type": domain_type,
+                "meeting_type": meeting_type,
+                "guest_uid": guest_uid,
+                "uploader_id": uploader_id,
+                # Email notification
+                "notify_emails": notify_emails_list,
+            },
+            task_id=job_id,  # Use job_id as Celery task_id for proper revoke
         )
-        logger.info(f"Job {job_id} queued to Celery")
+        logger.info(f"Job {job_id} queued to Celery (task_id={job_id})")
     except Exception as e:
         logger.warning(f"Celery unavailable, using background task: {e}")
         # Fallback to background task (for development without Celery)

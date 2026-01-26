@@ -740,3 +740,54 @@ def cleanup_job_files(job_id: str, upload_dir: str, output_dir: str, keep_output
         if output_path.exists():
             shutil.rmtree(output_path)
             logger.info(f"Cleaned up output dir: {output_path}")
+
+
+@celery_app.task(
+    bind=True,
+    name="transcription.process_text",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 2},
+)
+def process_text_task(
+    self,
+    job_id: str,
+    input_file: str,
+    output_dir: str,
+    artifact_options: dict = None,
+    domain_type: str = None,
+    project_id: int = None,
+    guest_uid: str = None,
+    uploader_id: int = None,
+    notify_emails: list = None,
+):
+    """
+    Celery task for processing text files (docx, txt).
+    Generates reports via LLM without transcription.
+    """
+    import asyncio
+    from pathlib import Path
+
+    logger.info(f"Starting text processing job: {job_id}")
+    logger.info(f"Input: {input_file}")
+
+    # Import the async function from API routes
+    from ..api.routes.transcription import run_text_report_generation
+
+    # Run async function in event loop
+    asyncio.run(
+        run_text_report_generation(
+            job_id=job_id,
+            input_file=Path(input_file),
+            output_dir=Path(output_dir),
+            artifact_options=artifact_options,
+            domain_type=domain_type,
+            project_id=project_id,
+            guest_uid=guest_uid,
+            uploader_id=uploader_id,
+            notify_emails=notify_emails,
+        )
+    )
+
+    logger.info(f"Text processing job {job_id} completed")
+    return {"job_id": job_id, "status": "completed"}
