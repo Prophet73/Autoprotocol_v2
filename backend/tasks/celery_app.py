@@ -1,6 +1,10 @@
 """Celery application configuration."""
 import os
+import logging
 from celery import Celery
+from celery.signals import worker_ready
+
+logger = logging.getLogger(__name__)
 
 # Redis URL from environment
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -63,5 +67,38 @@ celery_app.conf.update(
             "schedule": 3600.0,  # Every hour
             "args": (),
         },
+        "recover-stuck-jobs-every-5min": {
+            "task": "cleanup.recover_stuck_jobs",
+            "schedule": 300.0,  # Every 5 minutes
+            "args": (10,),  # 10 minute threshold
+        },
     },
 )
+
+
+@worker_ready.connect
+def on_worker_ready(sender, **kwargs):
+    """
+    Called when worker is ready to accept tasks.
+
+    Immediately recovers any jobs stuck in 'processing' state from
+    previous worker crashes/restarts.
+    """
+    logger.info("Worker ready - checking for stuck jobs from previous session...")
+
+    try:
+        from backend.core.storage import get_job_store
+
+        store = get_job_store()
+        result = store.recover_stuck_jobs(stale_threshold_minutes=5)
+
+        if result["recovered"] > 0:
+            logger.warning(
+                f"Recovered {result['recovered']} stuck jobs: "
+                f"{[j['job_id'][:8] for j in result['jobs']]}"
+            )
+        else:
+            logger.info("No stuck jobs found")
+
+    except Exception as e:
+        logger.error(f"Failed to recover stuck jobs on startup: {e}")

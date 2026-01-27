@@ -309,6 +309,101 @@ class JobStore:
             logger.debug(f"Redis ping failed: {e}")
             return False
 
+    def recover_stuck_jobs(
+        self,
+        stale_threshold_minutes: int = 10,
+        dry_run: bool = False,
+    ) -> Dict[str, any]:
+        """
+        Find and recover jobs stuck in 'processing' state.
+
+        Jobs are considered stuck if:
+        - status == 'processing'
+        - updated_at is older than stale_threshold_minutes
+
+        This handles cases where worker crashed/restarted mid-processing.
+
+        Args:
+            stale_threshold_minutes: Minutes since last update to consider stuck
+            dry_run: If True, only report what would be recovered
+
+        Returns:
+            Recovery statistics: {recovered: int, jobs: list, errors: list}
+        """
+        from datetime import timedelta
+
+        stats = {
+            "recovered": 0,
+            "jobs": [],
+            "errors": [],
+            "dry_run": dry_run,
+            "threshold_minutes": stale_threshold_minutes,
+        }
+
+        cutoff = datetime.now() - timedelta(minutes=stale_threshold_minutes)
+        logger.info(
+            f"Recovering stuck jobs: threshold={stale_threshold_minutes}min, "
+            f"cutoff={cutoff.isoformat()}, dry_run={dry_run}"
+        )
+
+        try:
+            # Scan all jobs
+            pattern = f"{self.KEY_PREFIX}*"
+            for key in self.redis.scan_iter(pattern):
+                try:
+                    data = self.redis.get(key)
+                    if not data:
+                        continue
+
+                    job = JobData.model_validate_json(data)
+
+                    # Check if stuck
+                    if job.status != JobStatus.PROCESSING:
+                        continue
+
+                    if job.updated_at >= cutoff:
+                        continue  # Recently updated, still working
+
+                    # Found stuck job
+                    job_info = {
+                        "job_id": job.job_id,
+                        "stage": job.current_stage,
+                        "progress": job.progress_percent,
+                        "updated_at": job.updated_at.isoformat(),
+                        "age_minutes": int((datetime.now() - job.updated_at).total_seconds() / 60),
+                    }
+                    stats["jobs"].append(job_info)
+
+                    if not dry_run:
+                        # Mark as failed
+                        self.fail(
+                            job.job_id,
+                            error=f"Worker interrupted during '{job.current_stage}' stage. "
+                                  f"Job was stuck for {job_info['age_minutes']} minutes. "
+                                  "Please retry the task."
+                        )
+                        logger.warning(
+                            f"Recovered stuck job {job.job_id}: "
+                            f"stage={job.current_stage}, age={job_info['age_minutes']}min"
+                        )
+
+                    stats["recovered"] += 1
+
+                except Exception as e:
+                    stats["errors"].append(f"Error processing {key}: {e}")
+                    logger.error(f"Error checking job {key}: {e}")
+
+        except Exception as e:
+            stats["errors"].append(f"Scan error: {e}")
+            logger.exception("Error during stuck job recovery scan")
+
+        logger.info(
+            f"Stuck job recovery complete: found={stats['recovered']}, "
+            f"dry_run={dry_run}"
+        )
+
+        return stats
+
 
 # Global instance (singleton pattern)
 _job_store: Optional[JobStore] = None

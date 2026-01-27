@@ -296,6 +296,42 @@ def cleanup_expired_jobs() -> dict:
     return stats
 
 
+@celery_app.task(name="cleanup.recover_stuck_jobs")
+def recover_stuck_jobs(
+    stale_threshold_minutes: int = 10,
+    dry_run: bool = False,
+) -> dict:
+    """
+    Find and recover jobs stuck in 'processing' state.
+
+    Jobs get stuck when worker crashes/restarts mid-processing.
+    This task marks them as 'failed' so users can retry.
+
+    Args:
+        stale_threshold_minutes: Minutes since last update to consider stuck
+        dry_run: If True, only report what would be recovered
+
+    Returns:
+        Recovery statistics
+    """
+    from backend.core.storage import get_job_store
+
+    try:
+        store = get_job_store()
+        return store.recover_stuck_jobs(
+            stale_threshold_minutes=stale_threshold_minutes,
+            dry_run=dry_run,
+        )
+    except Exception as e:
+        logger.exception(f"Error during stuck job recovery: {e}")
+        return {
+            "recovered": 0,
+            "jobs": [],
+            "errors": [str(e)],
+            "dry_run": dry_run,
+        }
+
+
 # Celery Beat schedule (optional - configure in celery_app.py)
 CLEANUP_SCHEDULE = {
     "cleanup-audio-files-daily": {
@@ -312,5 +348,10 @@ CLEANUP_SCHEDULE = {
         "task": "cleanup.cleanup_expired_jobs",
         "schedule": 3600.0,  # Every hour
         "args": (),
+    },
+    "recover-stuck-jobs-every-5min": {
+        "task": "cleanup.recover_stuck_jobs",
+        "schedule": 300.0,  # Every 5 minutes
+        "args": (10,),  # 10 minute threshold
     },
 }
