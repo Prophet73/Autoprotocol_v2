@@ -1,10 +1,10 @@
-import { FileText, Table, FileSpreadsheet, Check, Shield } from 'lucide-react';
+import { FileText, Table, FileSpreadsheet, Check } from 'lucide-react';
 
 export interface ArtifactState {
   transcript: boolean;
   tasks: boolean;
   report: boolean;
-  riskBrief: boolean;
+  // riskBrief is always generated - not a user choice
 }
 
 interface ArtifactOptionsProps {
@@ -31,12 +31,7 @@ const artifacts = [
     description: 'Полный текст с таймкодами',
     icon: FileText,
   },
-  {
-    id: 'riskBrief' as const,
-    label: 'Риск-бриф (PDF)',
-    description: 'Матрица рисков (для клиента)',
-    icon: Shield,
-  },
+  // riskBrief is always generated automatically - removed from user selection
 ];
 
 export function ArtifactOptions({ value, onChange }: ArtifactOptionsProps) {
@@ -94,5 +89,5 @@ export const defaultArtifactState: ArtifactState = {
   transcript: false,
   tasks: true,
   report: true,
-  riskBrief: false,
+  // riskBrief always generated - no user choice
 };
