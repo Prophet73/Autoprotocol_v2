@@ -16,12 +16,18 @@ logger = logging.getLogger(__name__)
 def _run_async(coro):
     """Run a coroutine in sync Celery worker context.
 
-    Always creates a new event loop and runs to completion.
-    This ensures the async operation completes before returning.
+    Handles both cases: when event loop exists and when it doesn't.
     """
-    # Always use asyncio.run() - creates new loop and blocks until complete
-    # This is correct for sync Celery workers where we need to wait for DB operations
-    return asyncio.run(coro)
+    try:
+        asyncio.get_running_loop()
+        # Already in a running loop - run in separate thread with new loop
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, coro)
+            return future.result()
+    except RuntimeError:
+        # No running loop - use asyncio.run()
+        return asyncio.run(coro)
 
 
 def _check_gemini_configured():
@@ -55,10 +61,11 @@ async def _fetch_participants_for_risk_brief_async(participant_ids: List[int]) -
     """
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
-    from ..shared.database import async_session_factory
+    from ..shared.database import get_celery_session_factory
     from ..domains.construction.models import Person, ProjectContractor
 
-    async with async_session_factory() as db:
+    session_factory = get_celery_session_factory()
+    async with session_factory() as db:
         # Fetch persons with their organizations eagerly loaded
         result = await db.execute(
             select(Person)
@@ -304,12 +311,14 @@ def _sync_job_to_db(
     Create/update TranscriptionJob record in PostgreSQL for stats tracking.
 
     Called when job is created to sync Redis -> PostgreSQL.
+    Uses fresh async session factory to avoid event loop issues.
     """
-    from ..shared.database import async_session_factory
+    from ..shared.database import get_celery_session_factory
     from ..shared.models import TranscriptionJob
 
     async def _async_create():
-        async with async_session_factory() as db:
+        session_factory = get_celery_session_factory()
+        async with session_factory() as db:
             try:
                 # Create new record
                 job = TranscriptionJob(
@@ -348,14 +357,15 @@ def _update_job_in_db(
 ) -> None:
     """
     Update TranscriptionJob record in PostgreSQL after processing completes.
+    Uses fresh async session factory to avoid event loop issues.
     """
-    from datetime import datetime
     from sqlalchemy import update
-    from ..shared.database import async_session_factory
+    from ..shared.database import get_celery_session_factory
     from ..shared.models import TranscriptionJob
 
     async def _async_update():
-        async with async_session_factory() as db:
+        session_factory = get_celery_session_factory()
+        async with session_factory() as db:
             try:
                 update_data = {
                     "status": status,
@@ -382,7 +392,29 @@ def _update_job_in_db(
                     TranscriptionJob.job_id == job_id
                 ).values(**update_data)
 
-                await db.execute(stmt)
+                result = await db.execute(stmt)
+
+                # Fallback: if no rows updated, record doesn't exist - create it
+                if result.rowcount == 0:
+                    logger.warning(f"TranscriptionJob record not found for {job_id}, creating new record")
+                    job = TranscriptionJob(
+                        job_id=job_id,
+                        status=status,
+                        domain="construction",
+                        processing_time_seconds=processing_time_seconds,
+                        audio_duration_seconds=audio_duration_seconds,
+                        segment_count=segment_count,
+                        speaker_count=speaker_count,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        artifacts=artifacts,
+                        error_message=error_message,
+                        error_stage=error_stage,
+                    )
+                    if status == "completed":
+                        job.completed_at = datetime.now()
+                    db.add(job)
+
                 await db.commit()
                 logger.info(f"TranscriptionJob record updated for {job_id}: {status}")
             except Exception as e:
@@ -419,13 +451,14 @@ def _save_domain_report(
         ai_analysis: AIAnalysis object from generate_analysis() for dashboard integration
         artifact_options: Dict with artifact options including participant_ids
     """
-    from ..shared.database import async_session_factory
+    from ..shared.database import get_celery_session_factory
     from ..domains.factory import DomainServiceFactory
 
     artifact_options = artifact_options or {}
 
     async def _async_save():
-        async with async_session_factory() as db:
+        session_factory = get_celery_session_factory()
+        async with session_factory() as db:
             try:
                 # Create domain service via factory
                 service = DomainServiceFactory.create(domain_type)
@@ -767,10 +800,31 @@ def process_text_task(
     Generates reports via LLM without transcription.
     """
     import asyncio
+    import os
     from pathlib import Path
 
     logger.info(f"Starting text processing job: {job_id}")
     logger.info(f"Input: {input_file}")
+
+    # Create job record in PostgreSQL for history tracking
+    input_path = Path(input_file)
+    source_filename = input_path.name
+    try:
+        source_size_bytes = os.path.getsize(input_file)
+    except Exception:
+        source_size_bytes = None
+
+    _sync_job_to_db(
+        job_id=job_id,
+        domain=domain_type or "construction",
+        meeting_type=None,
+        user_id=uploader_id,
+        guest_uid=guest_uid,
+        project_id=project_id,
+        source_filename=source_filename,
+        source_size_bytes=source_size_bytes,
+        status="processing",
+    )
 
     # Import the async function from API routes
     from ..api.routes.transcription import run_text_report_generation

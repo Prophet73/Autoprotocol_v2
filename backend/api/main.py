@@ -10,6 +10,12 @@ Provides REST API for:
 import os
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+_env_path = Path(__file__).parent.parent.parent / ".env"
+load_dotenv(_env_path)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

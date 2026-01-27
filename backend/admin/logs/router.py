@@ -1,8 +1,8 @@
 """
-Error logs router.
+Роутер логов ошибок.
 
-Endpoints for viewing and managing error logs.
-All endpoints require superuser privileges.
+Эндпоинты для просмотра и управления логами ошибок.
+Все эндпоинты требуют прав суперпользователя.
 """
 from datetime import datetime
 from typing import Annotated, Optional
@@ -28,18 +28,18 @@ router = APIRouter(prefix="/logs", tags=["Админ - Логи ошибок"])
 async def list_logs(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(50, ge=1, le=200, description="Records per page"),
-    endpoint: Optional[str] = Query(None, description="Filter by endpoint (partial match)"),
-    error_type: Optional[str] = Query(None, description="Filter by error type"),
-    status_code: Optional[int] = Query(None, description="Filter by status code"),
-    start_date: Optional[datetime] = Query(None, description="Filter by start date"),
-    end_date: Optional[datetime] = Query(None, description="Filter by end date"),
+    page: int = Query(1, ge=1, description="Номер страницы"),
+    page_size: int = Query(50, ge=1, le=200, description="Записей на странице"),
+    endpoint: Optional[str] = Query(None, description="Фильтр по эндпоинту (частичное совпадение)"),
+    error_type: Optional[str] = Query(None, description="Фильтр по типу ошибки"),
+    status_code: Optional[int] = Query(None, description="Фильтр по коду статуса"),
+    start_date: Optional[datetime] = Query(None, description="Начало периода"),
+    end_date: Optional[datetime] = Query(None, description="Конец периода"),
 ) -> ErrorLogListResponse:
     """
-    List error logs with pagination and filtering.
+    Список логов ошибок с пагинацией и фильтрацией.
 
-    Requires superuser privileges.
+    Требует прав суперпользователя.
     """
     service = ErrorLogService(db)
     return await service.list_logs(
@@ -64,12 +64,12 @@ async def get_summary(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ErrorLogSummary:
     """
-    Get error log summary statistics.
+    Получить сводную статистику логов ошибок.
 
-    Includes:
-    - Total errors
-    - Errors today and this week
-    - Breakdown by endpoint, error type, and status code
+    Включает:
+    - Всего ошибок
+    - Ошибки за сегодня и эту неделю
+    - Разбивка по эндпоинту, типу ошибки и коду статуса
     """
     service = ErrorLogService(db)
     return await service.get_summary()
@@ -86,7 +86,7 @@ async def get_log(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ErrorLogResponse:
-    """Get error log details by ID."""
+    """Получить детали лога ошибки по ID."""
     service = ErrorLogService(db)
     log = await service.get_log(log_id)
     if not log:
@@ -116,16 +116,16 @@ async def get_log(
 async def cleanup_logs(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-    days: int = Query(30, ge=1, le=365, description="Delete logs older than this many days"),
+    days: int = Query(30, ge=1, le=365, description="Удалить логи старше указанного количества дней"),
 ) -> dict:
     """
-    Delete old error logs.
+    Удалить старые логи ошибок.
 
-    Args:
-        days: Number of days to keep logs (default 30)
+    Аргументы:
+        days: Сколько дней хранить логи (по умолчанию 30)
 
-    Returns:
-        Number of deleted logs
+    Возвращает:
+        Количество удалённых логов
     """
     service = ErrorLogService(db)
     deleted = await service.delete_old_logs(days=days)

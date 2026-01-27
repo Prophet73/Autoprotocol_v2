@@ -1,8 +1,8 @@
 """
-System settings router.
+Роутер системных настроек.
 
-CRUD endpoints for dynamic system configuration.
-All endpoints require superuser privileges.
+CRUD эндпоинты для динамической конфигурации системы.
+Все эндпоинты требуют прав суперпользователя.
 """
 from typing import Annotated
 
@@ -36,7 +36,7 @@ async def list_settings(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
 ) -> SettingListResponse:
-    """List all system settings."""
+    """Получить список всех системных настроек."""
     service = SettingsService(db)
     return await service.list_settings(skip=skip, limit=limit)
 
@@ -52,7 +52,7 @@ async def get_setting(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SettingResponse:
-    """Get a specific setting."""
+    """Получить конкретную настройку."""
     service = SettingsService(db)
     setting = await service.get_setting(key)
     if not setting:
@@ -75,7 +75,7 @@ async def create_setting(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SettingResponse:
-    """Create a new setting."""
+    """Создать новую настройку."""
     service = SettingsService(db)
     try:
         setting = await service.create_setting(
@@ -102,7 +102,7 @@ async def update_setting(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SettingResponse:
-    """Update a setting."""
+    """Обновить настройку."""
     service = SettingsService(db)
     try:
         setting = await service.update_setting(
@@ -129,7 +129,7 @@ async def delete_setting(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
-    """Delete a setting."""
+    """Удалить настройку."""
     service = SettingsService(db)
     deleted = await service.delete_setting(key)
     if not deleted:
@@ -150,7 +150,7 @@ async def bulk_update_settings(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SettingListResponse:
-    """Update multiple settings at once."""
+    """Обновить несколько настроек одновременно."""
     service = SettingsService(db)
     settings = await service.bulk_update(
         request.settings,
@@ -172,7 +172,7 @@ async def initialize_defaults(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    """Initialize default settings."""
+    """Инициализировать настройки по умолчанию."""
     service = SettingsService(db)
     created = await service.initialize_defaults(
         updated_by=current_user.email,

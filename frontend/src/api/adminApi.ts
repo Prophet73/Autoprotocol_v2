@@ -166,26 +166,9 @@ export const usersApi = {
     return response.data;
   },
 
-  // Batch update project access (convenience method)
+  // Batch update project access (single request)
   updateProjectAccess: async (userId: number, projectIds: number[]): Promise<void> => {
-    // Get current access
-    const current = await usersApi.getUserProjects(userId);
-    const currentSet = new Set(current.project_ids);
-    const newSet = new Set(projectIds);
-
-    // Revoke access to projects no longer in the list
-    for (const id of current.project_ids) {
-      if (!newSet.has(id)) {
-        await usersApi.revokeProjectAccess(userId, id);
-      }
-    }
-
-    // Grant access to new projects
-    for (const id of projectIds) {
-      if (!currentSet.has(id)) {
-        await usersApi.grantProjectAccess(userId, id);
-      }
-    }
+    await adminApi.put(`/api/admin/users/${userId}/projects`, { project_ids: projectIds });
   },
 
   // Get users who have access to a project
@@ -193,6 +176,17 @@ export const usersApi = {
     const response = await adminApi.get(`/api/admin/users/by-project/${projectId}`, {
       params: { include_details: includeDetails },
     });
+    return response.data;
+  },
+
+  // Domain access management
+  getUserDomains: async (userId: number): Promise<string[]> => {
+    const response = await adminApi.get(`/api/admin/users/${userId}/domains`);
+    return response.data;
+  },
+
+  updateDomains: async (userId: number, domains: string[]): Promise<AdminUser> => {
+    const response = await adminApi.post(`/api/admin/users/${userId}/domains`, domains);
     return response.data;
   },
 };

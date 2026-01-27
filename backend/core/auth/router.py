@@ -34,14 +34,14 @@ router = APIRouter(prefix="/auth", tags=["Авторизация"])
 # =============================================================================
 
 class Token(BaseModel):
-    """JWT token response."""
+    """Ответ с JWT токеном."""
     access_token: str
     token_type: str = "bearer"
     expires_in: int
 
 
 class UserInfo(BaseModel):
-    """Current user info response."""
+    """Ответ с информацией о текущем пользователе."""
     id: int
     email: str
     username: str | None
@@ -58,7 +58,7 @@ class UserInfo(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    """Registration request."""
+    """Запрос на регистрацию нового пользователя."""
     email: EmailStr
     password: str
     full_name: str | None = None
@@ -79,14 +79,14 @@ async def login(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
     """
-    Login with email/username and password.
+    Аутентификация по email/username и паролю.
 
-    Returns JWT token for authentication.
+    Возвращает JWT токен для авторизации.
 
-    Use this token in Authorization header:
+    Использование токена в заголовке Authorization:
     `Authorization: Bearer <token>`
     """
-    # Find user by email OR username
+    # Поиск пользователя по email ИЛИ username
     result = await db.execute(
         select(User).where(
             or_(
@@ -110,7 +110,7 @@ async def login(
             detail="User account is deactivated"
         )
 
-    # Create access token
+    # Создание токена доступа
     access_token = create_access_token(
         data={"sub": user.email},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -134,12 +134,12 @@ async def register(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserInfo:
     """
-    Register a new user.
+    Регистрация нового пользователя.
 
-    Note: New users are created with 'user' role.
-    Superuser privileges must be granted by another superuser.
+    Примечание: Новые пользователи создаются с ролью 'user'.
+    Права суперпользователя должны быть выданы другим суперпользователем.
     """
-    # Check if email exists
+    # Проверка существования email
     result = await db.execute(
         select(User).where(User.email == data.email)
     )
@@ -149,7 +149,7 @@ async def register(
             detail="Email already registered"
         )
 
-    # Create user
+    # Создание пользователя
     user = User(
         email=data.email,
         hashed_password=get_password_hash(data.password),
@@ -170,12 +170,12 @@ async def register(
     description="Получение информации о текущем авторизованном пользователе."
 )
 async def get_me(current_user: CurrentUser) -> UserInfo:
-    """Get current user info."""
+    """Получить информацию о текущем пользователе."""
     return UserInfo.model_validate(current_user)
 
 
 class SetDomainRequest(BaseModel):
-    """Request to set active domain."""
+    """Запрос на установку активного домена."""
     domain: str
 
 
@@ -191,14 +191,14 @@ async def set_active_domain(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserInfo:
     """
-    Set active domain for current user.
+    Установить активный домен для текущего пользователя.
 
-    User must have access to the domain (or be superuser).
+    Пользователь должен иметь доступ к домену (или быть суперпользователем).
     """
-    # Check if user has access to domain
+    # Проверка доступа пользователя к домену
     allowed_domains = current_user.domains if current_user.domains else []
 
-    # Superusers can access any domain
+    # Суперпользователи имеют доступ к любому домену
     if current_user.is_superuser:
         allowed_domains = ["construction", "hr", "it", "general"]
 
@@ -208,7 +208,7 @@ async def set_active_domain(
             detail=f"No access to domain: {data.domain}. Allowed: {allowed_domains}"
         )
 
-    # Update active domain
+    # Обновление активного домена
     current_user.active_domain = data.domain
     await db.commit()
     await db.refresh(current_user)
@@ -217,14 +217,14 @@ async def set_active_domain(
 
 
 # =============================================================================
-# Dev Tools (only in development mode)
+# Инструменты разработчика (только в режиме разработки)
 # =============================================================================
 
 import os
 import warnings
 
-# DEV_MODE is disabled by default for security
-# Only enable in explicit development environment
+# DEV_MODE по умолчанию отключён из соображений безопасности
+# Включается только в явном окружении разработки
 _env = os.getenv("ENVIRONMENT", "production").lower()
 DEV_MODE = _env in ("development", "dev", "local")
 
@@ -237,12 +237,12 @@ if DEV_MODE:
 
 
 class DevLoginRequest(BaseModel):
-    """Dev login request - select role to login as."""
+    """Запрос быстрого входа - выбор роли для входа."""
     role: str  # admin, manager, user
 
 
 class DevUsersList(BaseModel):
-    """List of available dev users."""
+    """Список доступных тестовых пользователей."""
     users: list[dict]
     enabled: bool
 
@@ -256,11 +256,11 @@ class DevUsersList(BaseModel):
 async def dev_list_users(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> DevUsersList:
-    """List available dev users for quick login."""
+    """Получить список доступных тестовых пользователей для быстрого входа."""
     if not DEV_MODE:
         return DevUsersList(users=[], enabled=False)
 
-    # Get existing users
+    # Получение существующих пользователей
     result = await db.execute(select(User).where(User.is_active == True))
     users = result.scalars().all()
 
@@ -290,11 +290,11 @@ async def dev_login(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
     """
-    Quick login as a specific role or existing user for development testing.
+    Быстрый вход под определённой ролью или существующим пользователем для тестирования.
 
-    Accepts:
-    - Role name (admin/manager/user) - creates user if doesn't exist
-    - Email address - logs in as existing user
+    Принимает:
+    - Название роли (admin/manager/user) - создаёт пользователя если не существует
+    - Email адрес - входит под существующим пользователем
     """
     if not DEV_MODE:
         raise HTTPException(
@@ -302,7 +302,7 @@ async def dev_login(
             detail="Dev login disabled in production"
         )
 
-    # Map role to user config
+    # Маппинг роли на конфигурацию пользователя
     role_configs = {
         "admin": {
             "email": "admin@dev.local",
@@ -326,9 +326,9 @@ async def dev_login(
 
     user = None
 
-    # Check if input is an email (contains @)
+    # Проверка является ли ввод email (содержит @)
     if "@" in data.role:
-        # Login as existing user by email
+        # Вход под существующим пользователем по email
         result = await db.execute(
             select(User).where(User.email == data.role, User.is_active == True)
         )
@@ -340,7 +340,7 @@ async def dev_login(
                 detail=f"User with email {data.role} not found"
             )
     elif data.role in role_configs:
-        # Login by role - find or create
+        # Вход по роли - найти или создать
         config = role_configs[data.role]
 
         result = await db.execute(
@@ -349,7 +349,7 @@ async def dev_login(
         user = result.scalar_one_or_none()
 
         if not user:
-            # Create dev user
+            # Создание dev пользователя
             user = User(
                 email=config["email"],
                 hashed_password=get_password_hash("devpassword"),
@@ -367,7 +367,7 @@ async def dev_login(
             detail=f"Invalid input. Use role ({list(role_configs.keys())}) or email address."
         )
 
-    # Create access token
+    # Создание токена доступа
     access_token = create_access_token(
         data={"sub": user.email},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),

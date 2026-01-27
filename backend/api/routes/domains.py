@@ -1,7 +1,7 @@
 """
-Domain API endpoints.
+Эндпоинты доменов API.
 
-Provides information about available domains and their meeting types.
+Предоставляет информацию о доступных доменах и их типах встреч.
 """
 from typing import List
 
@@ -13,16 +13,16 @@ from backend.domains.base_schemas import (
     DOMAIN_MEETING_TYPES,
 )
 
-router = APIRouter(prefix="/domains", tags=["Domains"])
+router = APIRouter(prefix="/domains", tags=["Домены"])
 
 
-@router.get("/")
+@router.get("/", summary="Список доменов", description="Получение списка всех доступных доменов.")
 async def list_domains() -> dict:
     """
-    List all available domains.
+    Список всех доступных доменов.
 
-    Returns:
-        Dictionary with domain names and their meeting type counts.
+    Возвращает:
+        Словарь с названиями доменов и количеством типов встреч.
     """
     return {
         "domains": [
@@ -36,19 +36,19 @@ async def list_domains() -> dict:
     }
 
 
-@router.get("/{domain}/meeting-types")
+@router.get("/{domain}/meeting-types", summary="Типы встреч домена", description="Получение доступных типов встреч для указанного домена.")
 async def get_domain_meeting_types(domain: str) -> List[MeetingTypeInfo]:
     """
-    Get available meeting types for a domain.
+    Получить доступные типы встреч для домена.
 
-    Args:
-        domain: Domain identifier (construction, hr, it)
+    Аргументы:
+        domain: Идентификатор домена (construction, hr, it)
 
-    Returns:
-        List of meeting types with their IDs and display names.
+    Возвращает:
+        Список типов встреч с их ID и отображаемыми названиями.
 
-    Raises:
-        HTTPException: If domain is not found.
+    Исключения:
+        HTTPException: Если домен не найден.
     """
     if domain not in DOMAIN_MEETING_TYPES:
         raise HTTPException(
@@ -60,7 +60,7 @@ async def get_domain_meeting_types(domain: str) -> List[MeetingTypeInfo]:
 
 
 def _get_domain_display_name(domain: str) -> str:
-    """Get human-readable domain name."""
+    """Получить человекочитаемое название домена."""
     names = {
         "construction": "Строительство",
         "hr": "HR / Персонал",

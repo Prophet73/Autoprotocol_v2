@@ -233,6 +233,17 @@ def _get_risk_brief(transcript_text: str) -> RiskBrief:
                     elif cat not in valid_concern_values:
                         concern["category"] = ConcernCategory.OTHER.value
 
+        # Fix responsible field if LLM returned list instead of string
+        if "risks" in brief_data and brief_data["risks"]:
+            for risk in brief_data["risks"]:
+                if isinstance(risk, dict):
+                    # responsible: convert list to comma-separated string
+                    if "responsible" in risk and isinstance(risk["responsible"], list):
+                        risk["responsible"] = ", ".join(str(r) for r in risk["responsible"]) if risk["responsible"] else None
+                    # suggested_responsible: same fix
+                    if "suggested_responsible" in risk and isinstance(risk["suggested_responsible"], list):
+                        risk["suggested_responsible"] = ", ".join(str(r) for r in risk["suggested_responsible"]) if risk["suggested_responsible"] else None
+
         # Fix abbreviations if LLM returned strings instead of objects
         if "abbreviations" in brief_data and brief_data["abbreviations"]:
             fixed_abbrs = []
@@ -334,11 +345,11 @@ def _render_html(
     # Build abbreviations
     abbr_text = _build_abbreviations(risk_brief.abbreviations)
 
-    # Participants section
-    participants_html = _build_participants_section(participants) if participants else ""
+    # Participants section - always shown (with placeholder if empty)
+    participants_html = _build_participants_section(participants)
     # DEBUG: log what we received
     logger.warning(f"[RISK BRIEF RENDER] participants received: {participants}")
-    logger.warning(f"[RISK BRIEF RENDER] participants_html: {participants_html[:200] if participants_html else 'EMPTY'}")
+    logger.warning(f"[RISK BRIEF RENDER] participants_html length: {len(participants_html)}")
 
     # Project info - prefer passed values over LLM-extracted
     effective_project_name = project_name or risk_brief.project_name or "Не указан"
@@ -378,14 +389,14 @@ def _render_html(
             --text-dark: #2b2f33;
             --bg-light: #f8f9fa;
             --bg-page: #e5e7eb;
-            --matrix-green: #22c55e;
-            --matrix-yellow: #eab308;
-            --matrix-orange: #f97316;
+            --matrix-green: #16a34a;
+            --matrix-yellow: #ca8a04;
+            --matrix-orange: #ea580c;
             --matrix-red: #dc2626;
-            --matrix-green-bg: #dcfce7;
-            --matrix-yellow-bg: #fef9c3;
-            --matrix-orange-bg: #ffedd5;
-            --matrix-red-bg: #fee2e2;
+            --matrix-green-bg: #bbf7d0;
+            --matrix-yellow-bg: #fef08a;
+            --matrix-orange-bg: #fed7aa;
+            --matrix-red-bg: #fecaca;
         }}
 
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -625,10 +636,33 @@ def _render_html(
         }}
 
         .axis-title {{
-            font-size: 8px;
-            color: #666;
-            font-weight: 500;
+            font-size: 9px;
+            color: #000;
+            font-weight: 700;
             text-transform: uppercase;
+            letter-spacing: 1px;
+        }}
+
+        .matrix-with-axes {{
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }}
+
+        .y-axis-label {{
+            transform: rotate(-90deg);
+            transform-origin: center center;
+            white-space: nowrap;
+            font-size: 9px;
+            color: #000;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 120px;
+            width: 20px;
         }}
 
         .matrix-x-row td {{ border: none !important; background: none !important; }}
@@ -689,239 +723,276 @@ def _render_html(
         .risk-card {{
             background: white;
             border-radius: 0 4px 4px 0;
-            padding: 10px 12px;
-            margin-bottom: 8px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            page-break-inside: avoid;
+            break-inside: avoid;
         }}
 
         .risk-card-header {{
             display: flex;
             align-items: center;
             flex-wrap: wrap;
-            gap: 6px;
+            gap: 8px;
             margin-bottom: 6px;
         }}
 
         .risk-id-badge {{
             color: white;
-            padding: 3px 8px;
+            padding: 4px 10px;
             border-radius: 3px;
-            font-size: 10px;
+            font-size: 11px;
             font-weight: 700;
-        }}
-
-        .risk-score-badge {{
-            background: #f3f4f6;
-            color: #374151;
-            padding: 3px 8px;
-            border-radius: 3px;
-            font-size: 9px;
-            font-weight: 500;
         }}
 
         .tag-category {{
             background: #e5e7eb;
             color: #374151;
-            padding: 2px 8px;
+            padding: 3px 10px;
             border-radius: 3px;
-            font-size: 8px;
+            font-size: 9px;
             font-weight: 600;
         }}
 
         .tag-blocker {{
             background: var(--brand-red);
             color: white;
-            padding: 2px 6px;
+            padding: 3px 8px;
             border-radius: 3px;
-            font-size: 8px;
+            font-size: 9px;
             font-weight: 600;
         }}
 
         .risk-title-row {{
-            font-weight: 600;
-            font-size: 11px;
+            font-weight: 700;
+            font-size: 12px;
             margin-bottom: 6px;
             color: #222;
         }}
 
-        .risk-desc {{
-            font-size: 9.5px;
-            color: #444;
-            margin-bottom: 6px;
-            line-height: 1.4;
-        }}
-
-        .risk-evidence {{
-            font-size: 9px;
-            color: #4b5563;
-            margin-bottom: 6px;
-            font-style: italic;
-            background: #f9fafb;
-            padding: 4px 8px;
-            border-radius: 3px;
-            border-left: 2px solid var(--brand-red);
-        }}
-
-        .risk-consequences {{
-            color: #7f1d1d;
-            font-size: 9px;
-            margin-bottom: 4px;
-        }}
-
-        .risk-mitigation {{
-            color: #14532d;
-            font-size: 9px;
-            margin-bottom: 6px;
-        }}
-
-        .ai-hint {{
-            color: #888;
-            font-weight: normal;
-            font-size: 8px;
-        }}
-
-        /* Risk Drivers */
-        .drivers-section {{
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px dashed #ddd;
-        }}
-
-        .drivers-title {{
-            font-size: 9px;
-            font-weight: 600;
+        /* Evidence inline - right after title */
+        .evidence-inline {{
+            font-size: 11px;
             color: #555;
-            margin-bottom: 6px;
+            margin-bottom: 10px;
+            padding: 6px 10px;
+            background: #f9fafb;
+            border-left: 2px solid var(--brand-gray);
+            border-radius: 0 3px 3px 0;
         }}
 
-        .driver-item {{
-            display: flex;
-            gap: 8px;
-            margin-bottom: 6px;
-            padding: 6px 8px;
-            background: #fafafa;
-            border-radius: 3px;
-            border-left: 3px solid #ccc;
-        }}
-
-        .driver-item.driver-root-cause {{
-            border-left-color: #7f1d1d;
-            background: #fef2f2;
-        }}
-
-        .driver-item.driver-aggravator {{
-            border-left-color: #b45309;
-            background: #fffbeb;
-        }}
-
-        .driver-item.driver-blocker {{
-            border-left-color: #6b21a8;
-            background: #faf5ff;
-        }}
-
-        .driver-id {{
-            font-weight: 700;
-            font-size: 9px;
-            color: #444;
-            min-width: 35px;
-        }}
-
-        .driver-content {{
-            flex: 1;
-        }}
-
-        .driver-type-tag {{
-            font-size: 7px;
-            padding: 1px 5px;
-            border-radius: 2px;
-            color: white;
-            font-weight: 600;
-            margin-left: 6px;
-        }}
-
-        .driver-type-tag.root-cause {{ background: #7f1d1d; }}
-        .driver-type-tag.aggravator {{ background: #b45309; }}
-        .driver-type-tag.blocker {{ background: #6b21a8; }}
-
-        .driver-title {{
-            font-weight: 600;
-            font-size: 9px;
+        .evidence-inline strong {{
             color: #333;
         }}
 
-        .driver-desc {{
-            font-size: 8.5px;
-            color: #555;
-            margin-top: 2px;
+        .risk-desc {{
+            font-size: 11px;
+            color: #444;
+            margin-bottom: 12px;
+            line-height: 1.5;
         }}
 
-        .driver-evidence {{
-            font-size: 8px;
-            color: #666;
-            font-style: italic;
-            margin-top: 3px;
-            padding: 3px 6px;
-            background: white;
-            border-radius: 2px;
+        /* Factors section - inline style */
+        .factors-section {{
+            margin-bottom: 12px;
         }}
 
-        /* Compact risks */
-        .compact-table {{
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 9px;
+        .factor-item {{
+            margin-bottom: 8px;
+            line-height: 1.5;
         }}
 
-        .compact-table tr {{ border-bottom: 1px solid #eee; page-break-inside: avoid; break-inside: avoid; }}
-        .compact-id {{ width: 40px; padding: 4px; vertical-align: top; }}
-        .compact-name {{ padding: 4px 8px; vertical-align: top; }}
-        .compact-desc {{ display: block; color: #666; font-size: 8.5px; margin-top: 2px; }}
-
-        /* Compact drivers for secondary risks */
-        .compact-drivers {{
-            margin-top: 6px;
-            padding-top: 4px;
-            border-top: 1px dashed #ddd;
+        .factor-label {{
+            font-weight: 700;
+            font-size: 11px;
+            color: #333;
         }}
 
-        .compact-driver {{
-            display: flex;
-            flex-wrap: wrap;
-            align-items: baseline;
-            gap: 4px;
-            margin-bottom: 3px;
-            font-size: 8px;
-        }}
-
-        .compact-driver-id {{
-            font-weight: 600;
-            color: #666;
-            min-width: 30px;
-        }}
-
-        .compact-driver-title {{
-            font-weight: 500;
+        .factor-text {{
+            font-size: 11px;
             color: #444;
         }}
 
-        .compact-driver-type {{
-            font-size: 7px;
-            padding: 1px 4px;
-            border-radius: 2px;
-            color: white;
-            font-weight: 600;
+        /* Outcome boxes - consequences & mitigation */
+        .outcome-boxes {{
+            display: flex;
+            gap: 12px;
         }}
 
-        .compact-driver-type.type-root_cause {{ background: #7f1d1d; }}
-        .compact-driver-type.type-aggravator {{ background: #b45309; }}
-        .compact-driver-type.type-blocker {{ background: #6b21a8; }}
+        .outcome-box {{
+            flex: 1;
+            padding: 10px 12px;
+            border-radius: 4px;
+        }}
 
-        .compact-driver-desc {{
-            display: block;
-            width: 100%;
+        .outcome-box.consequences {{
+            background: var(--matrix-red-bg);
+            border-left: 3px solid var(--matrix-red);
+        }}
+
+        .outcome-box.mitigation {{
+            background: var(--matrix-green-bg);
+            border-left: 3px solid var(--matrix-green);
+        }}
+
+        .outcome-label {{
+            font-size: 11px;
+            color: #333;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }}
+
+        .ai-label {{
+            font-weight: 700;
+            font-size: 11px;
+            color: #222;
+        }}
+
+        .outcome-type {{
+            font-weight: 400;
+            font-size: 10px;
             color: #666;
-            font-size: 8px;
-            margin-top: 1px;
-            padding-left: 34px;
+        }}
+
+        .outcome-text {{
+            font-size: 10.5px;
+            color: #333;
+            line-height: 1.5;
+        }}
+
+        /* Decision box - что решили на совещании */
+        .decision-box {{
+            background: #e0f2fe;
+            border-left: 3px solid #0284c7;
+            padding: 10px 12px;
+            border-radius: 4px;
+            margin-bottom: 12px;
+        }}
+
+        .decision-label {{
+            font-weight: 700;
+            font-size: 11px;
+            color: #0369a1;
+            margin-bottom: 4px;
+        }}
+
+        .decision-text {{
+            font-size: 11px;
+            color: #333;
+            line-height: 1.5;
+        }}
+
+        /* No decision badge */
+        .no-decision-badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            color: #b45309;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }}
+
+        .no-decision-badge::before {{
+            content: "⚠️";
+        }}
+
+        /* Risk ID with no decision (exclamation mark) */
+        .risk-dot-no-decision {{
+            position: relative;
+        }}
+
+        .risk-dot-no-decision::after {{
+            content: "!";
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            background: #f59e0b;
+            color: white;
+            font-size: 7px;
+            font-weight: 700;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+
+        /* Timecode styling */
+        .timecode {{
+            font-size: 9px;
+            color: #6b7280;
+            font-family: monospace;
+            background: #f3f4f6;
+            padding: 1px 4px;
+            border-radius: 2px;
+            margin-left: 4px;
+        }}
+
+        /* Secondary risks */
+        .secondary-risk-item {{
+            background: white;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #b45309;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }}
+
+        .secondary-risk-header {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }}
+
+        .secondary-risk-id {{
+            background: #b45309;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-weight: 700;
+        }}
+
+        .secondary-risk-title {{
+            font-weight: 700;
+            font-size: 12px;
+            color: #333;
+        }}
+
+        .secondary-risk-desc {{
+            font-size: 10.5px;
+            color: #555;
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }}
+
+        .secondary-factors {{
+            font-size: 10px;
+            color: #555;
+            line-height: 1.5;
+        }}
+
+        .secondary-factor {{
+            margin-bottom: 4px;
+        }}
+
+        .secondary-factor-label {{
+            font-weight: 700;
+            color: #333;
+        }}
+
+        .secondary-risks {{
+            margin-top: 8px;
         }}
 
         /* Linear sections (hypotheses, questions) */
@@ -1150,18 +1221,18 @@ def _render_html(
 
     {participants_html}
 
-    <!-- BLOCK 2: SUMMARY + ATMOSPHERE -->
+    <!-- BLOCK 2-3: SUMMARY + ATMOSPHERE -->
     <div class="summary-atm-row">
         <div class="summary-box">
             <div class="block-title">
-                <span class="block-num">Блок {'2' if participants_html else '1'}</span>
+                <span class="block-num">Блок 2</span>
                 <span class="block-name">О совещании</span>
             </div>
             <div class="summary-text">{risk_brief.executive_summary}</div>
         </div>
         <div class="atmosphere-box" style="border-left: 4px solid {atm['color']};">
             <div class="block-title">
-                <span class="block-num">Блок {'3' if participants_html else '2'}</span>
+                <span class="block-num">Блок 3</span>
                 <span class="block-name">Атмосфера</span>
                 <span class="atm-level" style="color: {atm['color']}; margin-left: auto;">{atm['label']}</span>
             </div>
@@ -1169,17 +1240,29 @@ def _render_html(
         </div>
     </div>
 
-    <!-- BLOCK 3: MATRIX + GROUPS -->
+    <!-- BLOCK 4: НЕЗАКРЫТЫЕ ВОПРОСЫ (moved up, renamed from Модерация совещания) -->
+    <div class="linear-section questions">
+        <div class="block-title">
+            <span class="block-num">Блок 4</span>
+            <span class="block-name">Незакрытые вопросы</span>
+        </div>
+        {_build_question_items(risk_brief.concerns) if risk_brief.concerns else '<div class="empty-block">Незакрытых вопросов не выявлено</div>'}
+    </div>
+
+    <!-- BLOCK 5: MATRIX + GROUPS -->
     <div class="matrix-section">
         <div class="matrix-wrapper">
             <div class="block-title">
-                <span class="block-num">Блок {'4' if participants_html else '3'}</span>
+                <span class="block-num">Блок 5</span>
                 <span class="block-name">Матрица рисков</span>
             </div>
-            <table class="matrix-table">
-                <tbody>{matrix_cells}</tbody>
-            </table>
-            <div class="axis-title" style="text-align:center; margin-top:4px;">Вероятность →</div>
+            <div class="matrix-with-axes">
+                <div class="y-axis-label">ПОСЛЕДСТВИЯ ↑</div>
+                <table class="matrix-table">
+                    <tbody>{matrix_cells}</tbody>
+                </table>
+            </div>
+            <div class="axis-title" style="text-align:center; margin-top:4px; margin-left:40px;">ВЕРОЯТНОСТЬ →</div>
         </div>
         <div class="groups-panel">
             <div class="box-header" style="margin-bottom: 6px;">Группы рисков (все категории)</div>
@@ -1199,10 +1282,10 @@ def _render_html(
         </div>
     </div>
 
-    <!-- BLOCK 4: RISK BREAKDOWN -->
+    <!-- BLOCK 6: RISK BREAKDOWN -->
     <div class="risks-section">
         <div class="block-title">
-            <span class="block-num">Блок {'5' if participants_html else '4'}</span>
+            <span class="block-num">Блок 6</span>
             <span class="block-name">Разбор рисков</span>
         </div>
 
@@ -1212,33 +1295,24 @@ def _render_html(
         <div class="risks-cards">{critical_cards if critical_cards else '<div class="no-items">Критических рисков не выявлено</div>'}</div>
 
         <div class="subsection-title">Вторичные риски</div>
-        <table class="compact-table">
+        <div class="secondary-risks">
             {low_risk_rows}
-        </table>
+        </div>
     </div>
 
-    <!-- BLOCK 6: HYPOTHESES (always shown) -->
+    <!-- BLOCK 7: HYPOTHESES (always shown) -->
     <div class="linear-section hypotheses">
         <div class="block-title">
-            <span class="block-num">Блок {'6' if participants_html else '5'}</span>
+            <span class="block-num">Блок 7</span>
             <span class="block-name">Гипотезы</span>
         </div>
         {hypothesis_items if has_hypotheses else '<div class="empty-block">Не выявлено</div>'}
     </div>
 
-    <!-- BLOCK 7: OPEN QUESTIONS (always shown) -->
-    <div class="linear-section questions">
-        <div class="block-title">
-            <span class="block-num">Блок {'7' if participants_html else '6'}</span>
-            <span class="block-name">Незакрытые вопросы</span>
-        </div>
-        {_build_question_items(risk_brief.concerns) if risk_brief.concerns else '<div class="empty-block">Не выявлено</div>'}
-    </div>
-
-    <!-- GLOSSARY (always shown, even if empty) -->
+    <!-- BLOCK 8: GLOSSARY (always shown, even if empty) -->
     <div class="abbr-section">
         <div class="block-title">
-            <span class="block-num">Блок {'8' if participants_html else '7'}</span>
+            <span class="block-num">Блок 8</span>
             <span class="block-name">Глоссарий</span>
         </div>
         <div class="abbr-list">{abbr_text if abbr_text else '<span style="color:#666;">Аббревиатуры не выявлены</span>'}</div>
@@ -1330,9 +1404,9 @@ def _build_matrix_cells(risks: list) -> str:
 
 
 def _build_compact_risk_rows(risks: list) -> str:
-    """Build compact risk rows (for risks below critical threshold) with optional drivers."""
+    """Build secondary risk items with decision/no-decision logic."""
     if not risks:
-        return '<tr><td colspan="2" class="no-items">Риски не выявлены</td></tr>'
+        return '<div class="no-items">Вторичных рисков не выявлено</div>'
 
     def _protect_protocol_refs(text: str) -> str:
         if not text:
@@ -1352,20 +1426,26 @@ def _build_compact_risk_rows(risks: list) -> str:
         try:
             if hasattr(risk, 'score'):
                 score = risk.score
-                color = risk.color
                 risk_id = risk.id
                 title = risk.title
                 description = risk.description
                 drivers = getattr(risk, 'drivers', [])
+                decision = getattr(risk, 'decision', None)
+                evidence = getattr(risk, 'evidence', '')
+                evidence_timecode = getattr(risk, 'evidence_timecode', '')
+                has_decision = getattr(risk, 'has_decision', bool(decision and decision.strip()))
             elif isinstance(risk, dict):
                 prob = risk.get('probability', 1)
                 imp = risk.get('impact', 1)
                 score = prob * imp
-                color = _get_risk_color(prob, imp)
                 risk_id = risk.get('id', 'R?')
                 title = risk.get('title', '')
                 description = risk.get('description', '')
                 drivers = risk.get('drivers', [])
+                decision = risk.get('decision', '')
+                evidence = risk.get('evidence', '')
+                evidence_timecode = risk.get('evidence_timecode', '')
+                has_decision = bool(decision and decision.strip())
             else:
                 continue
 
@@ -1374,59 +1454,68 @@ def _build_compact_risk_rows(risks: list) -> str:
 
             risk_items.append({
                 'score': score,
-                'color': color,
                 'id': risk_id,
                 'title': title,
                 'description': description,
-                'drivers': drivers or []
+                'drivers': drivers or [],
+                'decision': decision,
+                'evidence': evidence,
+                'evidence_timecode': evidence_timecode,
+                'has_decision': has_decision,
             })
         except Exception:
             continue
 
     if not risk_items:
-        return '<tr><td colspan="2" class="no-items">Рисков ниже порога не выявлено</td></tr>'
+        return '<div class="no-items">Вторичных рисков не выявлено</div>'
 
     # Sort by score descending
     risk_items.sort(key=lambda r: r['score'], reverse=True)
 
-    rows = []
+    items = []
     for risk in risk_items:
         title = _protect_protocol_refs(risk["title"])
         desc = _protect_protocol_refs(risk.get("description", ""))
-        desc_html = f'<span class="compact-desc">{desc}</span>' if desc else ""
 
-        # Build compact drivers HTML (only title + type tag)
-        drivers_html = ""
+        # Build factors HTML (inline style)
+        factors_html = ""
         if risk.get('drivers'):
-            driver_items = []
+            factor_items = []
             for d in risk['drivers']:
                 try:
-                    d_id = d.id if hasattr(d, 'id') else d.get('id', '')
-                    d_title = d.title if hasattr(d, 'title') else d.get('title', '')
                     d_type = (d.type.value if hasattr(d, 'type') and hasattr(d.type, 'value')
                               else d.get('type', 'root_cause'))
                     d_desc = d.description if hasattr(d, 'description') else d.get('description', '')
                     type_label = driver_type_labels.get(d_type, d_type)
 
-                    driver_items.append(
-                        f'<div class="compact-driver">'
-                        f'<span class="compact-driver-id">{d_id}</span> '
-                        f'<span class="compact-driver-title">{d_title}</span> '
-                        f'<span class="compact-driver-type type-{d_type}">{type_label}</span>'
-                        f'<span class="compact-driver-desc">{d_desc}</span>'
+                    factor_items.append(
+                        f'<div class="secondary-factor">'
+                        f'<span class="secondary-factor-label">{type_label}:</span> {d_desc}'
                         f'</div>'
                     )
                 except Exception:
                     continue
-            if driver_items:
-                drivers_html = f'<div class="compact-drivers">{"".join(driver_items)}</div>'
+            if factor_items:
+                factors_html = f'<div class="secondary-factors">{"".join(factor_items)}</div>'
 
-        rows.append(f"""<tr>
-            <td class="compact-id"><span class="risk-dot" style="background:{risk['color']};">{risk['id']}</span></td>
-            <td class="compact-name">{title}{desc_html}{drivers_html}</td>
-        </tr>""")
+        # Decision or no-decision badge for secondary risks
+        decision_html = ""
+        if risk.get('has_decision'):
+            decision_html = f'<div class="secondary-factor"><span class="secondary-factor-label">Решение:</span> {risk["decision"]}</div>'
+        else:
+            decision_html = '<div class="no-decision-badge" style="font-size:9px; padding:4px 8px;">РЕШЕНИЕ НЕ ПРИНЯТО</div>'
 
-    return "".join(rows)
+        items.append(f"""<div class="secondary-risk-item">
+            <div class="secondary-risk-header">
+                <span class="secondary-risk-id">{risk['id']}</span>
+                <span class="secondary-risk-title">{title}</span>
+            </div>
+            <div class="secondary-risk-desc">{desc}</div>
+            {factors_html}
+            {decision_html}
+        </div>""")
+
+    return "".join(items)
 
 
 def _build_critical_cards(critical_risks: list) -> str:
@@ -1693,7 +1782,7 @@ def _get_quadrant_class(probability: int, impact: int) -> str:
 
 
 def _build_matrix_cells_v2(risks: list) -> str:
-    """Build risk matrix cells HTML (5x5 grid) with quadrant background colors."""
+    """Build risk matrix cells HTML (5x5 grid) with quadrant background colors and no-decision markers."""
     # Create matrix dictionary
     matrix = {}
     for risk in risks:
@@ -1703,18 +1792,21 @@ def _build_matrix_cells_v2(risks: list) -> str:
                 imp = risk.impact
                 risk_id = risk.id
                 color = risk.color if hasattr(risk, 'color') else _get_risk_color(prob, imp)
+                has_decision = getattr(risk, 'has_decision', False)
             elif isinstance(risk, dict):
                 prob = risk.get('probability', 1)
                 imp = risk.get('impact', 1)
                 risk_id = risk.get('id', 'R?')
                 color = _get_risk_color(prob, imp)
+                decision = risk.get('decision', '')
+                has_decision = bool(decision and decision.strip())
             else:
                 continue
 
             key = (prob, imp)
             if key not in matrix:
                 matrix[key] = []
-            matrix[key].append({'id': risk_id, 'color': color})
+            matrix[key].append({'id': risk_id, 'color': color, 'has_decision': has_decision})
         except Exception:
             continue
 
@@ -1725,11 +1817,13 @@ def _build_matrix_cells_v2(risks: list) -> str:
             quad_class = _get_quadrant_class(prob, impact)
             risks_here = matrix.get((prob, impact), [])
             if risks_here:
-                dots = "".join([
-                    f'<span class="risk-dot" style="background:{r["color"]};">{r["id"]}</span>'
-                    for r in risks_here
-                ])
-                cells.append(f'<td class="matrix-cell {quad_class}">{dots}</td>')
+                dots = []
+                for r in risks_here:
+                    # Add ! suffix if no decision
+                    display_id = r["id"] if r.get("has_decision", True) else f'{r["id"]}!'
+                    extra_class = "" if r.get("has_decision", True) else " risk-dot-no-decision"
+                    dots.append(f'<span class="risk-dot{extra_class}" style="background:{r["color"]};">{display_id}</span>')
+                cells.append(f'<td class="matrix-cell {quad_class}">{"".join(dots)}</td>')
             else:
                 cells.append(f'<td class="matrix-cell {quad_class}"></td>')
         rows.append(f'<tr>{"".join(cells)}</tr>')
@@ -1762,7 +1856,7 @@ def _get_category_label(category) -> str:
 
 
 def _build_critical_cards_v2(critical_risks: list) -> str:
-    """Build critical risk cards HTML with category tags, СТОП-ФАКТОР, and drivers."""
+    """Build critical risk cards HTML with decision/no-decision logic."""
     if not critical_risks:
         return ""
 
@@ -1774,27 +1868,31 @@ def _build_critical_cards_v2(critical_risks: list) -> str:
                 title = risk.title
                 description = risk.description
                 consequences = risk.consequences
-                mitigation = risk.mitigation
+                mitigation = risk.mitigation or ""
+                decision = getattr(risk, "decision", None)
                 is_blocker = risk.is_blocker
-                score = risk.score
                 color = risk.color
                 category = _get_category_label(risk.category) if hasattr(risk, 'category') else ""
                 evidence = getattr(risk, "evidence", "")
+                evidence_timecode = getattr(risk, "evidence_timecode", "")
                 drivers = getattr(risk, "drivers", [])
+                has_decision = getattr(risk, "has_decision", bool(decision and decision.strip()))
             elif isinstance(risk, dict):
                 risk_id = risk.get('id', 'R?')
                 title = risk.get('title', '')
                 description = risk.get('description', '')
                 consequences = risk.get('consequences', '')
                 mitigation = risk.get('mitigation', '')
+                decision = risk.get('decision', '')
                 is_blocker = risk.get('is_blocker', False)
                 prob = risk.get('probability', 1)
                 imp = risk.get('impact', 1)
-                score = prob * imp
                 color = _get_risk_color(prob, imp)
                 category = risk.get('category', '')
                 evidence = risk.get('evidence', '')
+                evidence_timecode = risk.get('evidence_timecode', '')
                 drivers = risk.get('drivers', [])
+                has_decision = bool(decision and decision.strip())
             else:
                 continue
 
@@ -1802,14 +1900,54 @@ def _build_critical_cards_v2(critical_risks: list) -> str:
             tags = [f'<span class="tag-category">{category}</span>'] if category else []
             if is_blocker:
                 tags.append('<span class="tag-blocker">СТОП-ФАКТОР</span>')
-
             tags_html = " ".join(tags)
 
-            # Evidence
-            evidence_html = f'<div class="risk-evidence"><b>Основание:</b> «{evidence}»</div>' if evidence else ""
+            # Evidence with timecode - "Цитата" instead of "Основание"
+            if evidence:
+                timecode_html = f'<span class="timecode">[{evidence_timecode}]</span>' if evidence_timecode else ""
+                evidence_html = f'<div class="evidence-inline"><strong>Цитата:</strong> «{evidence}»{timecode_html}</div>'
+            else:
+                evidence_html = ""
 
-            # Drivers section
-            drivers_html = _build_drivers_section(drivers) if drivers else ""
+            # Factors section - inline style
+            factors_html = _build_factors_inline(drivers) if drivers else ""
+
+            # Decision OR No-decision badge + AI recommendation
+            if has_decision:
+                # Show what was decided at the meeting
+                decision_html = f"""<div class="decision-box">
+                    <div class="decision-label">Что решили:</div>
+                    <div class="decision-text">{decision}</div>
+                </div>"""
+                # Consequences only (no AI mitigation needed)
+                outcome_html = f"""<div class="outcome-boxes">
+                    <div class="outcome-box consequences" style="flex: 1;">
+                        <div class="outcome-label">
+                            <span class="ai-label">Прогноз ИИ</span>
+                            <span class="outcome-type">(последствия)</span>
+                        </div>
+                        <div class="outcome-text">{consequences}</div>
+                    </div>
+                </div>"""
+            else:
+                # No decision - show badge and AI recommendation
+                decision_html = '<div class="no-decision-badge">РЕШЕНИЕ НЕ ПРИНЯТО</div>'
+                outcome_html = f"""<div class="outcome-boxes">
+                    <div class="outcome-box consequences">
+                        <div class="outcome-label">
+                            <span class="ai-label">Прогноз ИИ</span>
+                            <span class="outcome-type">(последствия)</span>
+                        </div>
+                        <div class="outcome-text">{consequences}</div>
+                    </div>
+                    <div class="outcome-box mitigation">
+                        <div class="outcome-label">
+                            <span class="ai-label">Рекомендации ИИ</span>
+                            <span class="outcome-type">(меры)</span>
+                        </div>
+                        <div class="outcome-text">{mitigation}</div>
+                    </div>
+                </div>"""
 
             cards.append(f"""<div class="risk-card" style="border-left: 4px solid {color};">
                 <div class="risk-card-header">
@@ -1817,11 +1955,11 @@ def _build_critical_cards_v2(critical_risks: list) -> str:
                     {tags_html}
                 </div>
                 <div class="risk-title-row">{title}</div>
-                <div class="risk-desc">{description}</div>
                 {evidence_html}
-                <div class="risk-consequences"><b>Последствия</b> <span class="ai-hint">(прогноз ИИ)</span><b>:</b> {consequences}</div>
-                <div class="risk-mitigation"><b>Меры</b> <span class="ai-hint">(рекомендации ИИ)</span><b>:</b> {mitigation}</div>
-                {drivers_html}
+                <div class="risk-desc">{description}</div>
+                {factors_html}
+                {decision_html}
+                {outcome_html}
             </div>""")
         except Exception:
             continue
@@ -1829,47 +1967,36 @@ def _build_critical_cards_v2(critical_risks: list) -> str:
     return "".join(cards)
 
 
-def _build_drivers_section(drivers: list) -> str:
-    """Build drivers section HTML for a risk card."""
+def _build_factors_inline(drivers: list) -> str:
+    """Build factors section HTML with inline style (label: text)."""
     if not drivers:
         return ""
 
-    # Type labels and CSS classes
-    type_config = {
-        "root_cause": {"label": "Первопричина", "class": "root-cause"},
-        "aggravator": {"label": "Усугубляет", "class": "aggravator"},
-        "blocker": {"label": "Блокирует", "class": "blocker"},
+    # Type labels
+    type_labels = {
+        "root_cause": "Первопричина",
+        "aggravator": "Усугубляет",
+        "blocker": "Блокирует",
     }
 
     items = []
     for driver in drivers:
         try:
             # Handle both model and dict
-            if hasattr(driver, 'id'):
-                driver_id = driver.id
+            if hasattr(driver, 'type'):
                 driver_type = driver.type.value if hasattr(driver.type, 'value') else str(driver.type)
-                title = driver.title
                 description = driver.description
-                evidence = driver.evidence
             elif isinstance(driver, dict):
-                driver_id = driver.get('id', '?')
                 driver_type = driver.get('type', 'root_cause')
-                title = driver.get('title', '')
                 description = driver.get('description', '')
-                evidence = driver.get('evidence', '')
             else:
                 continue
 
-            config = type_config.get(driver_type, type_config["root_cause"])
+            label = type_labels.get(driver_type, driver_type)
 
-            items.append(f"""<div class="driver-item driver-{config['class']}">
-                <span class="driver-id">{driver_id}</span>
-                <div class="driver-content">
-                    <span class="driver-title">{title}</span>
-                    <span class="driver-type-tag {config['class']}">{config['label']}</span>
-                    <div class="driver-desc">{description}</div>
-                    <div class="driver-evidence">"{evidence}"</div>
-                </div>
+            items.append(f"""<div class="factor-item">
+                <span class="factor-label">{label}:</span>
+                <span class="factor-text">{description}</span>
             </div>""")
         except Exception:
             continue
@@ -1877,14 +2004,11 @@ def _build_drivers_section(drivers: list) -> str:
     if not items:
         return ""
 
-    return f"""<div class="drivers-section">
-        <div class="drivers-title">Связанные факторы ({len(items)}):</div>
-        {"".join(items)}
-    </div>"""
+    return f"""<div class="factors-section">{"".join(items)}</div>"""
 
 
 def _build_group_rows_fixed(risks: list) -> str:
-    """Build group rows with FIXED category order (not sorted by count)."""
+    """Build group rows with FIXED category order and no-decision markers."""
     from backend.domains.construction.schemas import RiskCategory
 
     # Fixed order of categories
@@ -1906,10 +2030,13 @@ def _build_group_rows_fixed(risks: list) -> str:
                 category = risk.category
                 score = risk.score if hasattr(risk, 'score') else 0
                 risk_id = risk.id
+                has_decision = getattr(risk, 'has_decision', False)
             elif isinstance(risk, dict):
                 category = risk.get('category')
                 score = risk.get('probability', 0) * risk.get('impact', 0)
                 risk_id = risk.get('id', 'R?')
+                decision = risk.get('decision', '')
+                has_decision = bool(decision and decision.strip())
             else:
                 continue
 
@@ -1917,7 +2044,9 @@ def _build_group_rows_fixed(risks: list) -> str:
                 group_map[category] = {'count': 0, 'critical': 0, 'ids': [], 'max_score': 0}
 
             group_map[category]['count'] += 1
-            group_map[category]['ids'].append(risk_id)
+            # Add ! suffix to risk ID if no decision
+            display_id = risk_id if has_decision else f'{risk_id}!'
+            group_map[category]['ids'].append(display_id)
             group_map[category]['max_score'] = max(group_map[category]['max_score'], score)
             if score >= 16:
                 group_map[category]['critical'] += 1
@@ -1962,10 +2091,7 @@ def _build_group_rows_fixed(risks: list) -> str:
 
 
 def _build_participants_section(participants: list) -> str:
-    """Build participants section HTML."""
-    if not participants:
-        return ""
-
+    """Build participants section HTML - always shown (with placeholder if empty)."""
     # Role mapping to Russian labels
     role_labels = {
         "GENERAL": "Генподрядчик",
@@ -1980,27 +2106,28 @@ def _build_participants_section(participants: list) -> str:
     }
 
     items = []
-    for p in participants:
-        try:
-            raw_role = p.get('role', 'Участник')
-            # Try exact match, then uppercase
-            role = role_labels.get(raw_role) or role_labels.get(raw_role.upper(), raw_role)
-            org_name = p.get('organization', '')
-            people = p.get('people', [])
-            people_str = ", ".join(people) if people else ""
+    if participants:
+        for p in participants:
+            try:
+                raw_role = p.get('role', 'Участник')
+                # Try exact match, then uppercase
+                role = role_labels.get(raw_role) or role_labels.get(raw_role.upper(), raw_role)
+                org_name = p.get('organization', '')
+                people = p.get('people', [])
+                people_str = ", ".join(people) if people else ""
 
-            items.append(f"""<div class="participant-org">
-                <span class="org-role">{role}</span>
-                <div class="org-details">
-                    <div class="org-name">{org_name}</div>
-                    <div class="org-people">{people_str}</div>
-                </div>
-            </div>""")
-        except Exception:
-            continue
+                items.append(f"""<div class="participant-org">
+                    <span class="org-role">{role}</span>
+                    <div class="org-details">
+                        <div class="org-name">{org_name}</div>
+                        <div class="org-people">{people_str}</div>
+                    </div>
+                </div>""")
+            except Exception:
+                continue
 
-    if not items:
-        return ""
+    # Always show block - with placeholder if no participants
+    content = "".join(items) if items else '<div class="empty-block">Участники не указаны</div>'
 
     return f"""<div class="participants-section">
         <div class="block-title">
@@ -2008,7 +2135,7 @@ def _build_participants_section(participants: list) -> str:
             <span class="block-name">Участники совещания</span>
         </div>
         <div class="participants-list">
-            {"".join(items)}
+            {content}
         </div>
     </div>"""
 
@@ -2033,7 +2160,7 @@ def _build_hypothesis_items(hypotheses: list) -> str:
 
 
 def _build_question_items(concerns: list) -> str:
-    """Build question items from concerns for two-column layout."""
+    """Build question items from concerns for two-column layout with related risk IDs."""
     if not concerns:
         return '<div class="column-item" style="color:#888;">Открытых вопросов нет</div>'
 
@@ -2041,9 +2168,23 @@ def _build_question_items(concerns: list) -> str:
     for idx, c in enumerate(concerns[:5], 1):  # Limit to 5
         try:
             title = c.title if hasattr(c, 'title') else c.get('title', '')
+
+            # Get related risk IDs
+            if hasattr(c, 'related_risk_ids'):
+                risk_ids = c.related_risk_ids
+            elif isinstance(c, dict):
+                risk_ids = c.get('related_risk_ids', [])
+            else:
+                risk_ids = []
+
+            # Build risk link if there are related risks
+            risk_link = ""
+            if risk_ids:
+                risk_link = f' <span style="color:#666;">→ {", ".join(risk_ids)}</span>'
+
             items.append(f"""<div class="column-item">
                 <span class="column-item-id">Q{idx}.</span>
-                {title}
+                {title}{risk_link}
             </div>""")
         except Exception:
             continue

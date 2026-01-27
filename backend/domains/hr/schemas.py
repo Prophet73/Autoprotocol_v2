@@ -1,7 +1,7 @@
 """
-HR Domain Schemas.
+Схемы HR домена.
 
-Pydantic models for HR meeting analysis.
+Pydantic модели для анализа HR-встреч.
 """
 from enum import Enum
 from typing import Optional, List
@@ -11,7 +11,7 @@ from backend.domains.base_schemas import BaseMeetingReport
 
 
 class HRMeetingType(str, Enum):
-    """Types of HR meetings."""
+    """Типы HR-встреч."""
     RECRUITMENT = "recruitment"
     ONE_ON_ONE = "one_on_one"
     PERFORMANCE_REVIEW = "performance_review"
@@ -20,39 +20,39 @@ class HRMeetingType(str, Enum):
 
 
 # =============================================================================
-# Recruitment Schemas
+# Схемы рекрутинга
 # =============================================================================
 
 class CandidateMatch(str, Enum):
-    """How well candidate matches requirements."""
+    """Соответствие кандидата требованиям."""
     STRONG_MATCH = "strong_match"
     PARTIAL_MATCH = "partial_match"
     WEAK_MATCH = "weak_match"
 
 
 class HireRecommendation(str, Enum):
-    """Hiring recommendation."""
+    """Рекомендация по найму."""
     HIRE = "hire"
     CONSIDER = "consider"
     REJECT = "reject"
 
 
 class CandidateAssessment(BaseModel):
-    """Assessment of a job candidate."""
-    match_level: CandidateMatch
-    strengths: List[str] = Field(default_factory=list)
-    development_areas: List[str] = Field(default_factory=list)
-    risks: List[str] = Field(default_factory=list)
-    recommendation: HireRecommendation
-    follow_up_questions: List[str] = Field(default_factory=list)
+    """Оценка кандидата на должность."""
+    match_level: CandidateMatch = Field(..., description="Уровень соответствия")
+    strengths: List[str] = Field(default_factory=list, description="Сильные стороны")
+    development_areas: List[str] = Field(default_factory=list, description="Зоны развития")
+    risks: List[str] = Field(default_factory=list, description="Риски")
+    recommendation: HireRecommendation = Field(..., description="Рекомендация")
+    follow_up_questions: List[str] = Field(default_factory=list, description="Дополнительные вопросы")
 
 
 # =============================================================================
-# One-on-One Schemas
+# Схемы One-on-One
 # =============================================================================
 
 class EmployeeMood(str, Enum):
-    """Employee mood assessment."""
+    """Настроение сотрудника."""
     POSITIVE = "positive"
     NEUTRAL = "neutral"
     CONCERNED = "concerned"
@@ -60,50 +60,50 @@ class EmployeeMood(str, Enum):
 
 
 class AttritionRisk(str, Enum):
-    """Risk of employee leaving."""
+    """Риск увольнения сотрудника."""
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
 
 
 class EmployeeFeedback(BaseModel):
-    """Feedback from one-on-one meeting."""
-    mood: EmployeeMood
-    key_topics: List[str] = Field(default_factory=list)
-    career_requests: List[str] = Field(default_factory=list)
-    training_requests: List[str] = Field(default_factory=list)
-    concerns: List[str] = Field(default_factory=list)
-    attrition_risk: AttritionRisk
-    hr_recommendations: List[str] = Field(default_factory=list)
+    """Обратная связь со встречи one-on-one."""
+    mood: EmployeeMood = Field(..., description="Настроение")
+    key_topics: List[str] = Field(default_factory=list, description="Ключевые темы")
+    career_requests: List[str] = Field(default_factory=list, description="Карьерные запросы")
+    training_requests: List[str] = Field(default_factory=list, description="Запросы на обучение")
+    concerns: List[str] = Field(default_factory=list, description="Опасения")
+    attrition_risk: AttritionRisk = Field(..., description="Риск увольнения")
+    hr_recommendations: List[str] = Field(default_factory=list, description="Рекомендации HR")
 
 
 # =============================================================================
-# Performance Review Schemas
+# Схемы ревью эффективности
 # =============================================================================
 
 class PerformanceRating(str, Enum):
-    """Performance rating."""
+    """Оценка эффективности."""
     EXCEEDS = "exceeds"
     MEETS = "meets"
     BELOW = "below"
 
 
 class PerformanceReview(BaseModel):
-    """Performance review assessment."""
-    overall_rating: PerformanceRating
-    achievements: List[str] = Field(default_factory=list)
-    development_areas: List[str] = Field(default_factory=list)
-    goals_next_period: List[str] = Field(default_factory=list)
-    manager_feedback: Optional[str] = None
-    employee_feedback: Optional[str] = None
+    """Оценка эффективности сотрудника."""
+    overall_rating: PerformanceRating = Field(..., description="Общая оценка")
+    achievements: List[str] = Field(default_factory=list, description="Достижения")
+    development_areas: List[str] = Field(default_factory=list, description="Зоны развития")
+    goals_next_period: List[str] = Field(default_factory=list, description="Цели на следующий период")
+    manager_feedback: Optional[str] = Field(None, description="Обратная связь менеджера")
+    employee_feedback: Optional[str] = Field(None, description="Обратная связь сотрудника")
 
 
 # =============================================================================
-# Team Meeting Schemas
+# Схемы командных встреч
 # =============================================================================
 
 class TeamAtmosphere(str, Enum):
-    """Team meeting atmosphere."""
+    """Атмосфера командной встречи."""
     COLLABORATIVE = "collaborative"
     FORMAL = "formal"
     TENSE = "tense"
@@ -111,27 +111,27 @@ class TeamAtmosphere(str, Enum):
 
 
 class TeamDynamics(BaseModel):
-    """Team dynamics observation."""
-    atmosphere: TeamAtmosphere
-    leaders: List[str] = Field(default_factory=list)
-    silent_participants: List[str] = Field(default_factory=list)
-    decision_making_style: Optional[str] = None
-    recommendations: List[str] = Field(default_factory=list)
+    """Наблюдение за динамикой команды."""
+    atmosphere: TeamAtmosphere = Field(..., description="Атмосфера")
+    leaders: List[str] = Field(default_factory=list, description="Лидеры")
+    silent_participants: List[str] = Field(default_factory=list, description="Молчаливые участники")
+    decision_making_style: Optional[str] = Field(None, description="Стиль принятия решений")
+    recommendations: List[str] = Field(default_factory=list, description="Рекомендации")
 
 
 # =============================================================================
-# Onboarding Schemas
+# Схемы онбординга
 # =============================================================================
 
 class OnboardingStage(str, Enum):
-    """Onboarding stage."""
+    """Этап онбординга."""
     ORIENTATION = "orientation"
     TRAINING = "training"
     INTEGRATION = "integration"
 
 
 class NewHireImpression(str, Enum):
-    """New hire impression."""
+    """Впечатление нового сотрудника."""
     ENTHUSIASTIC = "enthusiastic"
     POSITIVE = "positive"
     NEUTRAL = "neutral"
@@ -140,29 +140,29 @@ class NewHireImpression(str, Enum):
 
 
 class OnboardingProgress(BaseModel):
-    """Onboarding session progress."""
-    stage: OnboardingStage
-    topics_covered: List[str] = Field(default_factory=list)
-    questions_asked: List[str] = Field(default_factory=list)
-    gaps_identified: List[str] = Field(default_factory=list)
-    new_hire_impression: NewHireImpression
+    """Прогресс онбординг-сессии."""
+    stage: OnboardingStage = Field(..., description="Этап")
+    topics_covered: List[str] = Field(default_factory=list, description="Пройденные темы")
+    questions_asked: List[str] = Field(default_factory=list, description="Заданные вопросы")
+    gaps_identified: List[str] = Field(default_factory=list, description="Выявленные пробелы")
+    new_hire_impression: NewHireImpression = Field(..., description="Впечатление нового сотрудника")
 
 
 # =============================================================================
-# Main HR Report Schema
+# Основная схема HR-отчёта
 # =============================================================================
 
 class HRReport(BaseMeetingReport):
     """
-    HR meeting analysis report.
+    Отчёт анализа HR-встречи.
 
-    Contains type-specific assessment based on meeting type.
+    Содержит оценку в зависимости от типа встречи.
     """
-    meeting_type: HRMeetingType
+    meeting_type: HRMeetingType = Field(..., description="Тип встречи")
 
-    # Type-specific assessments (only one will be populated)
-    candidate_assessment: Optional[CandidateAssessment] = None
-    employee_feedback: Optional[EmployeeFeedback] = None
-    performance_review: Optional[PerformanceReview] = None
-    team_dynamics: Optional[TeamDynamics] = None
-    onboarding_progress: Optional[OnboardingProgress] = None
+    # Оценки по типам (заполняется только одна)
+    candidate_assessment: Optional[CandidateAssessment] = Field(None, description="Оценка кандидата")
+    employee_feedback: Optional[EmployeeFeedback] = Field(None, description="Обратная связь сотрудника")
+    performance_review: Optional[PerformanceReview] = Field(None, description="Ревью эффективности")
+    team_dynamics: Optional[TeamDynamics] = Field(None, description="Динамика команды")
+    onboarding_progress: Optional[OnboardingProgress] = Field(None, description="Прогресс онбординга")

@@ -1,13 +1,13 @@
 """
-Comprehensive statistics router.
+Роутер комплексной статистики.
 
-Endpoints for:
-- Dashboard overview (all domains)
-- Domain-specific statistics
-- User activity
-- Cost analytics
-- Timeline data
-- System health
+Эндпоинты:
+- Обзор дашборда (все домены)
+- Статистика по доменам
+- Активность пользователей
+- Аналитика затрат AI
+- Временная шкала
+- Здоровье системы
 """
 from datetime import date
 from typing import Annotated, Optional
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/stats", tags=["Админ - Статистика"])
 
 
 # =============================================================================
-# New Comprehensive Stats Endpoints
+# Комплексные эндпоинты статистики
 # =============================================================================
 
 @router.get(
@@ -63,7 +63,7 @@ async def get_dashboard(
     project_id: Optional[int] = Query(None, description="Фильтр по проекту"),
     user_id: Optional[int] = Query(None, description="Фильтр по пользователю"),
 ) -> FullDashboardResponse:
-    """Get complete dashboard with all statistics."""
+    """Получить полный дашборд со всей статистикой."""
     service = StatsService(db)
     filters = StatsFilters(
         date_from=date_from,
@@ -89,7 +89,7 @@ async def get_overview(
     date_to: Optional[date] = Query(None),
     domain: Optional[str] = Query(None),
 ) -> OverviewStatsResponse:
-    """Get overview statistics."""
+    """Получить обзорную статистику."""
     service = StatsService(db)
     filters = StatsFilters(date_from=date_from, date_to=date_to, domain=domain)
     return await service.get_overview_stats(filters)
@@ -103,7 +103,7 @@ async def get_overview(
 async def get_domains_list(
     current_user: CurrentUser,
 ) -> dict:
-    """Get list of available domains."""
+    """Получить список доступных доменов."""
     domains = []
     for domain_id, meeting_types in DOMAIN_MEETING_TYPES.items():
         domains.append({
@@ -132,7 +132,7 @@ async def get_domain_stats(
     meeting_type: Optional[str] = Query(None),
     project_id: Optional[int] = Query(None),
 ) -> DomainStatsResponse:
-    """Get statistics for a specific domain."""
+    """Получить статистику по конкретному домену."""
     service = StatsService(db)
     filters = StatsFilters(
         date_from=date_from,
@@ -157,7 +157,7 @@ async def get_users_stats(
     date_to: Optional[date] = Query(None),
     domain: Optional[str] = Query(None),
 ) -> UsersStatsResponse:
-    """Get user statistics."""
+    """Получить статистику пользователей."""
     service = StatsService(db)
     filters = StatsFilters(date_from=date_from, date_to=date_to, domain=domain)
 
@@ -187,7 +187,7 @@ async def get_costs_stats(
     date_to: Optional[date] = Query(None),
     domain: Optional[str] = Query(None),
 ) -> CostStatsResponse:
-    """Get AI cost statistics."""
+    """Получить статистику затрат AI."""
     service = StatsService(db)
     filters = StatsFilters(date_from=date_from, date_to=date_to, domain=domain)
 
@@ -204,7 +204,7 @@ async def get_costs_stats(
 
 
 # =============================================================================
-# Legacy Endpoints (for backwards compatibility)
+# Устаревшие эндпоинты (для обратной совместимости)
 # =============================================================================
 
 @router.get(
@@ -224,9 +224,9 @@ async def get_global_stats(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> GlobalStatsResponse:
     """
-    Get global system statistics (legacy).
+    Получить глобальную статистику системы (устаревший).
 
-    Requires superuser privileges.
+    Требует прав суперпользователя.
     """
     service = StatsService(db)
     return await service.get_global_stats()
@@ -243,25 +243,25 @@ async def get_system_health(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SystemHealthResponse:
     """
-    Get system health status.
+    Получить состояние здоровья системы.
 
-    Checks:
-    - Redis connection
-    - Database connection
-    - GPU availability
-    - Celery workers
-    - Disk and memory usage
+    Проверяет:
+    - Подключение Redis
+    - Подключение к базе данных
+    - Доступность GPU
+    - Celery воркеры
+    - Использование диска и памяти
     """
     service = StatsService(db)
     return await service.get_system_health()
 
 
 # =============================================================================
-# Helper Functions
+# Вспомогательные функции
 # =============================================================================
 
 def _get_domain_display_name(domain_id: str) -> str:
-    """Get human-readable domain name."""
+    """Получить человекочитаемое название домена."""
     names = {
         "construction": "Строительство",
         "hr": "HR",

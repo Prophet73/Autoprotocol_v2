@@ -331,6 +331,23 @@ export default function LoginPage() {
               </div>
 
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                {/* Quick role buttons */}
+                <p className="text-xs text-orange-600 mb-2">Быстрый вход по роли:</p>
+                <div className="flex gap-2 mb-3">
+                  {['admin', 'manager', 'user'].map((role) => (
+                    <button
+                      key={role}
+                      onClick={() => handleDevLogin(role)}
+                      disabled={!!devLoading}
+                      className={`flex-1 py-2 px-3 text-sm font-medium rounded-md border transition disabled:opacity-50 ${
+                        ROLE_COLORS[role === 'admin' ? 'superuser' : role] || 'bg-gray-100'
+                      } hover:opacity-80`}
+                    >
+                      {devLoading === role ? '...' : role}
+                    </button>
+                  ))}
+                </div>
+
                 {/* Existing users from DB */}
                 {devUsers.length > 0 && (
                   <>

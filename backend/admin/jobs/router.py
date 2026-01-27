@@ -15,7 +15,7 @@ from backend.shared.models import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/jobs", tags=["Admin - Jobs"])
+router = APIRouter(prefix="/jobs", tags=["Админ - Задачи"])
 
 
 @router.get("", summary="Список всех задач")

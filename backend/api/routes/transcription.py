@@ -46,9 +46,9 @@ router = APIRouter(prefix="/transcribe", tags=["Транскрипция"])
 
 def _extract_media_creation_date(file_path: Path) -> Optional[str]:
     """
-    Extract creation date from media file metadata using FFprobe.
+    Извлечь дату создания из метаданных медиафайла с помощью FFprobe.
 
-    Returns date in YYYY-MM-DD format or None if not found.
+    Возвращает дату в формате YYYY-MM-DD или None если не найдена.
     """
     import subprocess
     import json
@@ -102,16 +102,16 @@ _EMAIL_REGEX = re.compile(
 
 def validate_email_list(emails_str: Optional[str]) -> list[str]:
     """
-    Validate and parse comma-separated email list.
+    Валидация и парсинг списка email через запятую.
 
-    Args:
-        emails_str: Comma-separated email addresses.
+    Аргументы:
+        emails_str: Email адреса через запятую.
 
-    Returns:
-        List of validated email addresses.
+    Возвращает:
+        Список валидированных email адресов.
 
-    Raises:
-        HTTPException 400: If any email is invalid.
+    Исключения:
+        HTTPException 400: Если email некорректен.
     """
     if not emails_str:
         return []
@@ -139,30 +139,30 @@ def validate_email_list(emails_str: Optional[str]) -> list[str]:
 
     return emails
 
-# Storage paths - use DATA_DIR env or default to /data (Docker)
+# Пути хранилища - используем DATA_DIR env или /data по умолчанию (Docker)
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 OUTPUT_DIR = DATA_DIR / "output"
 
 
 def get_store() -> JobStore:
-    """Get job store instance."""
+    """Получить экземпляр хранилища задач."""
     return get_job_store()
 
 
 # =============================================================================
-# Helper functions to reduce code duplication
+# Вспомогательные функции для уменьшения дублирования кода
 # =============================================================================
 
 def _create_progress_callback(store: JobStore, job_id: str):
-    """Create a progress callback function for job updates."""
+    """Создать callback-функцию прогресса для обновления задачи."""
     def progress_callback(stage: str, percent: int, message: str):
         store.update_progress(job_id, stage, percent, message)
     return progress_callback
 
 
 def _start_job_processing(store: JobStore, job_id: str):
-    """Mark job as processing in store and database."""
+    """Пометить задачу как обрабатываемую в хранилище и БД."""
     store.update(job_id, status=JobStatus.PROCESSING)
     _update_job_in_db(job_id=job_id, status="processing")
 
@@ -180,12 +180,12 @@ def _complete_job(
     output_tokens: int = 0,
     all_output_files: dict = None,
 ):
-    """Mark job as completed in store and database.
+    """Пометить задачу как завершённую в хранилище и БД.
 
-    Args:
-        output_files: Files available for user download (shown in UI).
-        all_output_files: All generated files for artifacts tracking.
-                          Defaults to output_files if not specified.
+    Аргументы:
+        output_files: Файлы доступные для скачивания пользователем (показываются в UI).
+        all_output_files: Все сгенерированные файлы для отслеживания артефактов.
+                          По умолчанию равно output_files если не указано.
     """
     artifacts_source = all_output_files if all_output_files is not None else output_files
     store.complete(
@@ -214,7 +214,7 @@ def _complete_job(
 
 
 def _fail_job(store: JobStore, job_id: str, error: Exception, stage: str = "processing"):
-    """Mark job as failed in store and database."""
+    """Пометить задачу как проваленную в хранилище и БД."""
     logger.exception(f"Job {job_id} failed: {error}")
     store.fail(job_id, str(error))
     _update_job_in_db(
@@ -226,7 +226,7 @@ def _fail_job(store: JobStore, job_id: str, error: Exception, stage: str = "proc
 
 
 def _send_notification_email(store: JobStore, job_id: str, notify_emails: list, output_files: dict):
-    """Send email notification if emails are provided."""
+    """Отправить email уведомление если указаны адреса."""
     if not notify_emails:
         return
     try:
@@ -726,7 +726,7 @@ async def download_result(job_id: str, file_type: str):
     description="Скачивание всех доступных файлов одним архивом.",
 )
 async def download_all_results(job_id: str):
-    """Download all available files for a job as a zip archive."""
+    """Скачать все доступные файлы задачи в zip архиве."""
     import zipfile
     import tempfile
 
@@ -946,7 +946,7 @@ async def run_transcription_background(
     uploader_id: Optional[int] = None,
     notify_emails: list = None,
 ):
-    """Background task for transcription (fallback when Celery unavailable)."""
+    """Фоновая задача транскрипции (запасной вариант при недоступности Celery)."""
     from ...core.transcription.pipeline import TranscriptionPipeline
     from ...core.transcription.models import TranscriptionRequest
 
@@ -1047,8 +1047,8 @@ async def run_text_report_generation(
     notify_emails: list = None,
 ):
     """
-    Background task for generating reports from text files (.txt, .docx).
-    Bypasses transcription pipeline - directly generates LLM-based reports.
+    Фоновая задача генерации отчётов из текстовых файлов (.txt, .docx).
+    Обходит пайплайн транскрипции - напрямую генерирует LLM-отчёты.
     """
     import os
     from datetime import datetime

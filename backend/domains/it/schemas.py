@@ -1,7 +1,7 @@
 """
-IT Domain Schemas.
+Схемы IT домена.
 
-Pydantic models for IT/Development meeting analysis.
+Pydantic модели для анализа IT/Dev встреч.
 """
 from enum import Enum
 from typing import Optional, List
@@ -11,7 +11,7 @@ from backend.domains.base_schemas import BaseMeetingReport
 
 
 class ITMeetingType(str, Enum):
-    """Types of IT meetings."""
+    """Типы IT-встреч."""
     STANDUP = "standup"
     PLANNING = "planning"
     RETROSPECTIVE = "retrospective"
@@ -21,79 +21,79 @@ class ITMeetingType(str, Enum):
 
 
 # =============================================================================
-# Standup Schemas
+# Схемы стендапа
 # =============================================================================
 
 class SprintStatus(str, Enum):
-    """Sprint status."""
+    """Статус спринта."""
     ON_TRACK = "on_track"
     AT_RISK = "at_risk"
     BLOCKED = "blocked"
 
 
 class ParticipantStatus(BaseModel):
-    """Individual participant status from standup."""
-    name: str
-    yesterday: List[str] = Field(default_factory=list)
-    today: List[str] = Field(default_factory=list)
-    blockers: List[str] = Field(default_factory=list)
+    """Статус участника стендапа."""
+    name: str = Field(..., description="Имя")
+    yesterday: List[str] = Field(default_factory=list, description="Вчера")
+    today: List[str] = Field(default_factory=list, description="Сегодня")
+    blockers: List[str] = Field(default_factory=list, description="Блокеры")
 
 
 class Blocker(BaseModel):
-    """A blocker preventing progress."""
-    description: str
-    owner: Optional[str] = None
-    severity: str = "medium"  # low, medium, high
-    needs_escalation: bool = False
+    """Блокер, препятствующий прогрессу."""
+    description: str = Field(..., description="Описание")
+    owner: Optional[str] = Field(None, description="Ответственный")
+    severity: str = Field("medium", description="Критичность: low, medium, high")
+    needs_escalation: bool = Field(False, description="Требует эскалации")
 
 
 class StandupSummary(BaseModel):
-    """Summary of a standup meeting."""
-    sprint_status: SprintStatus
-    participants: List[ParticipantStatus] = Field(default_factory=list)
-    team_blockers: List[Blocker] = Field(default_factory=list)
-    attention_items: List[str] = Field(default_factory=list)
+    """Итоги стендапа."""
+    sprint_status: SprintStatus = Field(..., description="Статус спринта")
+    participants: List[ParticipantStatus] = Field(default_factory=list, description="Участники")
+    team_blockers: List[Blocker] = Field(default_factory=list, description="Командные блокеры")
+    attention_items: List[str] = Field(default_factory=list, description="Требует внимания")
 
 
 # =============================================================================
-# Planning Schemas
+# Схемы планирования
 # =============================================================================
 
 class SprintGoal(BaseModel):
-    """Sprint goal."""
-    description: str
-    priority: int = 1
+    """Цель спринта."""
+    description: str = Field(..., description="Описание")
+    priority: int = Field(1, description="Приоритет")
 
 
 class PlannedTask(BaseModel):
-    """Task planned for sprint."""
-    title: str
-    estimate: Optional[str] = None  # story points or hours
-    assignee: Optional[str] = None
+    """Запланированная задача."""
+    title: str = Field(..., description="Название")
+    estimate: Optional[str] = Field(None, description="Оценка (SP или часы)")
+    assignee: Optional[str] = Field(None, description="Исполнитель")
 
 
 class SprintCapacity(BaseModel):
-    """Team capacity for sprint."""
-    total_points: Optional[int] = None
-    total_hours: Optional[int] = None
-    team_availability: Optional[str] = None
+    """Ёмкость команды на спринт."""
+    total_points: Optional[int] = Field(None, description="Всего story points")
+    total_hours: Optional[int] = Field(None, description="Всего часов")
+    team_availability: Optional[str] = Field(None, description="Доступность команды")
 
 
 class PlanningResult(BaseModel):
-    """Result of sprint planning."""
-    sprint_goals: List[SprintGoal] = Field(default_factory=list)
-    planned_tasks: List[PlannedTask] = Field(default_factory=list)
-    capacity: Optional[SprintCapacity] = None
-    risks: List[str] = Field(default_factory=list)
-    dependencies: List[str] = Field(default_factory=list)
+    """Результаты планирования спринта."""
+    sprint_goals: List[SprintGoal] = Field(default_factory=list, description="Цели спринта")
+    planned_tasks: List[PlannedTask] = Field(default_factory=list, description="Запланированные задачи")
+    capacity: Optional[SprintCapacity] = Field(None, description="Ёмкость")
+    risks: List[str] = Field(default_factory=list, description="Риски")
+    dependencies: List[str] = Field(default_factory=list, description="Зависимости")
 
 
 # =============================================================================
-# Retrospective Schemas
+# Схемы ретроспективы
 # =============================================================================
 
 class TeamMood(str, Enum):
-    """Team mood."""
+    """Настроение команды."""
     ENERGIZED = "energized"
     STABLE = "stable"
     TIRED = "tired"
@@ -101,27 +101,27 @@ class TeamMood(str, Enum):
 
 
 class Improvement(BaseModel):
-    """Improvement item from retrospective."""
-    description: str
-    owner: Optional[str] = None
-    due_date: Optional[str] = None
+    """Пункт улучшения из ретроспективы."""
+    description: str = Field(..., description="Описание")
+    owner: Optional[str] = Field(None, description="Ответственный")
+    due_date: Optional[str] = Field(None, description="Срок")
 
 
 class RetroResult(BaseModel):
-    """Result of retrospective."""
-    went_well: List[str] = Field(default_factory=list)
-    to_improve: List[str] = Field(default_factory=list)
-    action_items: List[Improvement] = Field(default_factory=list)
-    team_mood: TeamMood = TeamMood.STABLE
-    trends: List[str] = Field(default_factory=list)
+    """Результаты ретроспективы."""
+    went_well: List[str] = Field(default_factory=list, description="Что было хорошо")
+    to_improve: List[str] = Field(default_factory=list, description="Что улучшить")
+    action_items: List[Improvement] = Field(default_factory=list, description="Экшн-айтемы")
+    team_mood: TeamMood = Field(TeamMood.STABLE, description="Настроение команды")
+    trends: List[str] = Field(default_factory=list, description="Тренды")
 
 
 # =============================================================================
-# Incident Review Schemas
+# Схемы разбора инцидентов
 # =============================================================================
 
 class IncidentSeverity(str, Enum):
-    """Incident severity."""
+    """Критичность инцидента."""
     SEV1 = "sev1"
     SEV2 = "sev2"
     SEV3 = "sev3"
@@ -129,97 +129,97 @@ class IncidentSeverity(str, Enum):
 
 
 class TimelineEvent(BaseModel):
-    """Event in incident timeline."""
-    time: str
-    description: str
-    actor: Optional[str] = None
+    """Событие таймлайна инцидента."""
+    time: str = Field(..., description="Время")
+    description: str = Field(..., description="Описание")
+    actor: Optional[str] = Field(None, description="Участник")
 
 
 class IncidentImpact(BaseModel):
-    """Incident impact assessment."""
-    duration_minutes: Optional[int] = None
-    affected_users: Optional[str] = None
-    affected_services: List[str] = Field(default_factory=list)
-    business_impact: Optional[str] = None
+    """Оценка влияния инцидента."""
+    duration_minutes: Optional[int] = Field(None, description="Длительность (мин)")
+    affected_users: Optional[str] = Field(None, description="Затронутые пользователи")
+    affected_services: List[str] = Field(default_factory=list, description="Затронутые сервисы")
+    business_impact: Optional[str] = Field(None, description="Влияние на бизнес")
 
 
 class IncidentActionItem(BaseModel):
-    """Action item from incident review."""
-    description: str
-    category: str  # prevent, detect, mitigate
-    owner: Optional[str] = None
-    due_date: Optional[str] = None
+    """Экшн-айтем по итогам разбора инцидента."""
+    description: str = Field(..., description="Описание")
+    category: str = Field(..., description="Категория: prevent, detect, mitigate")
+    owner: Optional[str] = Field(None, description="Ответственный")
+    due_date: Optional[str] = Field(None, description="Срок")
 
 
 class IncidentReview(BaseModel):
-    """Incident review summary."""
-    summary: str
-    severity: Optional[IncidentSeverity] = None
-    timeline: List[TimelineEvent] = Field(default_factory=list)
-    root_cause: Optional[str] = None
-    impact: Optional[IncidentImpact] = None
-    action_items: List[IncidentActionItem] = Field(default_factory=list)
-    lessons_learned: List[str] = Field(default_factory=list)
+    """Итоги разбора инцидента."""
+    summary: str = Field(..., description="Краткое описание")
+    severity: Optional[IncidentSeverity] = Field(None, description="Критичность")
+    timeline: List[TimelineEvent] = Field(default_factory=list, description="Таймлайн")
+    root_cause: Optional[str] = Field(None, description="Корневая причина")
+    impact: Optional[IncidentImpact] = Field(None, description="Влияние")
+    action_items: List[IncidentActionItem] = Field(default_factory=list, description="Экшн-айтемы")
+    lessons_learned: List[str] = Field(default_factory=list, description="Выводы")
 
 
 # =============================================================================
-# Architecture Schemas
+# Схемы архитектурных обсуждений
 # =============================================================================
 
 class TechnicalDecision(BaseModel):
-    """Technical decision from architecture discussion."""
-    topic: str
-    decision: str
-    rationale: Optional[str] = None
-    trade_offs: List[str] = Field(default_factory=list)
+    """Техническое решение из архитектурного обсуждения."""
+    topic: str = Field(..., description="Тема")
+    decision: str = Field(..., description="Решение")
+    rationale: Optional[str] = Field(None, description="Обоснование")
+    trade_offs: List[str] = Field(default_factory=list, description="Компромиссы")
 
 
 class ArchitectureResult(BaseModel):
-    """Result of architecture discussion."""
-    topic: str
-    options_considered: List[str] = Field(default_factory=list)
-    decision: Optional[TechnicalDecision] = None
-    next_steps: List[str] = Field(default_factory=list)
-    open_questions: List[str] = Field(default_factory=list)
+    """Результаты архитектурного обсуждения."""
+    topic: str = Field(..., description="Тема")
+    options_considered: List[str] = Field(default_factory=list, description="Рассмотренные варианты")
+    decision: Optional[TechnicalDecision] = Field(None, description="Решение")
+    next_steps: List[str] = Field(default_factory=list, description="Следующие шаги")
+    open_questions: List[str] = Field(default_factory=list, description="Открытые вопросы")
 
 
 # =============================================================================
-# Demo Schemas
+# Схемы демо
 # =============================================================================
 
 class DemoFeedback(BaseModel):
-    """Feedback from demo."""
-    positive: List[str] = Field(default_factory=list)
-    concerns: List[str] = Field(default_factory=list)
-    questions: List[str] = Field(default_factory=list)
+    """Обратная связь с демо."""
+    positive: List[str] = Field(default_factory=list, description="Позитивное")
+    concerns: List[str] = Field(default_factory=list, description="Замечания")
+    questions: List[str] = Field(default_factory=list, description="Вопросы")
 
 
 class DemoResult(BaseModel):
-    """Result of sprint demo."""
-    features_shown: List[str] = Field(default_factory=list)
-    feedback: Optional[DemoFeedback] = None
-    accepted: List[str] = Field(default_factory=list)
-    needs_rework: List[str] = Field(default_factory=list)
-    new_requests: List[str] = Field(default_factory=list)
-    sprint_achievements: List[str] = Field(default_factory=list)
+    """Результаты демо спринта."""
+    features_shown: List[str] = Field(default_factory=list, description="Показанные фичи")
+    feedback: Optional[DemoFeedback] = Field(None, description="Обратная связь")
+    accepted: List[str] = Field(default_factory=list, description="Принято")
+    needs_rework: List[str] = Field(default_factory=list, description="Требует доработки")
+    new_requests: List[str] = Field(default_factory=list, description="Новые запросы")
+    sprint_achievements: List[str] = Field(default_factory=list, description="Достижения спринта")
 
 
 # =============================================================================
-# Main IT Report Schema
+# Основная схема IT-отчёта
 # =============================================================================
 
 class ITReport(BaseMeetingReport):
     """
-    IT meeting analysis report.
+    Отчёт анализа IT-встречи.
 
-    Contains type-specific results based on meeting type.
+    Содержит результаты в зависимости от типа встречи.
     """
-    meeting_type: ITMeetingType
+    meeting_type: ITMeetingType = Field(..., description="Тип встречи")
 
-    # Type-specific results (only one will be populated)
-    standup_summary: Optional[StandupSummary] = None
-    planning_result: Optional[PlanningResult] = None
-    retro_result: Optional[RetroResult] = None
-    incident_review: Optional[IncidentReview] = None
-    architecture_result: Optional[ArchitectureResult] = None
-    demo_result: Optional[DemoResult] = None
+    # Результаты по типам (заполняется только один)
+    standup_summary: Optional[StandupSummary] = Field(None, description="Итоги стендапа")
+    planning_result: Optional[PlanningResult] = Field(None, description="Результаты планирования")
+    retro_result: Optional[RetroResult] = Field(None, description="Результаты ретро")
+    incident_review: Optional[IncidentReview] = Field(None, description="Разбор инцидента")
+    architecture_result: Optional[ArchitectureResult] = Field(None, description="Архитектурные решения")
+    demo_result: Optional[DemoResult] = Field(None, description="Результаты демо")

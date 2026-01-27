@@ -365,3 +365,54 @@ class UserService:
             )
         )
         return [row[0] for row in result.all()]
+
+    async def batch_update_project_access(
+        self,
+        user_id: int,
+        project_ids: List[int],
+        granted_by_id: Optional[int] = None
+    ) -> dict:
+        """
+        Batch update project access for a user (replaces all existing).
+
+        Args:
+            user_id: User ID
+            project_ids: List of project IDs to grant access to
+            granted_by_id: ID of user who granted access
+
+        Returns:
+            Dict with granted, revoked, total counts
+        """
+        # Get current access
+        current_ids = set(await self.get_user_project_ids(user_id))
+        new_ids = set(project_ids)
+
+        to_revoke = current_ids - new_ids
+        to_grant = new_ids - current_ids
+
+        # Revoke access in batch
+        if to_revoke:
+            await self.db.execute(
+                delete(user_project_access).where(
+                    user_project_access.c.user_id == user_id,
+                    user_project_access.c.project_id.in_(to_revoke)
+                )
+            )
+
+        # Grant access in batch
+        if to_grant:
+            await self.db.execute(
+                insert(user_project_access),
+                [
+                    {"user_id": user_id, "project_id": pid, "granted_by": granted_by_id}
+                    for pid in to_grant
+                ]
+            )
+
+        await self.db.commit()
+
+        return {
+            "granted": len(to_grant),
+            "revoked": len(to_revoke),
+            "total": len(new_ids)
+        }

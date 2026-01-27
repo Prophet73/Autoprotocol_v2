@@ -1,348 +1,348 @@
 """
-Schemas for comprehensive system statistics.
+Схемы комплексной системной статистики.
 
-Supports:
-- Global overview stats
-- Domain-specific stats
-- Meeting type breakdowns
-- User activity stats
-- Cost analytics (Gemini tokens)
-- Time-based analytics
+Поддерживает:
+- Глобальный обзор статистики
+- Статистика по доменам
+- Разбивка по типам встреч
+- Статистика активности пользователей
+- Аналитика затрат AI (токены Gemini)
+- Временная аналитика
 """
 from datetime import datetime, date
 from typing import Dict, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.domains.base_schemas import DOMAIN_MEETING_TYPES
 
 
 # =============================================================================
-# Gemini Pricing (per million tokens)
+# Ценообразование Gemini (за миллион токенов)
 # =============================================================================
 
 class GeminiPricing:
-    """Gemini API pricing constants (USD per million tokens)."""
-    # Flash 2.0 (default model)
-    FLASH_2_INPUT = 0.10  # $0.10 per 1M input tokens
-    FLASH_2_OUTPUT = 0.40  # $0.40 per 1M output tokens
+    """Константы ценообразования Gemini API (USD за миллион токенов)."""
+    # Flash 2.0 (модель по умолчанию)
+    FLASH_2_INPUT = 0.10  # $0.10 за 1M входных токенов
+    FLASH_2_OUTPUT = 0.40  # $0.40 за 1M выходных токенов
 
     # Flash 2.5
     FLASH_25_INPUT = 0.30
     FLASH_25_OUTPUT = 2.50
 
-    # Current model in use
+    # Текущая используемая модель
     INPUT_PRICE = FLASH_2_INPUT
     OUTPUT_PRICE = FLASH_2_OUTPUT
 
     @classmethod
     def calculate_cost(cls, input_tokens: int, output_tokens: int) -> float:
-        """Calculate total cost in USD."""
+        """Рассчитать общую стоимость в USD."""
         input_cost = (input_tokens / 1_000_000) * cls.INPUT_PRICE
         output_cost = (output_tokens / 1_000_000) * cls.OUTPUT_PRICE
         return round(input_cost + output_cost, 4)
 
 
 # =============================================================================
-# Filter Schemas
+# Схемы фильтров
 # =============================================================================
 
 class StatsFilters(BaseModel):
-    """Common filters for stats queries."""
-    date_from: Optional[date] = None
-    date_to: Optional[date] = None
-    domain: Optional[str] = None
-    meeting_type: Optional[str] = None
-    project_id: Optional[int] = None
-    user_id: Optional[int] = None
-    status: Optional[str] = None
+    """Общие фильтры для запросов статистики."""
+    date_from: Optional[date] = Field(None, description="Начало периода")
+    date_to: Optional[date] = Field(None, description="Конец периода")
+    domain: Optional[str] = Field(None, description="Домен")
+    meeting_type: Optional[str] = Field(None, description="Тип встречи")
+    project_id: Optional[int] = Field(None, description="ID проекта")
+    user_id: Optional[int] = Field(None, description="ID пользователя")
+    status: Optional[str] = Field(None, description="Статус")
 
 
 # =============================================================================
-# KPI Schemas
+# Схемы KPI
 # =============================================================================
 
 class KPIStats(BaseModel):
-    """Key Performance Indicators."""
-    total_jobs: int = 0
-    completed_jobs: int = 0
-    failed_jobs: int = 0
-    pending_jobs: int = 0
-    processing_jobs: int = 0
-    success_rate: float = 0.0  # percentage
+    """Ключевые показатели эффективности."""
+    total_jobs: int = Field(0, description="Всего задач")
+    completed_jobs: int = Field(0, description="Завершённых")
+    failed_jobs: int = Field(0, description="С ошибками")
+    pending_jobs: int = Field(0, description="В очереди")
+    processing_jobs: int = Field(0, description="В обработке")
+    success_rate: float = Field(0.0, description="Процент успеха")
 
-    total_processing_hours: float = 0.0
-    avg_processing_minutes: float = 0.0
-    total_audio_hours: float = 0.0
+    total_processing_hours: float = Field(0.0, description="Всего часов обработки")
+    avg_processing_minutes: float = Field(0.0, description="Среднее время обработки (мин)")
+    total_audio_hours: float = Field(0.0, description="Всего часов аудио")
 
-    total_cost_usd: float = 0.0
-    avg_cost_per_job: float = 0.0
+    total_cost_usd: float = Field(0.0, description="Общая стоимость USD")
+    avg_cost_per_job: float = Field(0.0, description="Средняя стоимость задачи")
 
 
 # =============================================================================
-# Domain Stats
+# Статистика доменов
 # =============================================================================
 
 class MeetingTypeStats(BaseModel):
-    """Stats for a single meeting type."""
-    meeting_type: str
-    name: str
-    count: int = 0
-    completed: int = 0
-    failed: int = 0
-    success_rate: float = 0.0
-    total_processing_seconds: float = 0.0
-    total_audio_seconds: float = 0.0
+    """Статистика типа встречи."""
+    meeting_type: str = Field(..., description="ID типа встречи")
+    name: str = Field(..., description="Название")
+    count: int = Field(0, description="Количество")
+    completed: int = Field(0, description="Завершено")
+    failed: int = Field(0, description="С ошибками")
+    success_rate: float = Field(0.0, description="Процент успеха")
+    total_processing_seconds: float = Field(0.0, description="Время обработки (сек)")
+    total_audio_seconds: float = Field(0.0, description="Длительность аудио (сек)")
 
 
 class DomainStats(BaseModel):
-    """Stats for a single domain."""
-    domain: str
-    display_name: str
-    total_jobs: int = 0
-    completed_jobs: int = 0
-    failed_jobs: int = 0
-    success_rate: float = 0.0
-    total_processing_hours: float = 0.0
-    total_audio_hours: float = 0.0
-    total_cost_usd: float = 0.0
-    meeting_types: List[MeetingTypeStats] = []
+    """Статистика домена."""
+    domain: str = Field(..., description="ID домена")
+    display_name: str = Field(..., description="Отображаемое имя")
+    total_jobs: int = Field(0, description="Всего задач")
+    completed_jobs: int = Field(0, description="Завершённых")
+    failed_jobs: int = Field(0, description="С ошибками")
+    success_rate: float = Field(0.0, description="Процент успеха")
+    total_processing_hours: float = Field(0.0, description="Часов обработки")
+    total_audio_hours: float = Field(0.0, description="Часов аудио")
+    total_cost_usd: float = Field(0.0, description="Стоимость USD")
+    meeting_types: List[MeetingTypeStats] = Field(default=[], description="Типы встреч")
 
 
 class DomainsBreakdown(BaseModel):
-    """Stats breakdown by all domains."""
-    domains: List[DomainStats] = []
+    """Разбивка статистики по доменам."""
+    domains: List[DomainStats] = Field(default=[], description="Домены")
 
     @classmethod
     def get_domain_names(cls) -> List[str]:
-        """Get list of available domains from config."""
+        """Получить список доступных доменов из конфига."""
         return list(DOMAIN_MEETING_TYPES.keys())
 
 
 # =============================================================================
-# Project Stats (for Construction domain)
+# Статистика проектов (для домена Construction)
 # =============================================================================
 
 class ProjectStats(BaseModel):
-    """Stats for a single project."""
-    project_id: int
-    project_name: str
-    project_code: str
-    total_jobs: int = 0
-    completed_jobs: int = 0
-    failed_jobs: int = 0
-    success_rate: float = 0.0
-    total_processing_hours: float = 0.0
-    total_audio_hours: float = 0.0
-    last_activity: Optional[datetime] = None
+    """Статистика проекта."""
+    project_id: int = Field(..., description="ID проекта")
+    project_name: str = Field(..., description="Название проекта")
+    project_code: str = Field(..., description="Код проекта")
+    total_jobs: int = Field(0, description="Всего задач")
+    completed_jobs: int = Field(0, description="Завершённых")
+    failed_jobs: int = Field(0, description="С ошибками")
+    success_rate: float = Field(0.0, description="Процент успеха")
+    total_processing_hours: float = Field(0.0, description="Часов обработки")
+    total_audio_hours: float = Field(0.0, description="Часов аудио")
+    last_activity: Optional[datetime] = Field(None, description="Последняя активность")
 
 
 class ProjectsBreakdown(BaseModel):
-    """Stats breakdown by projects."""
-    projects: List[ProjectStats] = []
-    total_projects: int = 0
+    """Разбивка статистики по проектам."""
+    projects: List[ProjectStats] = Field(default=[], description="Проекты")
+    total_projects: int = Field(0, description="Всего проектов")
 
 
 # =============================================================================
-# User Stats
+# Статистика пользователей
 # =============================================================================
 
 class UserActivityStats(BaseModel):
-    """Activity stats for a single user."""
-    user_id: int
-    email: str
-    full_name: Optional[str] = None
-    role: str
-    total_jobs: int = 0
-    completed_jobs: int = 0
-    domains_used: List[str] = []
-    last_activity: Optional[datetime] = None
+    """Статистика активности пользователя."""
+    user_id: int = Field(..., description="ID пользователя")
+    email: str = Field(..., description="Email")
+    full_name: Optional[str] = Field(None, description="Полное имя")
+    role: str = Field(..., description="Роль")
+    total_jobs: int = Field(0, description="Всего задач")
+    completed_jobs: int = Field(0, description="Завершённых")
+    domains_used: List[str] = Field(default=[], description="Используемые домены")
+    last_activity: Optional[datetime] = Field(None, description="Последняя активность")
 
 
 class UsersStats(BaseModel):
-    """User statistics."""
-    total_users: int = 0
-    active_users: int = 0  # users with at least 1 job
-    by_role: Dict[str, int] = {}
-    by_domain: Dict[str, int] = {}
-    top_users: List[UserActivityStats] = []
+    """Статистика пользователей."""
+    total_users: int = Field(0, description="Всего пользователей")
+    active_users: int = Field(0, description="Активных (с хотя бы 1 задачей)")
+    by_role: Dict[str, int] = Field(default={}, description="По ролям")
+    by_domain: Dict[str, int] = Field(default={}, description="По доменам")
+    top_users: List[UserActivityStats] = Field(default=[], description="Топ пользователей")
 
 
 # =============================================================================
-# Cost Stats
+# Статистика затрат
 # =============================================================================
 
 class CostStats(BaseModel):
-    """AI cost statistics."""
-    total_input_tokens: int = 0
-    total_output_tokens: int = 0
-    total_cost_usd: float = 0.0
-    avg_cost_per_job: float = 0.0
-    by_domain: Dict[str, float] = {}  # cost per domain
+    """Статистика затрат AI."""
+    total_input_tokens: int = Field(0, description="Всего входных токенов")
+    total_output_tokens: int = Field(0, description="Всего выходных токенов")
+    total_cost_usd: float = Field(0.0, description="Общая стоимость USD")
+    avg_cost_per_job: float = Field(0.0, description="Средняя стоимость задачи")
+    by_domain: Dict[str, float] = Field(default={}, description="Стоимость по доменам")
 
-    # Pricing info
-    input_price_per_million: float = GeminiPricing.INPUT_PRICE
-    output_price_per_million: float = GeminiPricing.OUTPUT_PRICE
+    # Информация о ценах
+    input_price_per_million: float = Field(default=GeminiPricing.INPUT_PRICE, description="Цена за 1M входных токенов")
+    output_price_per_million: float = Field(default=GeminiPricing.OUTPUT_PRICE, description="Цена за 1M выходных токенов")
 
 
 # =============================================================================
-# Timeline Stats
+# Статистика временной шкалы
 # =============================================================================
 
 class TimelinePoint(BaseModel):
-    """Single point on timeline."""
-    date: str  # YYYY-MM-DD
-    jobs: int = 0
-    completed: int = 0
-    failed: int = 0
+    """Точка на временной шкале."""
+    date: str = Field(..., description="Дата YYYY-MM-DD")
+    jobs: int = Field(0, description="Задач")
+    completed: int = Field(0, description="Завершено")
+    failed: int = Field(0, description="С ошибками")
 
 
 class TimelineStats(BaseModel):
-    """Time-based statistics."""
-    points: List[TimelinePoint] = []
-    period: str = "daily"  # daily, weekly, monthly
-    total_days: int = 0
+    """Временная статистика."""
+    points: List[TimelinePoint] = Field(default=[], description="Точки")
+    period: str = Field(default="daily", description="Период: daily, weekly, monthly")
+    total_days: int = Field(0, description="Всего дней")
 
 
 # =============================================================================
-# Error Stats
+# Статистика ошибок
 # =============================================================================
 
 class ErrorStats(BaseModel):
-    """Error statistics."""
-    total_errors: int = 0
-    error_rate: float = 0.0
-    by_stage: Dict[str, int] = {}  # errors per processing stage
-    by_domain: Dict[str, int] = {}  # errors per domain
-    recent_errors: List[Dict] = []  # last N errors with details
+    """Статистика ошибок."""
+    total_errors: int = Field(0, description="Всего ошибок")
+    error_rate: float = Field(0.0, description="Процент ошибок")
+    by_stage: Dict[str, int] = Field(default={}, description="По этапам обработки")
+    by_domain: Dict[str, int] = Field(default={}, description="По доменам")
+    recent_errors: List[Dict] = Field(default=[], description="Последние ошибки")
 
 
 # =============================================================================
-# Artifacts Stats
+# Статистика артефактов
 # =============================================================================
 
 class ArtifactsStats(BaseModel):
-    """Statistics about generated artifacts."""
-    transcripts_generated: int = 0
-    tasks_generated: int = 0
-    reports_generated: int = 0
-    analysis_generated: int = 0
+    """Статистика сгенерированных артефактов."""
+    transcripts_generated: int = Field(0, description="Транскриптов")
+    tasks_generated: int = Field(0, description="Задач")
+    reports_generated: int = Field(0, description="Отчётов")
+    analysis_generated: int = Field(0, description="Аналитик")
 
-    # Percentage of jobs with each artifact
-    transcript_rate: float = 0.0
-    tasks_rate: float = 0.0
-    report_rate: float = 0.0
-    analysis_rate: float = 0.0
+    # Процент задач с каждым артефактом
+    transcript_rate: float = Field(0.0, description="% с транскриптом")
+    tasks_rate: float = Field(0.0, description="% с задачами")
+    report_rate: float = Field(0.0, description="% с отчётом")
+    analysis_rate: float = Field(0.0, description="% с аналитикой")
 
 
 # =============================================================================
-# Main Response Schemas
+# Основные схемы ответов
 # =============================================================================
 
 class OverviewStatsResponse(BaseModel):
-    """Global overview statistics response."""
-    kpi: KPIStats
-    domains: DomainsBreakdown
-    timeline: TimelineStats
-    artifacts: ArtifactsStats
-    filters_applied: StatsFilters
-    generated_at: datetime
+    """Глобальный обзор статистики."""
+    kpi: KPIStats = Field(..., description="Ключевые показатели")
+    domains: DomainsBreakdown = Field(..., description="По доменам")
+    timeline: TimelineStats = Field(..., description="Временная шкала")
+    artifacts: ArtifactsStats = Field(..., description="Артефакты")
+    filters_applied: StatsFilters = Field(..., description="Применённые фильтры")
+    generated_at: datetime = Field(..., description="Время генерации")
 
 
 class DomainStatsResponse(BaseModel):
-    """Domain-specific statistics response."""
-    domain: DomainStats
-    projects: Optional[ProjectsBreakdown] = None  # Only for construction
-    timeline: TimelineStats
-    errors: ErrorStats
-    filters_applied: StatsFilters
-    generated_at: datetime
+    """Статистика домена."""
+    domain: DomainStats = Field(..., description="Статистика домена")
+    projects: Optional[ProjectsBreakdown] = Field(None, description="Проекты (только construction)")
+    timeline: TimelineStats = Field(..., description="Временная шкала")
+    errors: ErrorStats = Field(..., description="Ошибки")
+    filters_applied: StatsFilters = Field(..., description="Применённые фильтры")
+    generated_at: datetime = Field(..., description="Время генерации")
 
 
 class UsersStatsResponse(BaseModel):
-    """User statistics response."""
-    users: UsersStats
-    timeline: TimelineStats
-    filters_applied: StatsFilters
-    generated_at: datetime
+    """Статистика пользователей."""
+    users: UsersStats = Field(..., description="Пользователи")
+    timeline: TimelineStats = Field(..., description="Временная шкала")
+    filters_applied: StatsFilters = Field(..., description="Применённые фильтры")
+    generated_at: datetime = Field(..., description="Время генерации")
 
 
 class CostStatsResponse(BaseModel):
-    """Cost statistics response."""
-    costs: CostStats
-    timeline: List[Dict] = []  # cost over time
-    filters_applied: StatsFilters
-    generated_at: datetime
+    """Статистика затрат."""
+    costs: CostStats = Field(..., description="Затраты")
+    timeline: List[Dict] = Field(default=[], description="Затраты по времени")
+    filters_applied: StatsFilters = Field(..., description="Применённые фильтры")
+    generated_at: datetime = Field(..., description="Время генерации")
 
 
 class FullDashboardResponse(BaseModel):
-    """Complete dashboard with all stats."""
-    overview: KPIStats
-    domains: DomainsBreakdown
-    users: UsersStats
-    costs: CostStats
-    timeline: TimelineStats
-    artifacts: ArtifactsStats
-    errors: ErrorStats
-    filters_applied: StatsFilters
-    generated_at: datetime
+    """Полный дашборд статистики."""
+    overview: KPIStats = Field(..., description="Обзор KPI")
+    domains: DomainsBreakdown = Field(..., description="Домены")
+    users: UsersStats = Field(..., description="Пользователи")
+    costs: CostStats = Field(..., description="Затраты")
+    timeline: TimelineStats = Field(..., description="Временная шкала")
+    artifacts: ArtifactsStats = Field(..., description="Артефакты")
+    errors: ErrorStats = Field(..., description="Ошибки")
+    filters_applied: StatsFilters = Field(..., description="Применённые фильтры")
+    generated_at: datetime = Field(..., description="Время генерации")
 
 
 # =============================================================================
-# Legacy schemas (for backwards compatibility)
+# Legacy схемы (для обратной совместимости)
 # =============================================================================
 
 class TranscriptionStats(BaseModel):
-    """Transcription job statistics by status."""
-    pending: int = 0
-    processing: int = 0
-    completed: int = 0
-    failed: int = 0
-    total: int = 0
+    """Статистика задач транскрипции по статусам."""
+    pending: int = Field(0, description="В очереди")
+    processing: int = Field(0, description="В обработке")
+    completed: int = Field(0, description="Завершено")
+    failed: int = Field(0, description="С ошибками")
+    total: int = Field(0, description="Всего")
 
 
 class StorageStats(BaseModel):
-    """Storage usage statistics."""
-    total_bytes: int = 0
-    total_mb: float = 0.0
-    total_gb: float = 0.0
-    uploads_bytes: int = 0
-    outputs_bytes: int = 0
+    """Статистика использования хранилища."""
+    total_bytes: int = Field(0, description="Всего байт")
+    total_mb: float = Field(0.0, description="Всего МБ")
+    total_gb: float = Field(0.0, description="Всего ГБ")
+    uploads_bytes: int = Field(0, description="Загрузки (байт)")
+    outputs_bytes: int = Field(0, description="Результаты (байт)")
 
 
 class UserStatsLegacy(BaseModel):
-    """User statistics (legacy)."""
-    total_users: int = 0
-    active_users: int = 0
-    superusers: int = 0
-    by_role: Dict[str, int] = {}
-    by_domain: Dict[str, int] = {}
+    """Статистика пользователей (legacy)."""
+    total_users: int = Field(0, description="Всего пользователей")
+    active_users: int = Field(0, description="Активных")
+    superusers: int = Field(0, description="Суперпользователей")
+    by_role: Dict[str, int] = Field(default={}, description="По ролям")
+    by_domain: Dict[str, int] = Field(default={}, description="По доменам")
 
 
 class DomainStatsLegacy(BaseModel):
-    """Statistics by domain (legacy)."""
-    construction: int = 0
-    hr: int = 0
-    it: int = 0
-    general: int = 0
+    """Статистика по доменам (legacy)."""
+    construction: int = Field(0, description="Строительство")
+    hr: int = Field(0, description="HR")
+    it: int = Field(0, description="IT")
+    general: int = Field(0, description="Общий")
 
 
 class GlobalStatsResponse(BaseModel):
-    """Global system statistics response (legacy)."""
-    users: UserStatsLegacy
-    transcriptions: TranscriptionStats
-    storage: StorageStats
-    domains: DomainStatsLegacy
-    redis_connected: bool = True
-    gpu_available: bool = False
-    generated_at: datetime
+    """Глобальная статистика системы (legacy)."""
+    users: UserStatsLegacy = Field(..., description="Пользователи")
+    transcriptions: TranscriptionStats = Field(..., description="Транскрипции")
+    storage: StorageStats = Field(..., description="Хранилище")
+    domains: DomainStatsLegacy = Field(..., description="Домены")
+    redis_connected: bool = Field(True, description="Redis подключён")
+    gpu_available: bool = Field(False, description="GPU доступен")
+    generated_at: datetime = Field(..., description="Время генерации")
 
 
 class SystemHealthResponse(BaseModel):
-    """System health status."""
-    status: str
-    redis: bool
-    database: bool
-    gpu: bool
-    celery: bool
-    disk_usage_percent: float
-    memory_usage_percent: float
+    """Состояние здоровья системы."""
+    status: str = Field(..., description="Статус")
+    redis: bool = Field(..., description="Redis")
+    database: bool = Field(..., description="База данных")
+    gpu: bool = Field(..., description="GPU")
+    celery: bool = Field(..., description="Celery")
+    disk_usage_percent: float = Field(..., description="Использование диска %")
+    memory_usage_percent: float = Field(..., description="Использование памяти %")

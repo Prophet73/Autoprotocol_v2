@@ -1,8 +1,8 @@
 """
-Admin user management router.
+Роутер управления пользователями (админ-панель).
 
-Endpoints for superusers to manage users, roles, and domains.
-All endpoints require superuser privileges.
+Эндпоинты для суперпользователей: управление пользователями, ролями и доменами.
+Все эндпоинты требуют прав суперпользователя.
 """
 from typing import Optional, Annotated
 
@@ -23,6 +23,8 @@ from .schemas import (
     ProjectAccessResponse,
     UserProjectAccessList,
     ProjectUserAccessList,
+    BatchUpdateProjectAccessRequest,
+    BatchUpdateProjectAccessResponse,
 )
 
 
@@ -38,15 +40,15 @@ router = APIRouter(prefix="/users", tags=["Админ - Пользователи
 async def list_users(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-    skip: int = Query(0, ge=0, description="Records to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Max records to return"),
-    role: Optional[UserRole] = Query(None, description="Filter by role"),
-    domain: Optional[Domain] = Query(None, description="Filter by domain"),
+    skip: int = Query(0, ge=0, description="Пропустить записей"),
+    limit: int = Query(100, ge=1, le=1000, description="Максимум записей"),
+    role: Optional[UserRole] = Query(None, description="Фильтр по роли"),
+    domain: Optional[Domain] = Query(None, description="Фильтр по домену"),
 ) -> UserListResponse:
     """
-    List all users with their roles and domains.
+    Список всех пользователей с ролями и доменами.
 
-    Requires superuser privileges.
+    Требует прав суперпользователя.
     """
     service = UserService(db)
     return await service.list_users(
@@ -68,7 +70,7 @@ async def get_user(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
-    """Get user details by ID."""
+    """Получить детали пользователя по ID."""
     service = UserService(db)
     user = await service.get_user(user_id)
     if not user:
@@ -92,9 +94,9 @@ async def create_user(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
     """
-    Create a new user (superuser only).
+    Создать нового пользователя (только суперпользователь).
 
-    Password will be hashed before storage.
+    Пароль хешируется перед сохранением.
     """
     service = UserService(db)
     try:
@@ -119,10 +121,10 @@ async def assign_role(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AssignRoleResponse:
     """
-    Assign role and domain to a user.
+    Назначить роль и домен пользователю.
 
-    Requires superuser privileges.
-    Setting role to 'superuser' automatically sets is_superuser=True.
+    Требует прав суперпользователя.
+    Установка роли 'superuser' автоматически устанавливает is_superuser=True.
     """
     service = UserService(db)
     try:
@@ -150,7 +152,7 @@ async def update_user(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
-    """Update user details."""
+    """Обновить данные пользователя."""
     service = UserService(db)
     try:
         user = await service.update_user(user_id, request)
@@ -174,9 +176,9 @@ async def delete_user(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
     """
-    Delete a user.
+    Удалить пользователя.
 
-    Cannot delete yourself.
+    Нельзя удалить самого себя.
     """
     if user_id == current_user.id:
         raise HTTPException(
@@ -194,7 +196,7 @@ async def delete_user(
 
 
 # =============================================================================
-# Domain Management Endpoints
+# Управление доменами
 # =============================================================================
 
 @router.post(
@@ -210,10 +212,10 @@ async def assign_domains(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
     """
-    Assign multiple domains to a user.
+    Назначить несколько доменов пользователю.
 
-    Replaces all existing domain assignments.
-    Valid domains: construction, hr, it, general
+    Заменяет все существующие назначения доменов.
+    Доступные домены: construction, hr, it, general
     """
     service = UserService(db)
     try:
@@ -241,13 +243,13 @@ async def get_user_domains(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[str]:
-    """Get list of domains assigned to user."""
+    """Получить список доменов пользователя."""
     service = UserService(db)
     return await service.get_user_domains(user_id)
 
 
 # =============================================================================
-# Project Access Management Endpoints
+# Управление доступом к проектам
 # =============================================================================
 
 @router.post(
@@ -263,9 +265,9 @@ async def grant_project_access(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ProjectAccessResponse:
     """
-    Grant user read access to a project.
+    Выдать пользователю доступ на чтение проекта.
 
-    Similar to Autoprotokol's access model.
+    Аналогично модели доступа Autoprotokol.
     """
     service = UserService(db)
     granted = await service.grant_project_access(
@@ -293,7 +295,7 @@ async def revoke_project_access(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ProjectAccessResponse:
-    """Revoke user's read access to a project."""
+    """Отозвать у пользователя доступ к проекту."""
     service = UserService(db)
     revoked = await service.revoke_project_access(user_id, project_id)
     return ProjectAccessResponse(
@@ -315,14 +317,46 @@ async def get_user_projects(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserProjectAccessList:
-    """Get list of project IDs user has access to."""
+    """Получить список ID проектов, к которым пользователь имеет доступ."""
     service = UserService(db)
     project_ids = await service.get_user_project_ids(user_id)
     return UserProjectAccessList(user_id=user_id, project_ids=project_ids)
 
 
+@router.put(
+    "/{user_id}/projects",
+    response_model=BatchUpdateProjectAccessResponse,
+    summary="Batch обновление доступа к проектам",
+    description="Заменить все текущие доступы к проектам на новый список."
+)
+async def batch_update_project_access(
+    user_id: int,
+    request: BatchUpdateProjectAccessRequest,
+    current_user: SuperUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> BatchUpdateProjectAccessResponse:
+    """
+    Batch обновление доступа к проектам.
+
+    Заменяет все текущие доступы на указанный список project_ids.
+    Эффективнее чем множество отдельных grant/revoke вызовов.
+    """
+    service = UserService(db)
+    result = await service.batch_update_project_access(
+        user_id=user_id,
+        project_ids=request.project_ids,
+        granted_by_id=current_user.id
+    )
+    return BatchUpdateProjectAccessResponse(
+        user_id=user_id,
+        granted=result["granted"],
+        revoked=result["revoked"],
+        total=result["total"]
+    )
+
+
 # =============================================================================
-# Project Users Endpoint (reverse lookup)
+# Пользователи проекта (обратный поиск)
 # =============================================================================
 
 @router.get(
@@ -337,7 +371,7 @@ async def get_project_users(
     db: Annotated[AsyncSession, Depends(get_db)],
     include_details: bool = False,
 ) -> ProjectUserAccessList:
-    """Get list of users who have access to a project."""
+    """Получить список пользователей с доступом к проекту."""
     service = UserService(db)
     user_ids = await service.get_project_user_ids(project_id)
 

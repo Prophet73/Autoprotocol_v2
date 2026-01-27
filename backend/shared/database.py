@@ -41,7 +41,7 @@ engine: AsyncEngine = create_async_engine(
     future=True,
 )
 
-# Session factory
+# Session factory (async - for FastAPI)
 async_session_factory = async_sessionmaker(
     engine,
     class_=AsyncSession,
@@ -49,6 +49,27 @@ async_session_factory = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+
+
+def get_celery_session_factory():
+    """
+    Create a new async session factory for Celery tasks.
+
+    Each call creates a fresh engine and session factory to avoid
+    event loop conflicts when running async code from sync Celery context.
+    """
+    celery_engine = create_async_engine(
+        DATABASE_URL,
+        echo=os.getenv("SQL_ECHO", "false").lower() == "true",
+        future=True,
+    )
+    return async_sessionmaker(
+        celery_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

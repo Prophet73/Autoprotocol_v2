@@ -465,7 +465,11 @@ class ProjectRisk(BaseModel):
 
     evidence: Optional[str] = Field(
         None,
-        description="Фраза/парт текста, подтверждающая риск"
+        description="Фраза/цитата из стенограммы, подтверждающая риск"
+    )
+    evidence_timecode: Optional[str] = Field(
+        None,
+        description="Таймкод цитаты: '12:34' или '12:34-13:01'"
     )
     confidence: Literal["high", "medium", "low"] = Field(
         default="medium",
@@ -478,8 +482,13 @@ class ProjectRisk(BaseModel):
     consequences: str = Field(
         description="Последствия если риск реализуется: срыв сроков, штрафы, остановка"
     )
-    mitigation: str = Field(
-        description="Конкретные меры по снижению риска: что делать, кому поручить"
+    decision: Optional[str] = Field(
+        None,
+        description="Что решили на совещании (из стенограммы). Приоритет над mitigation."
+    )
+    mitigation: Optional[str] = Field(
+        None,
+        description="Рекомендация ИИ если decision пустой. Формат: КТО + ЧТО + КОГДА"
     )
 
     # Оценка (матрица 5×5)
@@ -546,20 +555,30 @@ class ProjectRisk(BaseModel):
         }
         return colors.get(self.severity, "#666666")
 
+    @property
+    def has_decision(self) -> bool:
+        """Есть ли принятое решение (из стенограммы)"""
+        return bool(self.decision and self.decision.strip())
+
 
 class Concern(BaseModel):
     """
-    Вопрос, требующий внимания руководителя.
-    Не риск, но важный момент который могли упустить.
+    Незакрытый вопрос — тема без решения, проблема модерации.
+    Показывает что модератор не дожал до логического завершения.
     """
-    id: str = Field(description="ID: C1, C2, C3...")
+    id: str = Field(description="ID: Q1, Q2, Q3...")
     category: ConcernCategory = Field(description="Категория вопроса")
     title: str = Field(description="Заголовок (что упущено/не решено)")
     description: str = Field(
         description="Описание ситуации: что обсуждалось, что не доделано"
     )
     recommendation: str = Field(
+        default="",
         description="Конкретная рекомендация: кому поручить, что сделать, в какой срок"
+    )
+    related_risk_ids: List[str] = Field(
+        default_factory=list,
+        description="Связанные риски: ['R1', 'R3'] если вопрос относится к риску"
     )
 
 

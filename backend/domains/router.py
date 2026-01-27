@@ -1,8 +1,8 @@
 """
-Domains router.
+Роутер доменов.
 
-Provides common endpoints for all domains:
-- Meeting types per domain
+Общие эндпоинты для всех доменов:
+- Типы встреч по доменам
 """
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -13,13 +13,13 @@ router = APIRouter(prefix="/api/domains", tags=["Домены"])
 
 
 class MeetingTypeInfo(BaseModel):
-    """Meeting type information."""
+    """Информация о типе встречи."""
     id: str
     name: str
     default: Optional[bool] = None
 
 
-# Meeting types configuration
+# Конфигурация типов встреч
 DOMAIN_MEETING_TYPES = {
     "construction": [
         MeetingTypeInfo(id="site_meeting", name="Совещание на объекте", default=True),
@@ -50,9 +50,9 @@ DOMAIN_MEETING_TYPES = {
 )
 async def get_meeting_types(domain: str) -> List[MeetingTypeInfo]:
     """
-    Get available meeting types for a domain.
+    Получить доступные типы встреч для домена.
 
-    - construction: site_meeting (default, no choice)
+    - construction: site_meeting (по умолчанию, без выбора)
     - hr: recruitment, one_on_one, performance_review, team_meeting, onboarding
     - it: standup, planning, retrospective, incident_review, architecture, demo
     """

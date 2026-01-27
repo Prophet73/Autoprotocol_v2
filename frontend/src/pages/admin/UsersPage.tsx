@@ -9,16 +9,23 @@ interface UserModalProps {
   onSave: (data: CreateUserRequest | Partial<User>) => void;
 }
 
+const AVAILABLE_DOMAINS = [
+  { value: 'construction', label: 'Строительство' },
+  { value: 'hr', label: 'HR' },
+  { value: 'it', label: 'IT' },
+];
+
 function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     full_name: '',
     role: 'user',
-    domain: '',
+    domains: [] as string[],
     is_superuser: false,
   });
   const [saving, setSaving] = useState(false);
+  const [loadingDomains, setLoadingDomains] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -27,38 +34,66 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
         password: '',
         full_name: user.full_name || '',
         role: user.role,
-        domain: user.domain || '',
+        domains: [],
         is_superuser: user.is_superuser,
       });
+      // Load user's domains
+      loadUserDomains(user.id);
     } else {
       setFormData({
         email: '',
         password: '',
         full_name: '',
         role: 'user',
-        domain: '',
+        domains: [],
         is_superuser: false,
       });
     }
   }, [user]);
+
+  const loadUserDomains = async (userId: number) => {
+    setLoadingDomains(true);
+    try {
+      const domains = await usersApi.getUserDomains(userId);
+      setFormData(prev => ({ ...prev, domains }));
+    } catch (err) {
+      console.error('Error loading user domains:', err);
+    } finally {
+      setLoadingDomains(false);
+    }
+  };
+
+  const toggleDomain = (domain: string) => {
+    setFormData(prev => ({
+      ...prev,
+      domains: prev.domains.includes(domain)
+        ? prev.domains.filter(d => d !== domain)
+        : [...prev.domains, domain],
+    }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
       if (user) {
-        // Update - don't send password if empty
+        // Update user data
         const updateData: Partial<User> = {
           email: formData.email,
           full_name: formData.full_name || null,
           role: formData.role,
-          domain: formData.domain || null,
+          domain: formData.domains[0] || null,
           is_superuser: formData.is_superuser,
         };
         await onSave(updateData);
+        // Update domains separately
+        await usersApi.updateDomains(user.id, formData.domains);
       } else {
-        // Create
-        await onSave(formData);
+        // Create - include domains
+        await onSave({
+          ...formData,
+          domain: formData.domains[0] || '',
+        });
       }
       onClose();
     } finally {
@@ -126,18 +161,30 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Домен</label>
-            <select
-              value={formData.domain}
-              onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Без домена</option>
-              <option value="construction">Строительство</option>
-              <option value="hr">HR</option>
-              <option value="it">IT</option>
-              <option value="general">Общий</option>
-            </select>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Домены
+              {loadingDomains && <span className="ml-2 text-gray-500 text-xs">(загрузка...)</span>}
+            </label>
+            <div className="space-y-2 bg-gray-700 border border-gray-600 rounded-lg p-3">
+              {AVAILABLE_DOMAINS.map((domain) => (
+                <label
+                  key={domain.value}
+                  className="flex items-center cursor-pointer hover:bg-gray-600/50 rounded px-2 py-1 -mx-2"
+                >
+                  <input
+                    type="checkbox"
+                    checked={formData.domains.includes(domain.value)}
+                    onChange={() => toggleDomain(domain.value)}
+                    disabled={loadingDomains}
+                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-500 rounded focus:ring-blue-500"
+                  />
+                  <span className="ml-2 text-white">{domain.label}</span>
+                </label>
+              ))}
+              {formData.domains.length === 0 && !loadingDomains && (
+                <p className="text-xs text-gray-400 italic">Домены не выбраны</p>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center">
@@ -487,24 +534,34 @@ export default function UsersPage() {
 
   // Count projects for each user (for display)
   const [userProjectCounts, setUserProjectCounts] = useState<Record<number, number>>({});
+  // Domains for each user
+  const [userDomains, setUserDomains] = useState<Record<number, string[]>>({});
 
   useEffect(() => {
-    // Load project counts for all users
-    const loadProjectCounts = async () => {
+    // Load project counts and domains for all users
+    const loadUserData = async () => {
       const counts: Record<number, number> = {};
+      const domains: Record<number, string[]> = {};
+
       for (const user of users) {
         try {
-          const response = await usersApi.getUserProjects(user.id);
-          counts[user.id] = response.project_ids.length;
+          const [projectsResponse, domainsResponse] = await Promise.all([
+            usersApi.getUserProjects(user.id),
+            usersApi.getUserDomains(user.id),
+          ]);
+          counts[user.id] = projectsResponse.project_ids.length;
+          domains[user.id] = domainsResponse;
         } catch {
           counts[user.id] = 0;
+          domains[user.id] = user.domain ? [user.domain] : [];
         }
       }
       setUserProjectCounts(counts);
+      setUserDomains(domains);
     };
 
     if (users.length > 0 && users.length <= 50) {
-      loadProjectCounts();
+      loadUserData();
     }
   }, [users]);
 
@@ -631,8 +688,26 @@ export default function UsersPage() {
                         {user.is_superuser ? 'Superuser' : user.role}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
-                      {user.domain || '-'}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex flex-wrap gap-1">
+                        {(userDomains[user.id] || [user.domain]).filter(Boolean).length > 0 ? (
+                          (userDomains[user.id] || [user.domain]).filter(Boolean).map((d: string) => (
+                            <span
+                              key={d}
+                              className={`px-1.5 py-0.5 text-xs rounded ${
+                                d === 'construction' ? 'bg-orange-900/50 text-orange-300' :
+                                d === 'hr' ? 'bg-pink-900/50 text-pink-300' :
+                                d === 'it' ? 'bg-cyan-900/50 text-cyan-300' :
+                                'bg-gray-700 text-gray-300'
+                              }`}
+                            >
+                              {d}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-gray-500">-</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button

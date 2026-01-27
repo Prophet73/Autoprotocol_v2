@@ -1,11 +1,11 @@
 """
-Manager Dashboard API Routes.
+API роуты дашборда менеджера.
 
-Provides endpoints for:
-- Dashboard view with KPIs, calendar, attention items, activity feed
-- Analytics detail view
-- Problem status management
-- Report downloads
+Эндпоинты для:
+- Дашборд с KPI, календарём, проблемами, лентой активности
+- Детальная аналитика отчёта
+- Управление статусами проблем
+- Скачивание отчётов
 """
 import os
 from datetime import datetime, timedelta
@@ -22,11 +22,11 @@ from pydantic import BaseModel, Field
 from backend.shared.database import get_db
 from backend.core.utils.file_security import validate_file_path
 
-# Base data directory for file validation
+# Базовая директория данных для валидации путей к файлам
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 from backend.shared.models import User, user_project_access
 from backend.core.auth.dependencies import CurrentUser
-# Import directly from models to avoid heavy dependencies chain
+# Импорт напрямую из моделей чтобы избежать тяжёлой цепочки зависимостей
 from backend.domains.construction.models import (
     ConstructionProject,
     ConstructionReportDB,
@@ -35,24 +35,24 @@ from backend.domains.construction.models import (
 )
 
 
-router = APIRouter(tags=["Manager Dashboard"])
+router = APIRouter(tags=["Дашборд менеджера"])
 
 
 # =============================================================================
-# Schemas
+# Схемы
 # =============================================================================
 
 class KPIResponse(BaseModel):
-    """Key Performance Indicators."""
+    """Ключевые показатели эффективности."""
     total_jobs: int = 0
     attention_jobs: int = 0
     critical_jobs: int = 0
 
 
 class CalendarEventResponse(BaseModel):
-    """Calendar event for display."""
+    """Событие календаря для отображения."""
     id: int  # report_id
-    analytics_id: Optional[int] = None  # analytics_id for modal
+    analytics_id: Optional[int] = None  # analytics_id для модалки
     title: str
     date: str  # ISO date string
     status: str  # critical, attention, stable
@@ -62,7 +62,7 @@ class CalendarEventResponse(BaseModel):
 
 
 class AttentionItemResponse(BaseModel):
-    """Attention item (problem) for display."""
+    """Элемент требующий внимания (проблема) для отображения."""
     id: int
     analytics_id: int
     problem_text: str
@@ -74,7 +74,7 @@ class AttentionItemResponse(BaseModel):
 
 
 class ActivityFeedItemResponse(BaseModel):
-    """Activity feed item."""
+    """Элемент ленты активности."""
     id: int
     title: str
     project_name: str
@@ -83,7 +83,7 @@ class ActivityFeedItemResponse(BaseModel):
 
 
 class ProjectHealthResponse(BaseModel):
-    """Project health summary."""
+    """Сводка здоровья проекта."""
     id: int
     name: str
     project_code: str
@@ -93,7 +93,7 @@ class ProjectHealthResponse(BaseModel):
 
 
 class PulseChartResponse(BaseModel):
-    """Pulse chart data for stacked bar chart."""
+    """Данные пульс-графика для стековой диаграммы."""
     labels: List[str] = []
     critical: List[int] = []
     attention: List[int] = []
@@ -101,7 +101,7 @@ class PulseChartResponse(BaseModel):
 
 
 class DashboardViewResponse(BaseModel):
-    """Complete dashboard view response."""
+    """Полный ответ представления дашборда."""
     kpi: KPIResponse
     calendar_events: List[CalendarEventResponse] = []
     attention_items: List[AttentionItemResponse] = []
@@ -111,20 +111,20 @@ class DashboardViewResponse(BaseModel):
 
 
 class KeyIndicator(BaseModel):
-    """Dynamic indicator for analytics detail (Autoprotocol format)."""
+    """Динамический индикатор для детальной аналитики (формат Autoprotocol)."""
     indicator_name: str
     status: str  # "Критический", "Есть риски", "В норме"
     comment: str
 
 
 class Challenge(BaseModel):
-    """Challenge/problem with recommendation."""
+    """Проблема/вызов с рекомендацией."""
     text: str
     recommendation: str
 
 
 class ReportFiles(BaseModel):
-    """Report file paths."""
+    """Пути к файлам отчёта."""
     main: Optional[str] = None
     detailed: Optional[str] = None
     transcript: Optional[str] = None
@@ -133,7 +133,7 @@ class ReportFiles(BaseModel):
 
 
 class AnalyticsDetailResponse(BaseModel):
-    """Analytics detail response."""
+    """Ответ с детальной аналитикой."""
     id: int
     summary: str = ""
     status: str = "stable"  # critical, attention, stable
@@ -143,35 +143,35 @@ class AnalyticsDetailResponse(BaseModel):
     toxicity_level: float = 0.0
     toxicity_details: str = ""
     report_files: ReportFiles
-    # Flags for download buttons (Autoprotocol format)
+    # Флаги для кнопок скачивания (формат Autoprotocol)
     has_main_report: bool = False
     has_detailed_report: bool = False
     has_transcript: bool = False
     has_tasks: bool = False
     has_risk_brief: bool = False
-    filename: str = ""  # Original filename for display
+    filename: str = ""  # Оригинальное имя файла для отображения
 
 
 class ProblemStatusUpdate(BaseModel):
-    """Request to update problem status."""
+    """Запрос на обновление статуса проблемы."""
     problem_id: int
     status: str = Field(..., pattern="^(new|done)$")
 
 
 # =============================================================================
-# Helper Functions
+# Вспомогательные функции
 # =============================================================================
 
 async def get_user_project_ids(db: AsyncSession, user: User) -> List[int]:
     """
-    Get project IDs accessible by user via user_project_access.
+    Получить ID проектов доступных пользователю через user_project_access.
 
-    ALL users (including superusers) must have explicit access granted.
-    This prevents dashboard from being cluttered with all projects.
+    ВСЕ пользователи (включая суперпользователей) должны иметь явный доступ.
+    Это предотвращает загромождение дашборда всеми проектами.
 
-    User sees projects where:
-    1. They are assigned as manager (manager_id)
-    2. They have explicit access via user_project_access table
+    Пользователь видит проекты где:
+    1. Он назначен менеджером (manager_id)
+    2. У него есть явный доступ через таблицу user_project_access
     """
     access_subquery = (
         select(user_project_access.c.project_id)
@@ -190,25 +190,25 @@ async def get_user_project_ids(db: AsyncSession, user: User) -> List[int]:
 
 
 # =============================================================================
-# Dashboard View Endpoint
+# Эндпоинт дашборда
 # =============================================================================
 
 @router.get(
     "/dashboard-view",
     response_model=DashboardViewResponse,
-    summary="Get dashboard view",
-    description="Returns complete dashboard data including KPIs, calendar, attention items, activity feed, and project health."
+    summary="Получить дашборд",
+    description="Возвращает полные данные дашборда: KPI, календарь, проблемы, лента активности и здоровье проектов."
 )
 async def get_dashboard_view(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-    project_id: Optional[int] = Query(None, description="Filter by project ID"),
-    start_date: Optional[str] = Query(None, description="Start date filter (ISO format)"),
-    end_date: Optional[str] = Query(None, description="End date filter (ISO format)"),
+    project_id: Optional[int] = Query(None, description="Фильтр по ID проекта"),
+    start_date: Optional[str] = Query(None, description="Фильтр по начальной дате (ISO формат)"),
+    end_date: Optional[str] = Query(None, description="Фильтр по конечной дате (ISO формат)"),
 ) -> DashboardViewResponse:
-    """Get complete dashboard view data."""
+    """Получить полные данные дашборда."""
 
-    # Get accessible project IDs
+    # Получить доступные ID проектов
     project_ids = await get_user_project_ids(db, current_user)
     if not project_ids:
         return DashboardViewResponse(
@@ -216,7 +216,7 @@ async def get_dashboard_view(
             pulse_chart=PulseChartResponse()
         )
 
-    # Filter by specific project if requested
+    # Фильтровать по конкретному проекту если запрошено
     if project_id and project_id in project_ids:
         project_ids = [project_id]
     elif project_id:
@@ -225,7 +225,7 @@ async def get_dashboard_view(
             detail="Access denied to this project"
         )
 
-    # Parse date filters
+    # Парсинг фильтров дат
     date_from = None
     date_to = None
     if start_date:
@@ -239,14 +239,14 @@ async def get_dashboard_view(
         except ValueError:
             pass
 
-    # Build base query for reports
+    # Построение базового запроса для отчётов
     base_filter = [ConstructionReportDB.project_id.in_(project_ids)]
     if date_from:
         base_filter.append(ConstructionReportDB.created_at >= date_from)
     if date_to:
         base_filter.append(ConstructionReportDB.created_at <= date_to)
 
-    # Get reports with analytics
+    # Получение отчётов с аналитикой
     reports_query = (
         select(ConstructionReportDB)
         .options(selectinload(ConstructionReportDB.project))
@@ -256,12 +256,12 @@ async def get_dashboard_view(
     reports_result = await db.execute(reports_query)
     reports = reports_result.scalars().all()
 
-    # Calculate KPIs
+    # Расчёт KPI
     total_jobs = len(reports)
     attention_jobs = 0
     critical_jobs = 0
 
-    # Get analytics for reports
+    # Получение аналитики для отчётов
     analytics_query = (
         select(ReportAnalytics)
         .where(ReportAnalytics.report_id.in_([r.id for r in reports]))
@@ -287,7 +287,7 @@ async def get_dashboard_view(
         critical_jobs=critical_jobs
     )
 
-    # Calendar events
+    # События календаря
     calendar_events = []
     for report in reports[:50]:  # Limit to 50
         analytics = analytics_map.get(report.id)
@@ -307,7 +307,7 @@ async def get_dashboard_view(
             project_name=report.project.name if report.project else "Без проекта"
         ))
 
-    # Attention items (problems)
+    # Проблемы требующие внимания
     problems_query = (
         select(ReportProblem)
         .join(ReportAnalytics)
@@ -345,7 +345,7 @@ async def get_dashboard_view(
             created_at=problem.created_at
         ))
 
-    # Activity feed (recent reports)
+    # Лента активности (последние отчёты)
     activity_feed = []
     for report in reports[:10]:
         analytics = analytics_map.get(report.id)
@@ -361,7 +361,7 @@ async def get_dashboard_view(
             created_at=report.created_at
         ))
 
-    # Projects health
+    # Здоровье проектов
     projects_query = (
         select(ConstructionProject)
         .where(ConstructionProject.id.in_(project_ids))
@@ -371,11 +371,11 @@ async def get_dashboard_view(
 
     projects_health = []
     for proj in projects:
-        # Count reports and issues for this project
+        # Подсчёт отчётов и проблем для этого проекта
         proj_reports = [r for r in reports if r.project_id == proj.id]
         total_reports = len(proj_reports)
 
-        # Determine overall health
+        # Определение общего здоровья
         proj_critical = sum(1 for r in proj_reports if analytics_map.get(r.id, None) and analytics_map[r.id].health_status == 'critical')
         proj_attention = sum(1 for r in proj_reports if analytics_map.get(r.id, None) and analytics_map[r.id].health_status == 'attention')
 
@@ -386,7 +386,7 @@ async def get_dashboard_view(
         else:
             health = 'stable'
 
-        # Count open issues
+        # Подсчёт открытых проблем
         open_issues = sum(
             len([p for p in analytics_map[r.id].problems if p.status == 'new'])
             for r in proj_reports
@@ -402,14 +402,14 @@ async def get_dashboard_view(
             open_issues=open_issues
         ))
 
-    # Pulse chart (last 7 days)
+    # Пульс-график (последние 7 дней)
     pulse_chart = PulseChartResponse(labels=[], critical=[], attention=[], stable=[])
     today = datetime.now().date()
     for i in range(6, -1, -1):
         day = today - timedelta(days=i)
         pulse_chart.labels.append(day.strftime('%d.%m'))
 
-        # Count reports by health for this day
+        # Подсчёт отчётов по здоровью за этот день
         day_start = datetime.combine(day, datetime.min.time())
         day_end = datetime.combine(day, datetime.max.time())
 
@@ -434,23 +434,23 @@ async def get_dashboard_view(
 
 
 # =============================================================================
-# Analytics Detail Endpoint
+# Эндпоинт детальной аналитики
 # =============================================================================
 
 @router.get(
     "/analytics/{analytics_id}",
     response_model=AnalyticsDetailResponse,
-    summary="Get analytics detail",
-    description="Returns detailed analytics data for a specific report."
+    summary="Получить детали аналитики",
+    description="Возвращает детальные данные аналитики для конкретного отчёта."
 )
 async def get_analytics_detail(
     analytics_id: int,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AnalyticsDetailResponse:
-    """Get detailed analytics for a report."""
+    """Получить детальную аналитику для отчёта."""
 
-    # Get analytics with report and project
+    # Получение аналитики с отчётом и проектом
     query = (
         select(ReportAnalytics)
         .options(
@@ -468,7 +468,7 @@ async def get_analytics_detail(
             detail=f"Analytics with id {analytics_id} not found"
         )
 
-    # Check access
+    # Проверка доступа
     if analytics.report and analytics.report.project:
         project_ids = await get_user_project_ids(db, current_user)
         if analytics.report.project_id not in project_ids:
@@ -477,7 +477,7 @@ async def get_analytics_detail(
                 detail="Access denied to this analytics"
             )
 
-    # Build dynamic indicators (Autoprotocol format)
+    # Построение динамических индикаторов (формат Autoprotocol)
     key_indicators = []
     if analytics.key_indicators:
         for indicator in analytics.key_indicators:
@@ -487,7 +487,7 @@ async def get_analytics_detail(
                 comment=indicator.get('comment', '')
             ))
 
-    # Build challenges
+    # Построение вызовов/проблем
     challenges = []
     if analytics.challenges:
         for challenge in analytics.challenges:
@@ -496,10 +496,10 @@ async def get_analytics_detail(
                 recommendation=challenge.get('recommendation', '')
             ))
 
-    # Build achievements
+    # Построение достижений
     achievements = analytics.achievements or []
 
-    # Report files
+    # Файлы отчёта
     report = analytics.report
     report_files = ReportFiles()
     has_main_report = False
@@ -513,7 +513,7 @@ async def get_analytics_detail(
         if report.report_path:
             report_files.main = report.report_path
             has_main_report = Path(report.report_path).exists() if report.report_path else False
-        # Manager brief is stored in DB but not exposed for download
+        # Менеджерский бриф хранится в БД но не доступен для скачивания
         has_detailed_report = False
         if report.transcript_path:
             report_files.transcript = report.transcript_path
@@ -524,7 +524,7 @@ async def get_analytics_detail(
         if report.risk_brief_path:
             report_files.risk_brief = report.risk_brief_path
             has_risk_brief = Path(report.risk_brief_path).exists() if report.risk_brief_path else False
-        # Original filename
+        # Оригинальное имя файла
         filename = report.title or report.audio_file_path or f"Отчёт {report.job_id[:8]}"
 
     return AnalyticsDetailResponse(
@@ -547,23 +547,23 @@ async def get_analytics_detail(
 
 
 # =============================================================================
-# Problem Status Update Endpoint
+# Эндпоинт обновления статуса проблемы
 # =============================================================================
 
 @router.post(
     "/problem/status",
     response_model=dict,
-    summary="Update problem status",
-    description="Mark a problem as resolved or reopen it."
+    summary="Обновить статус проблемы",
+    description="Пометить проблему как решённую или переоткрыть её."
 )
 async def update_problem_status(
     data: ProblemStatusUpdate,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
-    """Update problem status."""
+    """Обновить статус проблемы."""
 
-    # Get problem
+    # Получение проблемы
     query = (
         select(ReportProblem)
         .options(
@@ -581,7 +581,7 @@ async def update_problem_status(
             detail=f"Problem with id {data.problem_id} not found"
         )
 
-    # Check access
+    # Проверка доступа
     if problem.analytics and problem.analytics.report:
         project_ids = await get_user_project_ids(db, current_user)
         project_id = problem.analytics.report.project_id
@@ -591,7 +591,7 @@ async def update_problem_status(
                 detail="Access denied to this problem"
             )
 
-    # Update status
+    # Обновление статуса
     problem.status = data.status
     if data.status == 'done':
         problem.resolved_by_id = current_user.id
@@ -606,13 +606,13 @@ async def update_problem_status(
 
 
 # =============================================================================
-# Report Download Endpoint
+# Эндпоинт скачивания отчётов
 # =============================================================================
 
 @router.get(
     "/analytics/{analytics_id}/report/{report_type}",
-    summary="Download analytics report",
-    description="Download report file by type."
+    summary="Скачать отчёт аналитики",
+    description="Скачать файл отчёта по типу."
 )
 async def download_analytics_report(
     analytics_id: int,
@@ -620,7 +620,7 @@ async def download_analytics_report(
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Download report file for analytics."""
+    """Скачать файл отчёта для аналитики."""
 
     if report_type not in ('main', 'detailed', 'transcript', 'tasks', 'risk_brief'):
         raise HTTPException(
@@ -633,7 +633,7 @@ async def download_analytics_report(
             detail="Detailed report is not available"
         )
 
-    # Get analytics
+    # Получение аналитики
     query = (
         select(ReportAnalytics)
         .options(selectinload(ReportAnalytics.report))
@@ -648,7 +648,7 @@ async def download_analytics_report(
             detail=f"Analytics with id {analytics_id} not found"
         )
 
-    # Check access
+    # Проверка доступа
     if analytics.report.project_id:
         project_ids = await get_user_project_ids(db, current_user)
         if analytics.report.project_id not in project_ids:
@@ -657,7 +657,7 @@ async def download_analytics_report(
                 detail="Access denied to this report"
             )
 
-    # Get file path
+    # Получение пути к файлу
     report = analytics.report
     file_path_str = {
         "main": report.report_path,
@@ -672,14 +672,14 @@ async def download_analytics_report(
             detail=f"No {report_type} file available"
         )
 
-    # Validate file path is within DATA_DIR (prevents path traversal)
+    # Валидация что путь к файлу внутри DATA_DIR (защита от path traversal)
     path = validate_file_path(
         file_path=file_path_str,
         allowed_dir=DATA_DIR,
         must_exist=True
     )
 
-    # Return file
+    # Возврат файла
     filename = path.name
     media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     if path.suffix == '.txt':
@@ -696,19 +696,19 @@ async def download_analytics_report(
 
 @router.get(
     "/analytics/{analytics_id}/report/all",
-    summary="Download all analytics files",
-    description="Download all available report files as a zip archive."
+    summary="Скачать все файлы аналитики",
+    description="Скачать все доступные файлы отчёта в zip архиве."
 )
 async def download_analytics_report_all(
     analytics_id: int,
     current_user: CurrentUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Download all available files for analytics as a zip archive."""
+    """Скачать все доступные файлы аналитики в zip архиве."""
     import zipfile
     import tempfile
 
-    # Get analytics
+    # Получение аналитики
     query = (
         select(ReportAnalytics)
         .options(selectinload(ReportAnalytics.report))
@@ -723,7 +723,7 @@ async def download_analytics_report_all(
             detail=f"Analytics with id {analytics_id} not found"
         )
 
-    # Check access
+    # Проверка доступа
     if analytics.report.project_id:
         project_ids = await get_user_project_ids(db, current_user)
         if analytics.report.project_id not in project_ids:
@@ -771,11 +771,11 @@ async def download_analytics_report_all(
 
 
 # =============================================================================
-# Project Contractors & Participants
+# Подрядчики и участники проекта
 # =============================================================================
 
 class PersonResponse(BaseModel):
-    """Person in organization."""
+    """Сотрудник организации."""
     id: int
     full_name: str
     position: Optional[str] = None
@@ -783,7 +783,7 @@ class PersonResponse(BaseModel):
 
 
 class ContractorResponse(BaseModel):
-    """Contractor (organization with role) for project."""
+    """Подрядчик (организация с ролью) для проекта."""
     id: int
     organization_id: int
     organization_name: str
@@ -793,7 +793,7 @@ class ContractorResponse(BaseModel):
 
 
 class RoleResponse(BaseModel):
-    """Standard contractor role."""
+    """Стандартная роль подрядчика."""
     value: str
     label: str
 
@@ -801,19 +801,19 @@ class RoleResponse(BaseModel):
 @router.get(
     "/projects/{project_code}/contractors",
     response_model=List[ContractorResponse],
-    summary="Get project contractors",
-    description="Returns list of contractors (organizations with persons) for a project."
+    summary="Получить подрядчиков проекта",
+    description="Возвращает список подрядчиков (организаций с сотрудниками) для проекта."
 )
 async def get_project_contractors(
     project_code: str,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> List[ContractorResponse]:
-    """Get contractors for a project by code."""
+    """Получить подрядчиков проекта по коду."""
     from backend.domains.construction.project_service import ProjectService
 
     service = ProjectService(db)
 
-    # Get project by code
+    # Получение проекта по коду
     project = await service.get_project_by_code(project_code)
     if not project:
         raise HTTPException(
@@ -828,13 +828,13 @@ async def get_project_contractors(
 @router.get(
     "/roles",
     response_model=List[RoleResponse],
-    summary="Get standard contractor roles",
-    description="Returns list of standard roles for contractors."
+    summary="Получить стандартные роли подрядчиков",
+    description="Возвращает список стандартных ролей для подрядчиков."
 )
 async def get_standard_roles(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> List[RoleResponse]:
-    """Get standard contractor roles."""
+    """Получить стандартные роли подрядчиков."""
     from backend.domains.construction.project_service import ProjectService
 
     service = ProjectService(db)
@@ -843,14 +843,14 @@ async def get_standard_roles(
 
 
 class CreateContractorRequest(BaseModel):
-    """Request to create a contractor for project."""
+    """Запрос на создание подрядчика для проекта."""
     organization_name: str
     role: str
     short_name: Optional[str] = None
 
 
 class CreatePersonRequest(BaseModel):
-    """Request to add a person to organization."""
+    """Запрос на добавление сотрудника в организацию."""
     full_name: str
     position: Optional[str] = None
     email: Optional[str] = None
@@ -860,20 +860,20 @@ class CreatePersonRequest(BaseModel):
 @router.post(
     "/projects/{project_code}/contractors",
     response_model=ContractorResponse,
-    summary="Add contractor to project",
-    description="Add a new contractor (organization with role) to the project."
+    summary="Добавить подрядчика в проект",
+    description="Добавить нового подрядчика (организацию с ролью) в проект."
 )
 async def create_project_contractor(
     project_code: str,
     request: CreateContractorRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ContractorResponse:
-    """Add contractor to project."""
+    """Добавить подрядчика в проект."""
     from backend.domains.construction.project_service import ProjectService
 
     service = ProjectService(db)
 
-    # Get project by code
+    # Получение проекта по коду
     project = await service.get_project_by_code(project_code)
     if not project:
         raise HTTPException(
@@ -881,7 +881,7 @@ async def create_project_contractor(
             detail=f"Project with code {project_code} not found"
         )
 
-    # Create contractor
+    # Создание подрядчика
     contractor = await service.add_contractor(
         project_id=project.id,
         organization_name=request.organization_name,
@@ -890,7 +890,7 @@ async def create_project_contractor(
     )
     await db.commit()
 
-    # Reload with organization
+    # Перезагрузка с организацией
     from backend.domains.construction.models import ProjectContractor, Organization, ContractorRole
     from sqlalchemy.orm import selectinload
     from sqlalchemy import select
@@ -926,19 +926,19 @@ async def create_project_contractor(
 @router.post(
     "/organizations/{organization_id}/persons",
     response_model=PersonResponse,
-    summary="Add person to organization",
-    description="Add a new person to the organization."
+    summary="Добавить сотрудника в организацию",
+    description="Добавить нового сотрудника в организацию."
 )
 async def create_person(
     organization_id: int,
     request: CreatePersonRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> PersonResponse:
-    """Add person to organization."""
+    """Добавить сотрудника в организацию."""
     from backend.domains.construction.project_service import ProjectService
     from backend.domains.construction.models import Organization
 
-    # Check organization exists
+    # Проверка существования организации
     result = await db.execute(
         select(Organization).where(Organization.id == organization_id)
     )

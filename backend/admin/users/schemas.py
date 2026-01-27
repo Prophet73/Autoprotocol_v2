@@ -1,112 +1,125 @@
 """
-Schemas for admin user management endpoints.
+Схемы для эндпоинтов управления пользователями.
 """
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from backend.shared.models import UserRole, Domain
 
 
 class UserResponse(BaseModel):
-    """User information response."""
-    id: int
-    email: str
-    full_name: Optional[str]
-    is_active: bool
-    is_superuser: bool
-    role: str
-    domain: Optional[str]  # Legacy single domain
-    domains: List[str] = []  # Multiple domains
-    active_domain: Optional[str] = None  # Currently selected domain
-    created_at: datetime
-    updated_at: datetime
+    """Информация о пользователе."""
+    id: int = Field(..., description="ID пользователя")
+    email: str = Field(..., description="Email адрес")
+    full_name: Optional[str] = Field(None, description="Полное имя")
+    is_active: bool = Field(..., description="Активен ли аккаунт")
+    is_superuser: bool = Field(..., description="Суперпользователь")
+    role: str = Field(..., description="Роль (admin, manager, user)")
+    domain: Optional[str] = Field(None, description="Основной домен (legacy)")
+    domains: List[str] = Field(default=[], description="Список доменов")
+    active_domain: Optional[str] = Field(None, description="Активный домен")
+    created_at: datetime = Field(..., description="Дата создания")
+    updated_at: datetime = Field(..., description="Дата обновления")
 
     class Config:
         from_attributes = True
 
 
 class UserListResponse(BaseModel):
-    """List of users response."""
-    users: List[UserResponse]
-    total: int
+    """Список пользователей."""
+    users: List[UserResponse] = Field(..., description="Пользователи")
+    total: int = Field(..., description="Общее количество")
 
 
 class AssignRoleRequest(BaseModel):
-    """Request to assign role and domain to user."""
-    user_id: int
-    role: UserRole
-    domain: Optional[Domain] = None
+    """Запрос на назначение роли и домена."""
+    user_id: int = Field(..., description="ID пользователя")
+    role: UserRole = Field(..., description="Роль")
+    domain: Optional[Domain] = Field(None, description="Домен")
 
 
 class AssignRoleResponse(BaseModel):
-    """Response after role assignment."""
-    message: str
-    user: UserResponse
+    """Ответ после назначения роли."""
+    message: str = Field(..., description="Сообщение")
+    user: UserResponse = Field(..., description="Обновлённый пользователь")
 
 
 class CreateUserRequest(BaseModel):
-    """Request to create a new user (admin only)."""
-    email: EmailStr
-    password: str
-    full_name: Optional[str] = None
-    role: UserRole = UserRole.USER
-    domain: Optional[Domain] = None
-    is_superuser: bool = False
+    """Запрос на создание пользователя (только админ)."""
+    email: EmailStr = Field(..., description="Email адрес")
+    password: str = Field(..., description="Пароль")
+    full_name: Optional[str] = Field(None, description="Полное имя")
+    role: UserRole = Field(default=UserRole.USER, description="Роль")
+    domain: Optional[Domain] = Field(None, description="Домен")
+    is_superuser: bool = Field(default=False, description="Суперпользователь")
 
 
 class UpdateUserRequest(BaseModel):
-    """Request to update user details."""
-    full_name: Optional[str] = None
-    is_active: Optional[bool] = None
-    is_superuser: Optional[bool] = None
-    role: Optional[UserRole] = None
-    domain: Optional[Domain] = None
-    domains: Optional[List[str]] = None  # Set multiple domains
-    active_domain: Optional[str] = None  # Set active domain
+    """Запрос на обновление данных пользователя."""
+    full_name: Optional[str] = Field(None, description="Полное имя")
+    is_active: Optional[bool] = Field(None, description="Активен ли аккаунт")
+    is_superuser: Optional[bool] = Field(None, description="Суперпользователь")
+    role: Optional[UserRole] = Field(None, description="Роль")
+    domain: Optional[Domain] = Field(None, description="Основной домен")
+    domains: Optional[List[str]] = Field(None, description="Список доменов")
+    active_domain: Optional[str] = Field(None, description="Активный домен")
 
 
-# Domain management schemas
+# Схемы управления доменами
 class AssignDomainsRequest(BaseModel):
-    """Request to assign multiple domains to user."""
-    user_id: int
-    domains: List[str]  # ["construction", "hr", "it"]
+    """Запрос на назначение нескольких доменов."""
+    user_id: int = Field(..., description="ID пользователя")
+    domains: List[str] = Field(..., description="Домены: construction, hr, it")
 
 
 class SetActiveDomainRequest(BaseModel):
-    """Request to set user's active domain."""
-    domain: str
+    """Запрос на установку активного домена."""
+    domain: str = Field(..., description="Домен")
 
 
-# Project access schemas
+# Схемы доступа к проектам
 class GrantProjectAccessRequest(BaseModel):
-    """Request to grant user access to a project."""
-    user_id: int
-    project_id: int
+    """Запрос на предоставление доступа к проекту."""
+    user_id: int = Field(..., description="ID пользователя")
+    project_id: int = Field(..., description="ID проекта")
 
 
 class RevokeProjectAccessRequest(BaseModel):
-    """Request to revoke user access from a project."""
-    user_id: int
-    project_id: int
+    """Запрос на отзыв доступа к проекту."""
+    user_id: int = Field(..., description="ID пользователя")
+    project_id: int = Field(..., description="ID проекта")
 
 
 class ProjectAccessResponse(BaseModel):
-    """Response for project access operations."""
-    user_id: int
-    project_id: int
-    granted: bool
-    message: str
+    """Ответ операций с доступом к проекту."""
+    user_id: int = Field(..., description="ID пользователя")
+    project_id: int = Field(..., description="ID проекта")
+    granted: bool = Field(..., description="Доступ предоставлен")
+    message: str = Field(..., description="Сообщение")
 
 
 class UserProjectAccessList(BaseModel):
-    """List of projects user has access to."""
-    user_id: int
-    project_ids: List[int]
+    """Список проектов с доступом пользователя."""
+    user_id: int = Field(..., description="ID пользователя")
+    project_ids: List[int] = Field(..., description="ID проектов")
 
 
 class ProjectUserAccessList(BaseModel):
-    """List of users who have access to a project."""
-    project_id: int
-    user_ids: List[int]
-    users: List[UserResponse] = []  # Optional: full user info
+    """Список пользователей с доступом к проекту."""
+    project_id: int = Field(..., description="ID проекта")
+    user_ids: List[int] = Field(..., description="ID пользователей")
+    users: List[UserResponse] = Field(default=[], description="Информация о пользователях")
+
+
+class BatchUpdateProjectAccessRequest(BaseModel):
+    """Запрос на batch-обновление доступа к проектам."""
+    project_ids: List[int] = Field(..., description="Список ID проектов (заменяет все текущие)")
+
+
+class BatchUpdateProjectAccessResponse(BaseModel):
+    """Ответ batch-обновления доступа к проектам."""
+    user_id: int = Field(..., description="ID пользователя")
+    granted: int = Field(..., description="Количество выданных доступов")
+    revoked: int = Field(..., description="Количество отозванных доступов")
+    total: int = Field(..., description="Итоговое количество доступов")

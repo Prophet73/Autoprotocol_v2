@@ -1,42 +1,42 @@
 """
-Schemas for system settings endpoints.
+Схемы для эндпоинтов системных настроек.
 """
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SettingResponse(BaseModel):
-    """System setting response."""
-    key: str
-    value: str
-    description: Optional[str]
-    updated_at: datetime
-    updated_by: Optional[str]
+    """Системная настройка."""
+    key: str = Field(..., description="Ключ настройки")
+    value: str = Field(..., description="Значение")
+    description: Optional[str] = Field(None, description="Описание")
+    updated_at: datetime = Field(..., description="Дата обновления")
+    updated_by: Optional[str] = Field(None, description="Кем обновлено")
 
     class Config:
         from_attributes = True
 
 
 class SettingListResponse(BaseModel):
-    """List of settings response."""
-    settings: List[SettingResponse]
-    total: int
+    """Список настроек."""
+    settings: List[SettingResponse] = Field(..., description="Настройки")
+    total: int = Field(..., description="Общее количество")
 
 
 class CreateSettingRequest(BaseModel):
-    """Request to create a new setting."""
-    key: str
-    value: str
-    description: Optional[str] = None
+    """Запрос на создание настройки."""
+    key: str = Field(..., description="Ключ настройки")
+    value: str = Field(..., description="Значение")
+    description: Optional[str] = Field(None, description="Описание")
 
 
 class UpdateSettingRequest(BaseModel):
-    """Request to update a setting value."""
-    value: str
-    description: Optional[str] = None
+    """Запрос на обновление настройки."""
+    value: str = Field(..., description="Новое значение")
+    description: Optional[str] = Field(None, description="Описание")
 
 
 class SettingBulkUpdateRequest(BaseModel):
-    """Request to update multiple settings at once."""
-    settings: dict[str, str]  # key -> value mapping
+    """Запрос на массовое обновление настроек."""
+    settings: dict[str, str] = Field(..., description="Ключ -> значение")

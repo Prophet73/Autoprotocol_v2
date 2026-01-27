@@ -1,7 +1,7 @@
 """
-Base schemas for domain reports.
+Базовые схемы доменных отчётов.
 
-Common structures shared across all domains.
+Общие структуры для всех доменов.
 """
 from enum import Enum
 from typing import Optional, List, Dict, Any
@@ -9,43 +9,43 @@ from pydantic import BaseModel, Field
 
 
 class Priority(str, Enum):
-    """Task priority levels."""
+    """Уровни приоритета задач."""
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
 
 
 class ActionItem(BaseModel):
-    """A task or action item from a meeting."""
-    description: str = Field(..., description="What needs to be done")
-    responsible: Optional[str] = Field(None, description="Who is responsible")
-    deadline: Optional[str] = Field(None, description="When it should be done")
-    priority: Priority = Field(Priority.MEDIUM, description="Priority level")
-    notes: Optional[str] = Field(None, description="Additional notes")
+    """Задача или экшн-айтем со встречи."""
+    description: str = Field(..., description="Что нужно сделать")
+    responsible: Optional[str] = Field(None, description="Ответственный")
+    deadline: Optional[str] = Field(None, description="Срок выполнения")
+    priority: Priority = Field(Priority.MEDIUM, description="Приоритет")
+    notes: Optional[str] = Field(None, description="Дополнительные заметки")
 
 
 class BaseMeetingReport(BaseModel):
-    """Base report structure for all domains."""
-    meeting_type: str = Field(..., description="Type of meeting")
-    meeting_summary: str = Field(..., description="Brief summary of the meeting")
-    key_points: List[str] = Field(default_factory=list, description="Key discussion points")
-    action_items: List[ActionItem] = Field(default_factory=list, description="Tasks from the meeting")
-    participants_summary: Dict[str, Any] = Field(default_factory=dict, description="Summary per participant")
+    """Базовая структура отчёта для всех доменов."""
+    meeting_type: str = Field(..., description="Тип встречи")
+    meeting_summary: str = Field(..., description="Краткое резюме встречи")
+    key_points: List[str] = Field(default_factory=list, description="Ключевые тезисы")
+    action_items: List[ActionItem] = Field(default_factory=list, description="Задачи со встречи")
+    participants_summary: Dict[str, Any] = Field(default_factory=dict, description="Резюме по участникам")
 
 
 # =============================================================================
-# Meeting Type Definitions
+# Определения типов встреч
 # =============================================================================
 
 class MeetingTypeInfo(BaseModel):
-    """Information about a meeting type."""
-    id: str
-    name: str
-    description: Optional[str] = None
-    default: bool = False
+    """Информация о типе встречи."""
+    id: str = Field(..., description="Идентификатор")
+    name: str = Field(..., description="Название")
+    description: Optional[str] = Field(None, description="Описание")
+    default: bool = Field(False, description="По умолчанию")
 
 
-# Domain meeting types registry
+# Реестр типов встреч по доменам
 DOMAIN_MEETING_TYPES: Dict[str, List[MeetingTypeInfo]] = {
     "construction": [
         MeetingTypeInfo(
@@ -120,12 +120,12 @@ DOMAIN_MEETING_TYPES: Dict[str, List[MeetingTypeInfo]] = {
 
 
 def get_meeting_types(domain: str) -> List[MeetingTypeInfo]:
-    """Get available meeting types for a domain."""
+    """Получить доступные типы встреч для домена."""
     return DOMAIN_MEETING_TYPES.get(domain, [])
 
 
 def get_default_meeting_type(domain: str) -> Optional[str]:
-    """Get default meeting type for a domain."""
+    """Получить тип встречи по умолчанию для домена."""
     types = DOMAIN_MEETING_TYPES.get(domain, [])
     for t in types:
         if t.default:
@@ -134,6 +134,6 @@ def get_default_meeting_type(domain: str) -> Optional[str]:
 
 
 def validate_meeting_type(domain: str, meeting_type: str) -> bool:
-    """Check if meeting type is valid for domain."""
+    """Проверить валидность типа встречи для домена."""
     types = DOMAIN_MEETING_TYPES.get(domain, [])
     return any(t.id == meeting_type for t in types)
