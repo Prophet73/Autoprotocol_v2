@@ -44,10 +44,19 @@ cd frontend && npm run dev
 
 **ВАЖНО #1:** Все docker-compose команды выполнять из папки `docker/`, иначе context path `..` разрешается некорректно и в образ копируются старые файлы!
 
-**ВАЖНО #2:** Базовый образ whisperx имеет `VOLUME /app` — Docker создаёт анонимный volume, который затеняет новый код старыми данными! Если после пересборки изменения не применяются:
+**ВАЖНО #2:** Базовый образ `ghcr.io/jim60105/whisperx:no_model` имеет директиву `VOLUME /app` в Dockerfile. Из-за этого Docker автоматически создаёт анонимный volume для `/app` при каждом запуске контейнера. Этот volume затеняет новый код из образа старыми данными! Если после пересборки изменения не применяются:
 ```bash
-docker inspect whisperx-worker --format '{{json .Mounts}}'  # проверить
-docker-compose down && docker volume prune && docker-compose up -d  # исправить
+docker inspect whisperx-worker --format '{{json .Mounts}}'  # проверить наличие анонимного /app volume
+docker-compose down && docker volume prune -f && docker-compose up -d  # удалить ТОЛЬКО анонимные volumes
+```
+
+**КРИТИЧНО #3: НИКОГДА не использовать `docker-compose down -v`!** Флаг `-v` удаляет ВСЕ volumes включая `postgres_data` с данными БД! Данные будут безвозвратно потеряны!
+```bash
+# ПРАВИЛЬНО - удаляет только анонимные неиспользуемые volumes:
+docker-compose down && docker volume prune -f && docker-compose up -d
+
+# НЕПРАВИЛЬНО - удаляет ВСЕ volumes включая БД:
+docker-compose down -v  # ❌ НИКОГДА ТАК НЕ ДЕЛАТЬ!
 ```
 
 ```bash
@@ -66,8 +75,10 @@ docker-compose logs -f worker
 # Пересборка с очисткой кеша
 docker-compose build --no-cache
 
-# Пересборка + перезапуск (с удалением старых volumes)
+# Пересборка + перезапуск (безопасное удаление анонимных volumes, БД сохраняется)
 docker-compose down && docker volume prune -f && docker-compose build --no-cache && docker-compose up -d
+
+# ❌ НИКОГДА: docker-compose down -v (удалит БД!)
 ```
 
 ### Установка
