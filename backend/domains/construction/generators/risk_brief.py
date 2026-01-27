@@ -76,7 +76,7 @@ def generate_risk_brief(
     project_name: str = None,
     project_code: str = None,
     participants: list = None,
-) -> Path:
+) -> tuple[Path, "RiskBrief"]:
     """
     Generate risk_brief.pdf from transcription via LLM.
 
@@ -89,7 +89,7 @@ def generate_risk_brief(
         participants: Optional list of participants grouped by organization
 
     Returns:
-        Path to generated PDF file
+        Tuple of (Path to generated PDF file, RiskBrief object for DB storage)
     """
     logger.info(f"[RISK BRIEF] Received participants: {participants}")
     logger.info(f"[RISK BRIEF] project_name: {project_name}, project_code: {project_code}")
@@ -141,7 +141,7 @@ def generate_risk_brief(
     output_path = output_dir / filename
     _render_pdf(html_content, output_path)
 
-    return output_path
+    return output_path, risk_brief
 
 
 def _get_risk_brief(transcript_text: str) -> RiskBrief:

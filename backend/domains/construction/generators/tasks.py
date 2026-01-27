@@ -60,18 +60,8 @@ def generate_tasks(
     headers = ["№", "Уверенность", "Приоритет", "Категория", "Задача", "Ответственный", "Срок", "Примечания", "Тайм-код", "Источник"]
     col_widths = [5, 14, 12, 22, 50, 20, 15, 25, 15, 40]
 
-    # Priority colors
-    priority_fills = {
-        "high": PatternFill(start_color="FFCDD2", end_color="FFCDD2", fill_type="solid"),    # Light red
-        "medium": PatternFill(start_color="FFF9C4", end_color="FFF9C4", fill_type="solid"),  # Light yellow
-        "low": PatternFill(start_color="C8E6C9", end_color="C8E6C9", fill_type="solid"),     # Light green
-    }
-
-    # Confidence fills
-    confidence_fills = {
-        "high": PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid"),     # White (явная)
-        "medium": PatternFill(start_color="E3F2FD", end_color="E3F2FD", fill_type="solid"),   # Light blue (из контекста)
-    }
+    # Clean style - no rainbow colors, just alternating rows for readability
+    alt_row_fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")  # Light gray
 
     for col, (header, width) in enumerate(zip(headers, col_widths), 1):
         cell = ws.cell(row=1, column=col, value=header)
@@ -114,13 +104,9 @@ def generate_tasks(
             cell.border = thin_border
             cell.alignment = Alignment(vertical="top", wrap_text=True)
 
-            # Apply priority color to entire row
-            if priority_val in priority_fills:
-                cell.fill = priority_fills[priority_val]
-
-            # Apply confidence background to "Уверенность" column (col=2)
-            if col == 2 and confidence_val in confidence_fills:
-                cell.fill = confidence_fills[confidence_val]
+            # Alternating row colors for readability (no rainbow)
+            if row_num % 2 == 0:
+                cell.fill = alt_row_fill
 
     # Add metadata sheet
     ws_meta = wb.create_sheet("Метаданные")

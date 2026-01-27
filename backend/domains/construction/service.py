@@ -349,6 +349,8 @@ class ConstructionService(BaseDomainService):
         output_files: Optional[dict] = None,
         guest_uid: Optional[str] = None,
         uploader_id: Optional[int] = None,
+        basic_report: Optional[object] = None,
+        risk_brief: Optional[object] = None,
     ) -> ConstructionReportDB:
         """
         Сохраняет отчёт стройконтроля в базу данных.
@@ -360,11 +362,29 @@ class ConstructionService(BaseDomainService):
             report: Результат генерации отчёта
             guest_uid: UUID гостя (для анонимных загрузок)
             uploader_id: ID пользователя-загрузчика
+            basic_report: BasicReport объект для сохранения JSON (перегенерация файлов)
+            risk_brief: RiskBrief объект для сохранения JSON (перегенерация файлов)
 
         Returns:
             Созданная запись ConstructionReportDB
         """
         output_files = output_files or {}
+
+        # Convert objects to JSON for DB storage
+        basic_report_json = None
+        if basic_report is not None:
+            try:
+                basic_report_json = basic_report.model_dump(mode="json")
+            except Exception:
+                pass  # Skip if serialization fails
+
+        risk_brief_json = None
+        if risk_brief is not None:
+            try:
+                risk_brief_json = risk_brief.model_dump(mode="json")
+            except Exception:
+                pass  # Skip if serialization fails
+
         db_report = ConstructionReportDB(
             job_id=job_id,
             project_id=project_id,
@@ -376,6 +396,8 @@ class ConstructionService(BaseDomainService):
             status=ReportStatus.COMPLETED,
             meeting_date=report.meeting_date,
             result_json=report.model_dump(mode="json"),
+            basic_report_json=basic_report_json,
+            risk_brief_json=risk_brief_json,
             transcript_path=output_files.get("transcript"),
             tasks_path=output_files.get("tasks"),
             report_path=output_files.get("report"),

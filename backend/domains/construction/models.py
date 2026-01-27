@@ -231,6 +231,10 @@ class ConstructionReportDB(Base):
     # Result data
     result_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
+    # LLM-generated artifacts as JSON (for re-generation of files)
+    basic_report_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    risk_brief_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
     # Processing stats
     processing_time: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     segment_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

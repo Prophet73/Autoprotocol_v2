@@ -132,7 +132,7 @@ def _run_domain_generators(
     artifact_options: Dict,
     progress_callback,
     domain_type: Optional[str] = None,
-) -> tuple[Dict[str, str], Optional[object]]:
+) -> tuple[Dict[str, str], Optional[object], Optional[object], Optional[object]]:
     """
     Run domain-specific generators based on artifact_options and domain_type.
 
@@ -144,10 +144,16 @@ def _run_domain_generators(
         domain_type: Domain type (construction, hr, it)
 
     Returns:
-        Tuple of (Dict mapping artifact type to file path, AIAnalysis object or None)
+        Tuple of:
+        - Dict mapping artifact type to file path
+        - AIAnalysis object or None
+        - BasicReport object or None (for DB storage)
+        - RiskBrief object or None (for DB storage)
     """
     output_files = {}
     ai_analysis = None  # Will be populated if generate_analysis is called
+    basic_report_obj = None  # Will store BasicReport for DB
+    risk_brief_obj = None  # Will store RiskBrief for DB
 
     # Check if Gemini is configured for LLM-based generators
     has_gemini = _check_gemini_configured()
@@ -215,6 +221,7 @@ def _run_domain_generators(
             progress_callback("domain_generators", 93, "Анализ совещания через LLM...")
             try:
                 basic_report = get_basic_report(result, meeting_date=meeting_date)
+                basic_report_obj = basic_report  # Store for DB
                 logger.info(f"BasicReport generated: {len(basic_report.tasks)} tasks")
             except Exception as e:
                 logger.error(f"BasicReport generation failed: {e}")
@@ -267,7 +274,7 @@ def _run_domain_generators(
                 project_code = artifact_options.get("project_code")
                 logger.info(f"Risk brief params: project_name={project_name}, participants={len(participants) if participants else 0} orgs")
 
-                risk_brief_path = generate_risk_brief(
+                risk_brief_path, risk_brief_data = generate_risk_brief(
                     result,
                     output_path,
                     meeting_date=meeting_date,
@@ -276,6 +283,7 @@ def _run_domain_generators(
                     participants=participants,
                 )
                 output_files["risk_brief"] = str(risk_brief_path)
+                risk_brief_obj = risk_brief_data  # Store for DB
                 logger.info(f"Generated risk brief: {risk_brief_path}")
             except Exception as e:
                 logger.error(f"Risk brief generation failed: {e}")
@@ -293,7 +301,7 @@ def _run_domain_generators(
                 "Skipping tasks.xlsx, report.docx, risk_brief.pdf, manager brief"
             )
 
-    return output_files, ai_analysis
+    return output_files, ai_analysis, basic_report_obj, risk_brief_obj
 
 
 def _sync_job_to_db(
@@ -434,12 +442,16 @@ def _save_domain_report(
     uploader_id: Optional[int] = None,
     ai_analysis: Optional[object] = None,
     artifact_options: Optional[Dict] = None,
+    basic_report: Optional[object] = None,
+    risk_brief: Optional[object] = None,
 ) -> None:
     """
     Save domain-specific report to database after transcription.
 
     Also saves ReportAnalytics and ReportProblem records if ai_analysis is provided,
     enabling the manager dashboard to show health status, KPIs, and attention items.
+
+    Stores basic_report and risk_brief as JSON for future file regeneration.
 
     Args:
         job_id: Job identifier
@@ -475,6 +487,8 @@ def _save_domain_report(
                     output_files=output_files or {},
                     guest_uid=guest_uid,
                     uploader_id=uploader_id,
+                    basic_report=basic_report,
+                    risk_brief=risk_brief,
                 )
 
                 # Save analytics if provided (enables manager dashboard)
@@ -614,7 +628,7 @@ def process_transcription_task(
 
         # Run domain generators based on artifact_options
         output_files = {}
-        generated_artifacts, ai_analysis = _run_domain_generators(
+        generated_artifacts, ai_analysis, basic_report_obj, risk_brief_obj = _run_domain_generators(
             result=result,
             output_path=output_path,
             artifact_options=artifact_options,
@@ -650,6 +664,8 @@ def process_transcription_task(
                     uploader_id=uploader_id,
                     ai_analysis=ai_analysis,
                     artifact_options=artifact_options,
+                    basic_report=basic_report_obj,
+                    risk_brief=risk_brief_obj,
                 )
             except Exception as e:
                 logger.error(f"Domain report save failed (non-fatal): {e}")
