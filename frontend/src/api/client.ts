@@ -313,6 +313,48 @@ export interface DynamicIndicator {
   comment: string;
 }
 
+// Risk Brief types for interactive display
+export interface RiskDriver {
+  id: string;
+  type: 'root_cause' | 'aggravator' | 'blocker';
+  title: string;
+  description: string;
+  evidence: string;
+}
+
+export interface ProjectRisk {
+  id: string;
+  title: string;
+  category: string;
+  description: string;
+  consequences: string;
+  decision?: string;  // Решение с совещания (всегда показывать)
+  mitigation?: string;  // Рекомендация ИИ
+  probability: number;
+  impact: number;
+  responsible?: string;
+  suggested_responsible?: string;
+  deadline?: string;
+  is_blocker: boolean;
+  drivers: RiskDriver[];
+  evidence?: string;
+  evidence_timecode?: string;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface RiskBriefData {
+  project_name?: string;
+  project_code?: string;
+  location?: string;
+  overall_status: 'stable' | 'attention' | 'critical';
+  executive_summary: string;
+  atmosphere: string;
+  atmosphere_comment: string;
+  risks: ProjectRisk[];
+  concerns: Array<{ text: string; source?: string }>;
+  abbreviations: Array<{ abbr: string; full: string }>;
+}
+
 export interface AnalyticsDetail {
   id: number;
   summary: string;
@@ -336,6 +378,8 @@ export interface AnalyticsDetail {
   has_tasks: boolean;
   has_risk_brief: boolean;
   filename: string;
+  // Risk brief JSON for interactive display
+  risk_brief_json?: RiskBriefData;
 }
 
 export async function getManagerDashboardView(

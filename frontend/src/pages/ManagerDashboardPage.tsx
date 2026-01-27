@@ -22,12 +22,17 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   X,
   Download,
   CheckCircle,
   Loader2,
   Calendar,
   Shield,
+  Target,
+  Clock,
+  User,
 } from 'lucide-react';
 import {
   getManagerDashboardView,
@@ -38,6 +43,8 @@ import {
   type ProjectHealth,
   type AttentionItem,
   type AnalyticsDetail,
+  type RiskBriefData,
+  type ProjectRisk,
 } from '../api/client';
 
 // Register Chart.js components
@@ -527,7 +534,157 @@ function getIndicatorStatusColor(status: string): { bg: string; text: string } {
   return { bg: 'bg-green-100', text: 'text-green-700' };
 }
 
-// Analytics Modal Component - Autoprotocol format with brief type switcher
+// Risk Card with Accordion for detailed analysis
+function RiskCard({ risk, index }: { risk: ProjectRisk; index: number }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  // Score and severity
+  const score = risk.probability * risk.impact;
+  const getSeverityColor = () => {
+    if (score >= 15) return { bg: 'bg-red-50', border: 'border-red-400', badge: 'bg-red-500' };
+    if (score >= 9) return { bg: 'bg-amber-50', border: 'border-amber-400', badge: 'bg-amber-500' };
+    return { bg: 'bg-green-50', border: 'border-green-400', badge: 'bg-green-500' };
+  };
+  const colors = getSeverityColor();
+
+  // Category labels
+  const categoryLabels: Record<string, string> = {
+    external: 'Внешние',
+    preinvest: 'Прединвестиционные',
+    design: 'Проектные',
+    production: 'Строительные',
+    management: 'Управленческие',
+    operational: 'Эксплуатационные',
+    safety: 'Безопасность',
+  };
+
+  // Driver type labels
+  const driverTypeLabels: Record<string, string> = {
+    root_cause: 'Первопричина',
+    aggravator: 'Усугубляющий фактор',
+    blocker: 'Блокирующий фактор',
+  };
+
+  const hasDrivers = risk.drivers && risk.drivers.length > 0;
+  const hasMitigation = risk.mitigation && !risk.decision;
+
+  return (
+    <div className={`rounded-lg border-l-4 ${colors.border} ${colors.bg} overflow-hidden`}>
+      {/* Risk Header */}
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`px-2 py-0.5 rounded text-xs font-bold text-white ${colors.badge}`}>
+                {risk.id}
+              </span>
+              <span className="px-2 py-0.5 rounded text-xs bg-slate-200 text-slate-600">
+                {categoryLabels[risk.category] || risk.category}
+              </span>
+              <span className="text-xs text-slate-500">
+                P={risk.probability} × I={risk.impact} = {score}
+              </span>
+            </div>
+            <h4 className="font-semibold text-slate-800 mb-2">{risk.title}</h4>
+            <p className="text-sm text-slate-600">{risk.description}</p>
+          </div>
+        </div>
+
+        {/* Consequences */}
+        {risk.consequences && (
+          <div className="mt-3 p-3 bg-white/50 rounded border border-slate-200">
+            <span className="text-xs font-semibold text-slate-500 uppercase">Последствия:</span>
+            <p className="text-sm text-slate-700 mt-1">{risk.consequences}</p>
+          </div>
+        )}
+
+        {/* Decision from meeting - ALWAYS VISIBLE (not in accordion) */}
+        {risk.decision && (
+          <div className="mt-3 p-3 bg-green-100 rounded border border-green-300">
+            <div className="flex items-center gap-2 mb-1">
+              <CheckCircle className="w-4 h-4 text-green-600" />
+              <span className="text-xs font-semibold text-green-700 uppercase">Решение с совещания:</span>
+            </div>
+            <p className="text-sm text-green-800">{risk.decision}</p>
+          </div>
+        )}
+
+        {/* Responsible and Deadline */}
+        {(risk.responsible || risk.deadline) && (
+          <div className="mt-3 flex flex-wrap gap-4 text-sm">
+            {risk.responsible && (
+              <div className="flex items-center gap-1 text-slate-600">
+                <User className="w-4 h-4" />
+                <span>{risk.responsible}</span>
+              </div>
+            )}
+            {risk.deadline && (
+              <div className="flex items-center gap-1 text-slate-600">
+                <Clock className="w-4 h-4" />
+                <span>{risk.deadline}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Accordion for detailed analysis */}
+      {(hasDrivers || hasMitigation) && (
+        <>
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="w-full px-4 py-2 bg-white/30 border-t border-slate-200 flex items-center justify-between text-sm font-medium text-slate-600 hover:bg-white/50 transition-colors"
+          >
+            <span>Детальный анализ ИИ</span>
+            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+
+          {isExpanded && (
+            <div className="px-4 pb-4 space-y-3 bg-white/20">
+              {/* AI Mitigation recommendation */}
+              {hasMitigation && (
+                <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Target className="w-4 h-4 text-blue-600" />
+                    <span className="text-xs font-semibold text-blue-700 uppercase">Рекомендация ИИ:</span>
+                  </div>
+                  <p className="text-sm text-blue-800">{risk.mitigation}</p>
+                </div>
+              )}
+
+              {/* Drivers (root causes, aggravators, blockers) */}
+              {hasDrivers && (
+                <div className="space-y-2">
+                  {risk.drivers.map((driver, idx) => (
+                    <div key={idx} className="p-3 bg-white rounded border border-slate-200">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-mono text-slate-400">{driver.id}</span>
+                        <span className={`px-2 py-0.5 rounded text-xs ${
+                          driver.type === 'root_cause' ? 'bg-purple-100 text-purple-700' :
+                          driver.type === 'aggravator' ? 'bg-orange-100 text-orange-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {driverTypeLabels[driver.type] || driver.type}
+                        </span>
+                      </div>
+                      <p className="text-sm font-medium text-slate-800">{driver.title}</p>
+                      <p className="text-sm text-slate-600 mt-1">{driver.description}</p>
+                      {driver.evidence && (
+                        <p className="text-xs text-slate-500 mt-2 italic">"{driver.evidence}"</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Analytics Modal Component - Risk Brief focused with accordions
 function AnalyticsModal({
   analyticsId,
   detail,
@@ -539,44 +696,48 @@ function AnalyticsModal({
   isLoading: boolean;
   onClose: () => void;
 }) {
-  // Brief type state: 'manager' or 'risk'
-  const [briefType, setBriefType] = useState<'manager' | 'risk'>('manager');
-
-  // Parse toxicity details (format: "Level\n\nComment")
-  const toxicityParts = detail?.toxicity_details?.split('\n\n') || [];
-  const toxicityLevel = toxicityParts[0] || 'Нейтральный';
-  const toxicityComment = toxicityParts.slice(1).join('\n\n') || detail?.toxicity_details || '';
+  const riskBrief = detail?.risk_brief_json;
+  const hasRiskBriefData = riskBrief && riskBrief.risks && riskBrief.risks.length > 0;
 
   // Get status badge color
   const getStatusBadge = (status: string) => {
-    const statusLower = status.toLowerCase();
-    if (statusLower.includes('критич')) return 'bg-red-500 text-white';
-    if (statusLower.includes('внимания') || statusLower.includes('риск')) return 'bg-amber-500 text-white';
+    if (status === 'critical') return 'bg-red-500 text-white';
+    if (status === 'attention') return 'bg-amber-500 text-white';
     return 'bg-green-500 text-white';
   };
 
-  // Check if risk brief is available
-  const hasRiskBrief = detail?.has_risk_brief ?? false;
+  const statusLabels: Record<string, string> = {
+    critical: 'Критический',
+    attention: 'Требует внимания',
+    stable: 'Стабильный',
+  };
+
+  const atmosphereLabels: Record<string, string> = {
+    tense: 'Напряжённая',
+    working: 'Рабочая',
+    constructive: 'Конструктивная',
+    positive: 'Позитивная',
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl shadow-2xl w-[95vw] max-w-[1600px] h-[92vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-5 border-b border-slate-200 bg-slate-50">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center">
+                <Shield className="w-6 h-6 text-severin-red" />
+              </div>
               <div>
-                <h2 className="text-xl font-bold text-slate-800">
-                  {briefType === 'manager' ? 'Менеджерский бриф' : 'Риск-бриф'}
-                </h2>
+                <h2 className="text-xl font-bold text-slate-800">Риск-бриф</h2>
                 {detail?.filename && (
-                  <p className="text-sm text-slate-500 mt-1">{detail.filename}</p>
+                  <p className="text-sm text-slate-500 mt-0.5">{detail.filename}</p>
                 )}
               </div>
-              {detail?.status && (
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusBadge(detail.status)}`}>
-                  {detail.status === 'critical' ? 'Критический' :
-                   detail.status === 'attention' ? 'Требует внимания' : 'Стабильный'}
+              {riskBrief?.overall_status && (
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusBadge(riskBrief.overall_status)}`}>
+                  {statusLabels[riskBrief.overall_status] || riskBrief.overall_status}
                 </span>
               )}
             </div>
@@ -587,34 +748,6 @@ function AnalyticsModal({
               <X className="w-5 h-5" />
             </button>
           </div>
-
-          {/* Tab Switcher - only show if risk brief is available */}
-          {hasRiskBrief && (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setBriefType('manager')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-                  briefType === 'manager'
-                    ? 'bg-severin-red text-white'
-                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                }`}
-              >
-                <FileText className="w-4 h-4" />
-                Менеджерский бриф
-              </button>
-              <button
-                onClick={() => setBriefType('risk')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
-                  briefType === 'risk'
-                    ? 'bg-severin-red text-white'
-                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-                }`}
-              >
-                <Shield className="w-4 h-4" />
-                Риск-бриф
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Content */}
@@ -623,153 +756,96 @@ function AnalyticsModal({
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 text-severin-red animate-spin" />
             </div>
-          ) : detail ? (
+          ) : hasRiskBriefData ? (
             <div className="space-y-6">
-              {/* Risk Brief View */}
-              {briefType === 'risk' ? (
-                <div className="text-center py-8">
-                  <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <Shield className="w-10 h-10 text-severin-red" />
-                  </div>
-                  <h3 className="text-xl font-semibold text-slate-800 mb-3">
-                    Риск-бриф для инвестора
+              {/* Executive Summary */}
+              {riskBrief.executive_summary && (
+                <div className="bg-slate-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-slate-800 mb-2 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-severin-red" />
+                    Краткое содержание
                   </h3>
-                  <p className="text-slate-600 mb-6 max-w-md mx-auto">
-                    Детальный анализ рисков проекта с матрицей P×I,
-                    классификацией по категориям и рекомендациями по митигации.
-                  </p>
-                  <button
-                    onClick={() => downloadAnalyticsReport(analyticsId, 'risk_brief')}
-                    className="px-6 py-3 bg-severin-red text-white rounded-lg hover:bg-severin-red-dark transition-colors flex items-center gap-2 font-medium shadow-lg mx-auto cursor-pointer"
-                  >
-                    <Download className="w-5 h-5" />
-                    Скачать риск-бриф (PDF)
-                  </button>
+                  <p className="text-slate-700 leading-relaxed">{riskBrief.executive_summary}</p>
                 </div>
-              ) : (
-                <>
-                  {/* Manager Brief View - Executive Summary */}
-                  <div className="bg-slate-50 rounded-lg p-4">
-                    <h3 className="font-semibold text-slate-800 mb-2 flex items-center gap-2">
-                      <FileText className="w-5 h-5 text-severin-red" />
-                      Выжимка для руководителя
-                    </h3>
-                    <p className="text-slate-700 leading-relaxed">{detail.summary}</p>
-                  </div>
+              )}
 
-                  {/* Panel of Project Status - Table format */}
-                  {detail.key_indicators.length > 0 && (
-                    <div>
-                      <h3 className="font-semibold text-slate-800 mb-3">Панель состояния проекта</h3>
-                      <div className="border border-slate-200 rounded-lg overflow-hidden">
-                        <table className="w-full">
-                          <thead className="bg-slate-50">
-                            <tr>
-                              <th className="text-left px-4 py-2 text-sm font-semibold text-slate-600 border-b">Показатель</th>
-                              <th className="text-left px-4 py-2 text-sm font-semibold text-slate-600 border-b w-28">Статус</th>
-                              <th className="text-left px-4 py-2 text-sm font-semibold text-slate-600 border-b">Комментарий AI</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {detail.key_indicators.map((indicator, idx) => {
-                              const colors = getIndicatorStatusColor(indicator.status);
-                              return (
-                                <tr key={idx} className="border-b last:border-b-0 hover:bg-slate-50">
-                                  <td className="px-4 py-3 text-slate-800 font-medium">{indicator.indicator_name}</td>
-                                  <td className="px-4 py-3">
-                                    <span className={`px-2 py-1 rounded text-xs font-medium ${colors.bg} ${colors.text}`}>
-                                      {indicator.status}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3 text-sm text-slate-600">{indicator.comment}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+              {/* Atmosphere */}
+              {riskBrief.atmosphere && (
+                <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg">
+                  <Flame className="w-5 h-5 text-orange-500" />
+                  <span className="text-sm text-slate-500">Атмосфера:</span>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    riskBrief.atmosphere === 'tense' ? 'bg-red-100 text-red-700' :
+                    riskBrief.atmosphere === 'working' ? 'bg-amber-100 text-amber-700' :
+                    'bg-green-100 text-green-700'
+                  }`}>
+                    {atmosphereLabels[riskBrief.atmosphere] || riskBrief.atmosphere}
+                  </span>
+                  {riskBrief.atmosphere_comment && (
+                    <span className="text-sm text-slate-600">{riskBrief.atmosphere_comment}</span>
                   )}
+                </div>
+              )}
 
-                  {/* Key Challenges and Recommendations */}
-                  {detail.challenges.length > 0 && (
-                    <div>
-                      <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                        <AlertTriangle className="w-5 h-5 text-amber-500" />
-                        Ключевые проблемы и рекомендации
-                      </h3>
-                      <div className="space-y-3">
-                        {detail.challenges.map((challenge, idx) => (
-                          <div key={idx} className="p-4 bg-amber-50 border-l-4 border-amber-400 rounded-r-lg">
-                            <p className="text-slate-800 mb-2">{challenge.text}</p>
-                            <p className="text-sm text-amber-800 bg-amber-100/50 px-3 py-2 rounded">
-                              <span className="font-semibold">Рекомендация:</span> {challenge.recommendation}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+              {/* Risks with Accordions */}
+              <div>
+                <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-amber-500" />
+                  Риски проекта ({riskBrief.risks.length})
+                </h3>
+                <div className="space-y-4">
+                  {riskBrief.risks.map((risk, idx) => (
+                    <RiskCard key={risk.id || idx} risk={risk} index={idx} />
+                  ))}
+                </div>
+              </div>
 
-                  {/* Key Achievements */}
-                  {detail.achievements.length > 0 && (
-                    <div>
-                      <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                        <CheckCircle className="w-5 h-5 text-green-500" />
-                        Важные достижения и возможности
-                      </h3>
-                      <ul className="space-y-2">
-                        {detail.achievements.map((achievement, idx) => (
-                          <li key={idx} className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
-                            <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0" />
-                            <p className="text-slate-700">{achievement}</p>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Toxicity Meter - Atmosphere Analysis */}
-                  {detail.toxicity_level !== undefined && (
-                    <div>
-                      <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                        <Flame className="w-5 h-5 text-orange-500" />
-                        Анализ атмосферы ("Токсикометр")
-                      </h3>
-                      <div className="p-4 bg-slate-50 rounded-lg">
-                        <div className="flex items-center gap-4 mb-3">
-                          <span className="text-sm text-slate-500">Общий уровень:</span>
-                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                            detail.toxicity_level > 60 ? 'bg-red-100 text-red-700' :
-                            detail.toxicity_level > 30 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'
-                          }`}>
-                            {toxicityLevel}
-                          </span>
-                          <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full transition-all ${
-                                detail.toxicity_level > 60 ? 'bg-red-500' :
-                                detail.toxicity_level > 30 ? 'bg-amber-500' : 'bg-green-500'
-                              }`}
-                              style={{ width: `${detail.toxicity_level}%` }}
-                            />
-                          </div>
-                        </div>
-                        <p className="text-sm text-slate-600">{toxicityComment}</p>
-                      </div>
-                    </div>
-                  )}
-                </>
+              {/* Concerns */}
+              {riskBrief.concerns && riskBrief.concerns.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-slate-400" />
+                    Требует внимания
+                  </h3>
+                  <ul className="space-y-2">
+                    {riskBrief.concerns.map((concern, idx) => (
+                      <li key={idx} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
+                        <div className="w-2 h-2 bg-slate-400 rounded-full mt-2 flex-shrink-0" />
+                        <p className="text-slate-700">{concern.text}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           ) : (
-            <div className="text-center text-slate-500 py-12">
-              Данные не найдены
+            // Fallback - download only
+            <div className="text-center py-12">
+              <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Shield className="w-10 h-10 text-severin-red" />
+              </div>
+              <h3 className="text-xl font-semibold text-slate-800 mb-3">
+                Риск-бриф
+              </h3>
+              <p className="text-slate-600 mb-6 max-w-md mx-auto">
+                {detail?.has_risk_brief
+                  ? 'Интерактивный просмотр недоступен. Скачайте PDF для просмотра.'
+                  : 'Риск-бриф не был сгенерирован для этого отчёта.'}
+              </p>
+              {detail?.has_risk_brief && (
+                <button
+                  onClick={() => downloadAnalyticsReport(analyticsId, 'risk_brief')}
+                  className="px-6 py-3 bg-severin-red text-white rounded-lg hover:bg-severin-red-dark transition-colors flex items-center gap-2 font-medium shadow-lg mx-auto cursor-pointer"
+                >
+                  <Download className="w-5 h-5" />
+                  Скачать риск-бриф (PDF)
+                </button>
+              )}
             </div>
           )}
         </div>
 
-        {/* Footer with download buttons - updated format (no transcript, has risk brief) */}
+        {/* Footer with download buttons */}
         {(detail?.has_main_report || detail?.has_tasks || detail?.has_risk_brief) && (
           <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-wrap justify-end gap-3">
             <button

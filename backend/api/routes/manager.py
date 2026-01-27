@@ -150,6 +150,8 @@ class AnalyticsDetailResponse(BaseModel):
     has_tasks: bool = False
     has_risk_brief: bool = False
     filename: str = ""  # Оригинальное имя файла для отображения
+    # JSON данные для интерактивного отображения
+    risk_brief_json: Optional[dict] = None  # RiskBrief JSON для аккордеонов
 
 
 class ProblemStatusUpdate(BaseModel):
@@ -527,6 +529,11 @@ async def get_analytics_detail(
         # Оригинальное имя файла
         filename = report.title or report.audio_file_path or f"Отчёт {report.job_id[:8]}"
 
+    # Получить risk_brief_json для интерактивного отображения
+    risk_brief_json = None
+    if report and report.risk_brief_json:
+        risk_brief_json = report.risk_brief_json
+
     return AnalyticsDetailResponse(
         id=analytics.id,
         summary=analytics.summary or "",
@@ -542,7 +549,8 @@ async def get_analytics_detail(
         has_transcript=has_transcript,
         has_tasks=has_tasks,
         has_risk_brief=has_risk_brief,
-        filename=filename
+        filename=filename,
+        risk_brief_json=risk_brief_json,
     )
 
 
