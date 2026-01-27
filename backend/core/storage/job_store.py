@@ -59,6 +59,11 @@ class JobData(BaseModel):
     progress_percent: int = 0
     message: str = "Job queued"
 
+    # Retry tracking
+    retry_count: int = 0
+    max_retries: int = 3
+    last_failed_stage: Optional[str] = None
+
     # Results
     output_files: Optional[Dict[str, str]] = None
     processing_time: Optional[float] = None
@@ -321,19 +326,22 @@ class JobStore:
         - status == 'processing'
         - updated_at is older than stale_threshold_minutes
 
-        This handles cases where worker crashed/restarted mid-processing.
+        Recovery strategy:
+        - If retry_count < max_retries: requeue the job
+        - If retry_count >= max_retries: mark as failed
 
         Args:
             stale_threshold_minutes: Minutes since last update to consider stuck
             dry_run: If True, only report what would be recovered
 
         Returns:
-            Recovery statistics: {recovered: int, jobs: list, errors: list}
+            Recovery statistics: {requeued: int, failed: int, jobs: list, errors: list}
         """
         from datetime import timedelta
 
         stats = {
-            "recovered": 0,
+            "requeued": 0,
+            "failed": 0,
             "jobs": [],
             "errors": [],
             "dry_run": dry_run,
@@ -365,29 +373,44 @@ class JobStore:
                         continue  # Recently updated, still working
 
                     # Found stuck job
+                    age_minutes = int((datetime.now() - job.updated_at).total_seconds() / 60)
                     job_info = {
                         "job_id": job.job_id,
                         "stage": job.current_stage,
                         "progress": job.progress_percent,
                         "updated_at": job.updated_at.isoformat(),
-                        "age_minutes": int((datetime.now() - job.updated_at).total_seconds() / 60),
+                        "age_minutes": age_minutes,
+                        "retry_count": job.retry_count,
+                        "action": None,
                     }
-                    stats["jobs"].append(job_info)
 
                     if not dry_run:
-                        # Mark as failed
-                        self.fail(
-                            job.job_id,
-                            error=f"Worker interrupted during '{job.current_stage}' stage. "
-                                  f"Job was stuck for {job_info['age_minutes']} minutes. "
-                                  "Please retry the task."
-                        )
-                        logger.warning(
-                            f"Recovered stuck job {job.job_id}: "
-                            f"stage={job.current_stage}, age={job_info['age_minutes']}min"
-                        )
+                        # Check retry count
+                        if job.retry_count < job.max_retries:
+                            # Requeue the job
+                            job_info["action"] = "requeued"
+                            self._requeue_job(job)
+                            stats["requeued"] += 1
+                            logger.warning(
+                                f"Requeued stuck job {job.job_id}: "
+                                f"stage={job.current_stage}, age={age_minutes}min, "
+                                f"retry={job.retry_count + 1}/{job.max_retries}"
+                            )
+                        else:
+                            # Max retries exceeded - fail permanently
+                            job_info["action"] = "failed"
+                            self.fail(
+                                job.job_id,
+                                error=f"Max retries ({job.max_retries}) exceeded. "
+                                      f"Last failure during '{job.current_stage}' stage. "
+                                      "Please contact support or retry manually."
+                            )
+                            stats["failed"] += 1
+                            logger.error(
+                                f"Job {job.job_id} failed permanently after {job.max_retries} retries"
+                            )
 
-                    stats["recovered"] += 1
+                    stats["jobs"].append(job_info)
 
                 except Exception as e:
                     stats["errors"].append(f"Error processing {key}: {e}")
@@ -398,11 +421,85 @@ class JobStore:
             logger.exception("Error during stuck job recovery scan")
 
         logger.info(
-            f"Stuck job recovery complete: found={stats['recovered']}, "
-            f"dry_run={dry_run}"
+            f"Stuck job recovery complete: requeued={stats['requeued']}, "
+            f"failed={stats['failed']}, dry_run={dry_run}"
         )
 
         return stats
+
+    def _requeue_job(self, job: JobData) -> None:
+        """
+        Requeue a stuck job for retry.
+
+        Updates job state and sends new Celery task.
+        """
+        from backend.tasks.transcription import process_transcription_task, process_text_task
+
+        # Update job state for retry
+        self.update(
+            job.job_id,
+            status=JobStatus.PENDING,
+            retry_count=job.retry_count + 1,
+            last_failed_stage=job.current_stage,
+            current_stage=None,
+            progress_percent=0,
+            message=f"Retrying (attempt {job.retry_count + 1}/{job.max_retries})...",
+            error=None,
+        )
+
+        # Determine task type and requeue
+        # Check if this is a text file (docx/txt) or audio/video
+        input_file = job.input_file
+        is_text_file = input_file.lower().endswith(('.docx', '.txt', '.doc'))
+
+        # Build artifact options from job data
+        artifact_options = {
+            "generate_transcript": job.generate_transcript,
+            "generate_tasks": job.generate_tasks,
+            "generate_report": job.generate_report,
+            "generate_analysis": job.generate_analysis,
+            "generate_risk_brief": job.generate_risk_brief,
+            "notify_emails": job.notify_emails,
+        }
+
+        if is_text_file:
+            process_text_task.apply_async(
+                kwargs={
+                    "job_id": job.job_id,
+                    "input_file": input_file,
+                    "project_id": job.project_id,
+                    "domain_type": job.domain_type,
+                    "guest_uid": job.guest_uid,
+                    "uploader_id": job.uploader_id,
+                    "artifact_options": artifact_options,
+                },
+                queue="transcription",
+            )
+        else:
+            # Determine output directory from input file
+            from pathlib import Path
+            import os
+            output_dir = str(Path(os.getenv("DATA_DIR", "/data")) / "output" / job.job_id)
+
+            process_transcription_task.apply_async(
+                kwargs={
+                    "job_id": job.job_id,
+                    "input_file": input_file,
+                    "output_dir": output_dir,
+                    "languages": job.languages,
+                    "skip_diarization": job.skip_diarization,
+                    "skip_translation": job.skip_translation,
+                    "skip_emotions": job.skip_emotions,
+                    "artifact_options": artifact_options,
+                    "project_id": job.project_id,
+                    "domain_type": job.domain_type,
+                    "guest_uid": job.guest_uid,
+                    "uploader_id": job.uploader_id,
+                },
+                queue="transcription",
+            )
+
+        logger.info(f"Requeued job {job.job_id} as {'text' if is_text_file else 'transcription'} task")
 
 
 # Global instance (singleton pattern)

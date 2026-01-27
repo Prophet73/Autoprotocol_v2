@@ -82,7 +82,8 @@ def on_worker_ready(sender, **kwargs):
     Called when worker is ready to accept tasks.
 
     Immediately recovers any jobs stuck in 'processing' state from
-    previous worker crashes/restarts.
+    previous worker crashes/restarts. Jobs are automatically requeued
+    up to max_retries times before being marked as failed.
     """
     logger.info("Worker ready - checking for stuck jobs from previous session...")
 
@@ -92,11 +93,14 @@ def on_worker_ready(sender, **kwargs):
         store = get_job_store()
         result = store.recover_stuck_jobs(stale_threshold_minutes=5)
 
-        if result["recovered"] > 0:
-            logger.warning(
-                f"Recovered {result['recovered']} stuck jobs: "
-                f"{[j['job_id'][:8] for j in result['jobs']]}"
-            )
+        if result["requeued"] > 0 or result["failed"] > 0:
+            requeued_ids = [j['job_id'][:8] for j in result['jobs'] if j.get('action') == 'requeued']
+            failed_ids = [j['job_id'][:8] for j in result['jobs'] if j.get('action') == 'failed']
+
+            if requeued_ids:
+                logger.warning(f"Requeued {len(requeued_ids)} stuck jobs for retry: {requeued_ids}")
+            if failed_ids:
+                logger.error(f"Failed {len(failed_ids)} jobs (max retries exceeded): {failed_ids}")
         else:
             logger.info("No stuck jobs found")
 
