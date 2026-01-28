@@ -57,8 +57,18 @@ user_project_access = Table(
 
 
 class UserRole(str, Enum):
-    """User roles in the system."""
+    """User roles in the system.
+
+    Hierarchy (from lowest to highest):
+    - viewer: Read-only access to reports
+    - user: Can upload files and view own reports
+    - manager: Can view all reports, download risk briefs
+    - admin: Full access including user management
+    - superuser: System-level access
+    """
+    VIEWER = "viewer"
     USER = "user"
+    MANAGER = "manager"
     ADMIN = "admin"
     SUPERUSER = "superuser"
 

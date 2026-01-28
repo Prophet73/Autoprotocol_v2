@@ -274,6 +274,7 @@ def _run_domain_generators(
                 project_code = artifact_options.get("project_code")
                 logger.info(f"Risk brief params: project_name={project_name}, participants={len(participants) if participants else 0} orgs")
 
+                # generate_risk_brief returns tuple[Path, RiskBrief]
                 risk_brief_path, risk_brief_data = generate_risk_brief(
                     result,
                     output_path,
@@ -323,6 +324,8 @@ def _sync_job_to_db(
     """
     from ..shared.database import get_celery_session_factory
     from ..shared.models import TranscriptionJob
+    # Import ConstructionProject to ensure SQLAlchemy can resolve FK to construction_projects table
+    from ..domains.construction.models import ConstructionProject  # noqa: F401
 
     async def _async_create():
         session_factory = get_celery_session_factory()
@@ -370,6 +373,8 @@ def _update_job_in_db(
     from sqlalchemy import update
     from ..shared.database import get_celery_session_factory
     from ..shared.models import TranscriptionJob
+    # Import ConstructionProject to ensure SQLAlchemy can resolve FK to construction_projects table
+    from ..domains.construction.models import ConstructionProject  # noqa: F401
 
     async def _async_update():
         session_factory = get_celery_session_factory()

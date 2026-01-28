@@ -37,7 +37,7 @@ from ...core.utils.text_extraction import is_text_file, extract_text_from_file
 from ...shared.database import get_db
 from ...domains.construction.project_service import ProjectService
 from ...core.auth.dependencies import get_optional_user
-from ...shared.models import User, TranscriptionJob
+from ...shared.models import User, TranscriptionJob, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -630,7 +630,10 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
     summary="Получить результат задачи",
     description="Возвращает результат завершённой задачи: статистику, список файлов и метаданные.",
 )
-async def get_job_result(job_id: str):
+async def get_job_result(
+    job_id: str,
+    current_user: Optional[User] = Depends(get_optional_user),
+):
     """
     ## Результат задачи
 
@@ -641,6 +644,8 @@ async def get_job_result(job_id: str):
     - **language_distribution** — распределение по языкам
     - **output_files** — словарь доступных файлов для скачивания
     - **processing_time_seconds** — время обработки
+
+    Примечание: risk_brief доступен только для manager/admin ролей.
     """
     store = get_store()
     job = store.get(job_id)
@@ -657,6 +662,15 @@ async def get_job_result(job_id: str):
     if job.status == JobStatus.FAILED:
         raise HTTPException(status_code=500, detail=job.error or "Job failed")
 
+    # Filter output_files based on user role
+    output_files = dict(job.output_files or {})
+
+    # Risk brief visible only for manager, admin, superuser
+    allowed_roles = {UserRole.MANAGER.value, UserRole.ADMIN.value, UserRole.SUPERUSER.value}
+    user_role = current_user.role if current_user else None
+    if user_role not in allowed_roles and "risk_brief" in output_files:
+        del output_files["risk_brief"]
+
     return JobResultResponse(
         job_id=job.job_id,
         status=job.status,
@@ -664,7 +678,7 @@ async def get_job_result(job_id: str):
         processing_time_seconds=job.processing_time or 0,
         segment_count=job.segment_count or 0,
         language_distribution=job.language_distribution or {},
-        output_files=job.output_files or {},
+        output_files=output_files,
         completed_at=job.completed_at or datetime.now(),
     )
 
@@ -674,7 +688,11 @@ async def get_job_result(job_id: str):
     summary="Скачать файл результата",
     description="Скачивание результирующего файла по типу.",
 )
-async def download_result(job_id: str, file_type: str):
+async def download_result(
+    job_id: str,
+    file_type: str,
+    current_user: Optional[User] = Depends(get_optional_user),
+):
     """
     ## Скачивание файла
 
@@ -683,13 +701,13 @@ async def download_result(job_id: str, file_type: str):
     - **tasks** — задачи (XLSX)
     - **report** — отчёт (DOCX)
     - **analysis** — менеджерский бриф (DOCX)
-    - **risk_brief** — риск-бриф (PDF)
+    - **risk_brief** — риск-бриф (PDF) - только для manager/admin
     - **protocol_docx** — протокол Word
     - **protocol_txt** — протокол текст
     - **result_json** — сырые данные JSON
     """
     if file_type == "all":
-        return await download_all_results(job_id)
+        return await download_all_results(job_id, current_user)
 
     store = get_store()
     job = store.get(job_id)
@@ -703,6 +721,17 @@ async def download_result(job_id: str, file_type: str):
     output_files = job.output_files or {}
     if file_type == "analysis" and "analysis" not in output_files and "risk_brief" in output_files:
         file_type = "risk_brief"
+
+    # Risk brief доступен только для manager, admin, superuser
+    if file_type == "risk_brief":
+        allowed_roles = {UserRole.MANAGER.value, UserRole.ADMIN.value, UserRole.SUPERUSER.value}
+        user_role = current_user.role if current_user else None
+        if user_role not in allowed_roles:
+            raise HTTPException(
+                status_code=403,
+                detail="Risk brief доступен только для менеджеров и администраторов"
+            )
+
     if file_type not in output_files:
         raise HTTPException(status_code=404, detail=f"File type '{file_type}' not found")
 
@@ -725,8 +754,14 @@ async def download_result(job_id: str, file_type: str):
     summary="Скачать все файлы результата",
     description="Скачивание всех доступных файлов одним архивом.",
 )
-async def download_all_results(job_id: str):
-    """Скачать все доступные файлы задачи в zip архиве."""
+async def download_all_results(
+    job_id: str,
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """Скачать все доступные файлы задачи в zip архиве.
+
+    Примечание: risk_brief включается только для manager/admin ролей.
+    """
     import zipfile
     import tempfile
 
@@ -739,7 +774,14 @@ async def download_all_results(job_id: str):
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Job not completed")
 
-    output_files = job.output_files or {}
+    output_files = dict(job.output_files or {})
+
+    # Risk brief only for manager, admin, superuser
+    allowed_roles = {UserRole.MANAGER.value, UserRole.ADMIN.value, UserRole.SUPERUSER.value}
+    user_role = current_user.role if current_user else None
+    if user_role not in allowed_roles and "risk_brief" in output_files:
+        del output_files["risk_brief"]
+
     if not output_files:
         raise HTTPException(status_code=404, detail="No files available to download")
 
@@ -1243,10 +1285,12 @@ async def run_text_report_generation(
                     logger.error(f"Manager brief generation failed: {e}")
 
             # Generate risk brief (optional) - reuses participants fetched above
+            risk_brief_obj = None
             if artifact_options.get("generate_risk_brief", False):
                 progress_callback("llm_generation", 95, "Формирование риск-брифа...")
                 try:
-                    risk_brief_path = generate_risk_brief(
+                    # generate_risk_brief returns tuple[Path, RiskBrief]
+                    risk_brief_path, risk_brief_obj = generate_risk_brief(
                         result,
                         output_dir,
                         meeting_date=artifact_options.get("meeting_date"),
@@ -1279,6 +1323,7 @@ async def run_text_report_generation(
                     guest_uid=guest_uid,
                     uploader_id=uploader_id,
                     ai_analysis=ai_analysis if domain == "construction" else None,
+                    risk_brief=risk_brief_obj,
                 )
             except Exception as e:
                 logger.error(f"Domain report save failed (non-fatal): {e}")
