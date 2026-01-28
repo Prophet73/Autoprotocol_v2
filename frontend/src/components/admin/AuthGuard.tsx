@@ -1,7 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 
-type RequiredRole = 'admin' | 'manager' | 'user';
+type RequiredRole = 'admin' | 'manager' | 'viewer' | 'user';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -21,6 +21,7 @@ export default function AuthGuard({ children, requiredRole = 'admin' }: AuthGuar
   }
 
   // Check role-based access
+  // Hierarchy: superuser > admin > manager > viewer > user
   const hasAccess = (() => {
     // Superusers have access to everything
     if (user?.is_superuser) return true;
@@ -33,6 +34,10 @@ export default function AuthGuard({ children, requiredRole = 'admin' }: AuthGuar
       case 'manager':
         // Managers, admins, and superusers
         return ['manager', 'admin', 'superuser'].includes(user?.role || '');
+
+      case 'viewer':
+        // Viewers, managers, admins, and superusers
+        return ['viewer', 'manager', 'admin', 'superuser'].includes(user?.role || '');
 
       case 'user':
         // Any authenticated user

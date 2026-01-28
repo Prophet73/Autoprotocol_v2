@@ -31,14 +31,13 @@ const HR_MEETING_TYPES = [
 ];
 
 export function HRDashboardPage() {
-  // Fetch recent jobs
+  // Fetch recent jobs filtered by HR domain
   const { data: jobsData, isLoading, error } = useQuery({
     queryKey: ['hr-jobs'],
-    queryFn: () => getJobs(100),
+    queryFn: () => getJobs(100, 'hr'),
   });
 
-  // Filter and compute statistics
-  // Note: In production, this would be filtered by domain on the backend
+  // Compute statistics from real data
   const stats = useMemo(() => {
     if (!jobsData?.jobs) return null;
 
@@ -47,10 +46,10 @@ export function HRDashboardPage() {
     const processing = jobsData.jobs.filter(j => j.status === 'processing').length;
     const pending = jobsData.jobs.filter(j => j.status === 'pending').length;
 
-    // Count by meeting type (simulated - would need backend support)
+    // TODO: Count by meeting type from actual job data when backend supports it
     const byType: Record<string, number> = {};
     HR_MEETING_TYPES.forEach(type => {
-      byType[type.id] = Math.floor(Math.random() * 10); // Placeholder
+      byType[type.id] = 0;
     });
 
     return { total, completed, processing, pending, byType };

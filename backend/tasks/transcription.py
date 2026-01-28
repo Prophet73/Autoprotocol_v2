@@ -476,6 +476,11 @@ def _save_domain_report(
         session_factory = get_celery_session_factory()
         async with session_factory() as db:
             try:
+                # Log what we're saving
+                logger.info(f"Saving domain report for job {job_id}: basic_report={basic_report is not None}, risk_brief={risk_brief is not None}")
+                if basic_report is not None:
+                    logger.info(f"BasicReport has {len(getattr(basic_report, 'tasks', []))} tasks")
+
                 # Create domain service via factory
                 service = DomainServiceFactory.create(domain_type)
 
@@ -493,6 +498,7 @@ def _save_domain_report(
                     uploader_id=uploader_id,
                     basic_report=basic_report,
                     risk_brief=risk_brief,
+                    participant_ids=artifact_options.get("participant_ids"),
                 )
 
                 # Save analytics if provided (enables manager dashboard)

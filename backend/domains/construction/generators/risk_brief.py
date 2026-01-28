@@ -98,7 +98,7 @@ def generate_risk_brief(
 
     # Call LLM for risk analysis
     if os.getenv("GOOGLE_API_KEY"):
-        risk_brief = _get_risk_brief(transcript_text)
+        risk_brief = _get_risk_brief(transcript_text, meeting_date)
     else:
         # Fallback: empty report
         risk_brief = RiskBrief(
@@ -110,6 +110,10 @@ def generate_risk_brief(
             concerns=[],
             abbreviations=[],
         )
+
+    # Store participants in RiskBrief for JSON serialization (dashboard display)
+    if participants:
+        risk_brief.participants = participants
 
     # Override project_name and project_code from DB if provided (LLM may not know it)
     effective_project_name = project_name or risk_brief.project_name
@@ -144,12 +148,15 @@ def generate_risk_brief(
     return output_path, risk_brief
 
 
-def _get_risk_brief(transcript_text: str) -> RiskBrief:
+def _get_risk_brief(transcript_text: str, meeting_date: str = None) -> RiskBrief:
     """Get risk brief from LLM using INoT approach."""
     client = genai.Client()
 
-    # Format user prompt with transcript
-    user_prompt = RISK_BRIEF_USER.format(transcript=transcript_text[:20000])
+    # Format user prompt with transcript and meeting date
+    user_prompt = RISK_BRIEF_USER.format(
+        transcript=transcript_text[:20000],
+        meeting_date=meeting_date or "не указана"
+    )
 
     def _is_retryable_llm_error(exc: Exception) -> bool:
         message = str(exc).upper()
@@ -273,7 +280,7 @@ def _get_risk_brief(transcript_text: str) -> RiskBrief:
             brief_data["abbreviations"] = fixed_abbrs
 
         brief = RiskBrief.model_validate(brief_data)
-        return _normalize_risk_brief(brief)
+        return _normalize_risk_brief(brief, meeting_date)
 
     except Exception as e:
         print(f"LLM risk brief generation failed: {e}")
@@ -286,7 +293,7 @@ def _get_risk_brief(transcript_text: str) -> RiskBrief:
             concerns=[],
             abbreviations=[],
         )
-        return _normalize_risk_brief(brief)
+        return _normalize_risk_brief(brief, meeting_date)
 
 
 def _render_html(
@@ -1640,13 +1647,138 @@ def _build_group_rows(groups: list) -> str:
     return "".join(rows)
 
 
-def _normalize_risk_brief(brief: RiskBrief) -> RiskBrief:
+def _validate_date(date_str: str, meeting_date: str = None) -> str | None:
+    """
+    Validate date string: return None if date is in the past or invalid.
+
+    Args:
+        date_str: Date string to validate (various formats)
+        meeting_date: Meeting date as reference point (YYYY-MM-DD)
+
+    Returns:
+        Original date string if valid, None if invalid/past
+    """
+    if not date_str or not date_str.strip():
+        return None
+
+    date_str = date_str.strip()
+
+    # Skip non-date strings like "на следующей неделе"
+    # Only validate if it looks like a date (contains digits and separators)
+    if not any(c.isdigit() for c in date_str):
+        return date_str  # Keep relative dates as-is
+
+    # Try to parse various date formats
+    from datetime import datetime as dt, timedelta
+
+    date_formats = [
+        "%Y-%m-%d",      # 2024-02-05
+        "%d.%m.%Y",      # 05.02.2024
+        "%d.%m.%y",      # 05.02.24
+        "%d/%m/%Y",      # 05/02/2024
+        "%d-%m-%Y",      # 05-02-2024
+    ]
+
+    parsed_date = None
+    for fmt in date_formats:
+        try:
+            parsed_date = dt.strptime(date_str, fmt).date()
+            break
+        except ValueError:
+            continue
+
+    if not parsed_date:
+        # Could not parse — keep as-is (might be "до конца недели" etc)
+        return date_str
+
+    # Determine reference date
+    reference_date = None
+    if meeting_date:
+        try:
+            reference_date = dt.strptime(meeting_date, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+
+    if not reference_date:
+        reference_date = dt.now().date()
+
+    # If date is more than 7 days in the past relative to meeting — it's likely a hallucination
+    past_threshold = reference_date - timedelta(days=7)
+    if parsed_date < past_threshold:
+        logger.warning(
+            f"[RISK BRIEF] Filtered out past date: {date_str} (reference: {reference_date})"
+        )
+        return None
+
+    return date_str
+
+
+def _validate_responsible(responsible: str) -> str | None:
+    """
+    Validate responsible field: return None if empty or placeholder.
+
+    Args:
+        responsible: Responsible person/org string
+
+    Returns:
+        Original string if valid, None if invalid
+    """
+    if not responsible:
+        return None
+
+    responsible = responsible.strip()
+
+    # Filter out placeholders and invalid values
+    invalid_values = {
+        "",
+        "не назначен",
+        "не указан",
+        "не определён",
+        "не определен",
+        "n/a",
+        "tbd",
+        "tba",
+        "-",
+        "—",
+        "–",
+        "null",
+        "none",
+    }
+
+    if responsible.lower() in invalid_values:
+        return None
+
+    # Too short to be a real name/org
+    if len(responsible) < 2:
+        return None
+
+    return responsible
+
+
+def _normalize_risk_brief(brief: RiskBrief, meeting_date: str = None) -> RiskBrief:
     """Normalize risk brief: move low-confidence or unsupported risks to hypotheses."""
     risks = list(brief.risks or [])
     hypotheses = list(brief.hypotheses or [])
 
+    # Validate hypotheses that came directly from LLM
+    for hyp in hypotheses:
+        if hasattr(hyp, "deadline"):
+            hyp.deadline = _validate_date(hyp.deadline, meeting_date)
+        if hasattr(hyp, "responsible"):
+            hyp.responsible = _validate_responsible(hyp.responsible)
+        if hasattr(hyp, "suggested_responsible"):
+            hyp.suggested_responsible = _validate_responsible(hyp.suggested_responsible)
+
     verified = []
     for risk in risks:
+        # Validate and sanitize fields
+        if hasattr(risk, "deadline"):
+            risk.deadline = _validate_date(risk.deadline, meeting_date)
+        if hasattr(risk, "responsible"):
+            risk.responsible = _validate_responsible(risk.responsible)
+        if hasattr(risk, "suggested_responsible"):
+            risk.suggested_responsible = _validate_responsible(risk.suggested_responsible)
+
         evidence = (risk.evidence or "").strip() if hasattr(risk, "evidence") else ""
         confidence = getattr(risk, "confidence", "medium")
         if confidence == "low" or not evidence:
@@ -2190,3 +2322,56 @@ def _build_question_items(concerns: list) -> str:
             continue
 
     return "".join(items) if items else '<div class="column-item" style="color:#888;">Открытых вопросов нет</div>'
+
+
+def regenerate_risk_brief_pdf(
+    risk_brief: RiskBrief,
+    output_path: Path,
+    source_file: str = "N/A",
+    duration: str = "N/A",
+    speakers_count: int = 0,
+    meeting_date: str = None,
+    project_name: str = None,
+    project_code: str = None,
+    participants: list = None,
+) -> Path:
+    """
+    Regenerate risk_brief.pdf from edited RiskBrief JSON.
+
+    Used when manager edits risk_brief_json in DB and needs to regenerate the PDF.
+
+    Args:
+        risk_brief: RiskBrief object (can be created from edited JSON)
+        output_path: Full path to output PDF file
+        source_file: Original source filename
+        duration: Duration string
+        speakers_count: Number of speakers
+        meeting_date: Meeting date string (YYYY-MM-DD)
+        project_name: Project name
+        project_code: Project code
+        participants: List of participants grouped by organization
+
+    Returns:
+        Path to generated PDF file
+    """
+    # Generate HTML
+    html_content = _render_html(
+        risk_brief=risk_brief,
+        source_file=source_file,
+        duration=duration,
+        speakers_count=speakers_count,
+        meeting_date=meeting_date or datetime.now().strftime("%Y-%m-%d"),
+        participants=participants,
+        project_name=project_name,
+        project_code=project_code,
+    )
+
+    # Ensure output directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Render PDF
+    _render_pdf(html_content, output_path)
+
+    logger.info(f"[RISK BRIEF] Regenerated PDF at {output_path}")
+
+    return output_path

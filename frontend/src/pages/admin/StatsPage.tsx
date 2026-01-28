@@ -522,7 +522,7 @@ function DomainsTab({
   selectedDomain,
   setSelectedDomain,
   domainStats,
-  dashboard,
+  dashboard: _dashboard,
 }: {
   domains: DomainInfo[];
   selectedDomain: string;

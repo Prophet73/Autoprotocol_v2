@@ -3,9 +3,12 @@
 Генерирует отчёты из транскрипции с помощью LLM.
 """
 
+import logging
 from typing import Any, Optional, List
 from datetime import datetime
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -351,6 +354,7 @@ class ConstructionService(BaseDomainService):
         uploader_id: Optional[int] = None,
         basic_report: Optional[object] = None,
         risk_brief: Optional[object] = None,
+        participant_ids: Optional[List[int]] = None,
     ) -> ConstructionReportDB:
         """
         Сохраняет отчёт стройконтроля в базу данных.
@@ -364,6 +368,7 @@ class ConstructionService(BaseDomainService):
             uploader_id: ID пользователя-загрузчика
             basic_report: BasicReport объект для сохранения JSON (перегенерация файлов)
             risk_brief: RiskBrief объект для сохранения JSON (перегенерация файлов)
+            participant_ids: Список ID участников совещания
 
         Returns:
             Созданная запись ConstructionReportDB
@@ -375,15 +380,29 @@ class ConstructionService(BaseDomainService):
         if basic_report is not None:
             try:
                 basic_report_json = basic_report.model_dump(mode="json")
-            except Exception:
-                pass  # Skip if serialization fails
+                logger.info(f"BasicReport serialized: {len(basic_report_json.get('tasks', []))} tasks")
+            except Exception as e:
+                logger.error(f"Failed to serialize BasicReport: {e}", exc_info=True)
+                # Try alternative serialization
+                try:
+                    basic_report_json = basic_report.model_dump()
+                    logger.info("BasicReport serialized using model_dump() without mode=json")
+                except Exception as e2:
+                    logger.error(f"BasicReport serialization completely failed: {e2}")
 
         risk_brief_json = None
         if risk_brief is not None:
             try:
                 risk_brief_json = risk_brief.model_dump(mode="json")
-            except Exception:
-                pass  # Skip if serialization fails
+                logger.info(f"RiskBrief serialized: {len(risk_brief_json.get('risks', []))} risks")
+            except Exception as e:
+                logger.error(f"Failed to serialize RiskBrief: {e}", exc_info=True)
+                # Try alternative serialization
+                try:
+                    risk_brief_json = risk_brief.model_dump()
+                    logger.info("RiskBrief serialized using model_dump() without mode=json")
+                except Exception as e2:
+                    logger.error(f"RiskBrief serialization completely failed: {e2}")
 
         db_report = ConstructionReportDB(
             job_id=job_id,
@@ -398,6 +417,7 @@ class ConstructionService(BaseDomainService):
             result_json=report.model_dump(mode="json"),
             basic_report_json=basic_report_json,
             risk_brief_json=risk_brief_json,
+            participant_ids=participant_ids,
             transcript_path=output_files.get("transcript"),
             tasks_path=output_files.get("tasks"),
             report_path=output_files.get("report"),

@@ -60,7 +60,8 @@ export default function JobsPage() {
     }
   };
 
-  const formatDate = (dateStr: string) => {
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '—';
     return new Date(dateStr).toLocaleString('ru-RU', {
       day: '2-digit',
       month: '2-digit',

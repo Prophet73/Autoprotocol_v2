@@ -149,7 +149,7 @@ export default function LoginPage() {
       // Redirect based on role
       if (userInfo.is_superuser || userInfo.role === 'admin') {
         navigate('/admin');
-      } else if (userInfo.role === 'manager') {
+      } else if (userInfo.role === 'manager' || userInfo.role === 'viewer') {
         navigate('/dashboard');
       } else {
         navigate('/');

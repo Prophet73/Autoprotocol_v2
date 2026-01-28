@@ -132,6 +132,12 @@ class ReportFiles(BaseModel):
     risk_brief: Optional[str] = None
 
 
+class ParticipantGroup(BaseModel):
+    """Группа участников по организации."""
+    org_name: str
+    persons: List[str]
+
+
 class AnalyticsDetailResponse(BaseModel):
     """Ответ с детальной аналитикой."""
     id: int
@@ -152,6 +158,9 @@ class AnalyticsDetailResponse(BaseModel):
     filename: str = ""  # Оригинальное имя файла для отображения
     # JSON данные для интерактивного отображения
     risk_brief_json: Optional[dict] = None  # RiskBrief JSON для аккордеонов
+    basic_report_json: Optional[dict] = None  # BasicReport JSON (meeting_summary, expert_analysis, tasks)
+    # Участники совещания (сгруппированные по организациям)
+    participants: List[ParticipantGroup] = []
 
 
 class ProblemStatusUpdate(BaseModel):
@@ -534,6 +543,51 @@ async def get_analytics_detail(
     if report and report.risk_brief_json:
         risk_brief_json = report.risk_brief_json
 
+    # Получить basic_report_json (meeting_summary, expert_analysis, tasks)
+    basic_report_json = None
+    if report and report.basic_report_json:
+        basic_report_json = report.basic_report_json
+
+    # Получить участников совещания
+    # Источник 1: participant_ids в БД -> fetch из Person table
+    # Источник 2: risk_brief_json.participants (сохраняются при генерации)
+    participants = []
+
+    # Try from participant_ids first (fresh data from DB)
+    if report and report.participant_ids:
+        try:
+            from ...tasks.transcription import _fetch_participants_for_risk_brief_async
+            raw_participants = await _fetch_participants_for_risk_brief_async(report.participant_ids)
+            for group in raw_participants:
+                # Map from function's keys to ParticipantGroup schema
+                # Function returns: {"organization": ..., "role": ..., "people": [...]}
+                # Schema expects: {"org_name": ..., "persons": [...]}
+                role = group.get("role", "")
+                org = group.get("organization", "Без организации")
+                org_name = f"{org} ({role})" if role else org
+                participants.append(ParticipantGroup(
+                    org_name=org_name,
+                    persons=group.get("people", [])
+                ))
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to fetch participants from IDs: {e}")
+
+    # Fallback: try from risk_brief_json.participants (stored during generation)
+    if not participants and risk_brief_json and risk_brief_json.get("participants"):
+        try:
+            for group in risk_brief_json["participants"]:
+                role = group.get("role", "")
+                org = group.get("organization", "Без организации")
+                org_name = f"{org} ({role})" if role else org
+                participants.append(ParticipantGroup(
+                    org_name=org_name,
+                    persons=group.get("people", [])
+                ))
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to parse participants from risk_brief_json: {e}")
+
     return AnalyticsDetailResponse(
         id=analytics.id,
         summary=analytics.summary or "",
@@ -551,6 +605,8 @@ async def get_analytics_detail(
         has_risk_brief=has_risk_brief,
         filename=filename,
         risk_brief_json=risk_brief_json,
+        basic_report_json=basic_report_json,
+        participants=participants,
     )
 
 
@@ -776,6 +832,189 @@ async def download_analytics_report_all(
         filename=filename,
         media_type="application/zip"
     )
+
+
+# =============================================================================
+# Эндпоинты редактирования артефактов
+# =============================================================================
+
+class UpdateRiskBriefRequest(BaseModel):
+    """Запрос на обновление риск-брифа."""
+    risk_brief_json: dict  # Full RiskBrief JSON
+
+
+class UpdateTasksRequest(BaseModel):
+    """Запрос на обновление задач."""
+    basic_report_json: dict  # Full BasicReport JSON (only tasks will be used)
+
+
+@router.patch(
+    "/analytics/{analytics_id}/risk_brief",
+    response_model=dict,
+    summary="Обновить риск-бриф",
+    description="Обновить risk_brief_json и перегенерировать PDF. Только для manager+."
+)
+async def update_risk_brief(
+    analytics_id: int,
+    data: UpdateRiskBriefRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Обновить риск-бриф и перегенерировать PDF."""
+    from backend.domains.construction.schemas import RiskBrief
+    from backend.domains.construction.generators.risk_brief import regenerate_risk_brief_pdf
+
+    # Check manager+ role
+    if not current_user.is_superuser and current_user.role not in ('manager', 'admin'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only manager+ can edit risk brief"
+        )
+
+    # Get analytics with report
+    query = (
+        select(ReportAnalytics)
+        .options(
+            selectinload(ReportAnalytics.report).selectinload(ConstructionReportDB.project)
+        )
+        .where(ReportAnalytics.id == analytics_id)
+    )
+    result = await db.execute(query)
+    analytics = result.scalar_one_or_none()
+
+    if not analytics or not analytics.report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analytics with id {analytics_id} not found"
+        )
+
+    # Check project access
+    if analytics.report.project_id:
+        project_ids = await get_user_project_ids(db, current_user)
+        if analytics.report.project_id not in project_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this report"
+            )
+
+    report = analytics.report
+
+    # Validate and update JSON
+    try:
+        risk_brief = RiskBrief.model_validate(data.risk_brief_json)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid risk_brief_json: {e}"
+        )
+
+    # Update JSON in DB
+    report.risk_brief_json = data.risk_brief_json
+    await db.commit()
+
+    # Regenerate PDF if path exists
+    if report.risk_brief_path:
+        try:
+            risk_brief_path = Path(report.risk_brief_path)
+            project = report.project
+
+            regenerate_risk_brief_pdf(
+                risk_brief=risk_brief,
+                output_path=risk_brief_path,
+                source_file=report.title or report.audio_file_path or "N/A",
+                duration="N/A",
+                speakers_count=report.speaker_count or 0,
+                meeting_date=report.meeting_date.strftime("%Y-%m-%d") if report.meeting_date else None,
+                project_name=project.name if project else None,
+                project_code=project.project_code if project else None,
+            )
+        except Exception as e:
+            # Log error but don't fail - JSON is already saved
+            import logging
+            logging.getLogger(__name__).error(f"Failed to regenerate risk_brief PDF: {e}")
+
+    return {"success": True, "message": "Risk brief updated"}
+
+
+@router.patch(
+    "/analytics/{analytics_id}/tasks",
+    response_model=dict,
+    summary="Обновить задачи",
+    description="Обновить basic_report_json и перегенерировать XLSX. Только для manager+."
+)
+async def update_tasks(
+    analytics_id: int,
+    data: UpdateTasksRequest,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Обновить задачи и перегенерировать XLSX."""
+    from backend.domains.construction.schemas import BasicReport
+    from backend.domains.construction.generators.tasks import regenerate_tasks_xlsx
+
+    # Check manager+ role
+    if not current_user.is_superuser and current_user.role not in ('manager', 'admin'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only manager+ can edit tasks"
+        )
+
+    # Get analytics with report
+    query = (
+        select(ReportAnalytics)
+        .options(selectinload(ReportAnalytics.report))
+        .where(ReportAnalytics.id == analytics_id)
+    )
+    result = await db.execute(query)
+    analytics = result.scalar_one_or_none()
+
+    if not analytics or not analytics.report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analytics with id {analytics_id} not found"
+        )
+
+    # Check project access
+    if analytics.report.project_id:
+        project_ids = await get_user_project_ids(db, current_user)
+        if analytics.report.project_id not in project_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this report"
+            )
+
+    report = analytics.report
+
+    # Validate and update JSON
+    try:
+        basic_report = BasicReport.model_validate(data.basic_report_json)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid basic_report_json: {e}"
+        )
+
+    # Update JSON in DB
+    report.basic_report_json = data.basic_report_json
+    await db.commit()
+
+    # Regenerate XLSX if path exists
+    if report.tasks_path:
+        try:
+            tasks_path = Path(report.tasks_path)
+
+            regenerate_tasks_xlsx(
+                basic_report=basic_report,
+                output_path=tasks_path,
+                source_file=report.title or report.audio_file_path or "N/A",
+                duration="N/A",
+            )
+        except Exception as e:
+            # Log error but don't fail - JSON is already saved
+            import logging
+            logging.getLogger(__name__).error(f"Failed to regenerate tasks XLSX: {e}")
+
+    return {"success": True, "message": "Tasks updated"}
 
 
 # =============================================================================

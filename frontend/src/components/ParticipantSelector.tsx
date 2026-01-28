@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Users, ChevronDown, ChevronRight, Check, Loader2, Plus, X, Building2, UserPlus, ChevronsUpDown } from 'lucide-react';
+import { Users, ChevronDown, ChevronRight, Check, Loader2, Plus, X, Building2, UserPlus } from 'lucide-react';
 import {
   getProjectContractors,
   getStandardRoles,
   createProjectContractor,
   addPersonToOrganization,
   type Contractor,
-  type Person,
   type StandardRole,
 } from '../api/client';
 

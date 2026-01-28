@@ -119,7 +119,7 @@ def get_ai_analysis_prompt(transcript: str) -> tuple:
     return AI_ANALYSIS_SYSTEM, user
 
 
-def get_risk_brief_prompt(transcript: str) -> tuple:
+def get_risk_brief_prompt(transcript: str, meeting_date: str = None) -> tuple:
     """
     Get formatted Risk Brief prompts (INoT approach).
 
@@ -130,12 +130,14 @@ def get_risk_brief_prompt(transcript: str) -> tuple:
 
     Args:
         transcript: Meeting transcript text
+        meeting_date: Meeting date for calculating deadlines
 
     Returns:
         Tuple of (system_prompt, user_prompt)
     """
     user = get_prompt(
         "domains.construction.risk_brief.user",
-        transcript=transcript
+        transcript=transcript,
+        meeting_date=meeting_date or "не указана"
     )
     return RISK_BRIEF_SYSTEM, user

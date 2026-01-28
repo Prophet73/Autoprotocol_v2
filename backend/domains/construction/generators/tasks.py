@@ -71,8 +71,21 @@ def generate_tasks(
         cell.border = thin_border
         ws.column_dimensions[get_column_letter(col)].width = width
 
+    # Sort tasks by category (alphabetically), then by priority within category
+    priority_order = {"high": 0, "medium": 1, "low": 2}
+
+    def get_sort_key(task):
+        # Get category string for sorting
+        cat_val = task.category.value if isinstance(task.category, TaskCategory) else str(task.category)
+        # Get priority order for sorting within category
+        pri_val = task.priority.value if isinstance(task.priority, TaskPriority) else str(task.priority)
+        pri_order = priority_order.get(pri_val, 1)
+        return (cat_val, pri_order)
+
+    sorted_tasks = sorted(basic_report.tasks, key=get_sort_key)
+
     # Data rows
-    for row_num, task in enumerate(basic_report.tasks, 2):
+    for row_num, task in enumerate(sorted_tasks, 2):
         # Priority label
         priority_val = task.priority.value if isinstance(task.priority, TaskPriority) else str(task.priority)
         priority_labels = {"high": "Высокий", "medium": "Средний", "low": "Низкий"}
@@ -195,3 +208,54 @@ def generate_tasks(
     wb.save(str(output_path))
 
     return output_path
+
+
+def regenerate_tasks_xlsx(
+    basic_report: BasicReport,
+    output_path: Path,
+    source_file: str = "N/A",
+    duration: str = "N/A",
+    participants: list = None,
+) -> Path:
+    """
+    Regenerate tasks.xlsx from edited BasicReport JSON.
+
+    Used when manager edits basic_report_json in DB and needs to regenerate the XLSX.
+
+    Args:
+        basic_report: BasicReport object (can be created from edited JSON)
+        output_path: Full path to output XLSX file
+        source_file: Original source filename
+        duration: Duration string
+        participants: Optional list of participants
+
+    Returns:
+        Path to generated XLSX file
+    """
+    from backend.core.transcription.models import TranscriptionResult, TranscriptionMetadata
+
+    # Create minimal TranscriptionResult for metadata
+    metadata = TranscriptionMetadata(
+        source_file=source_file,
+        duration_seconds=0.0,
+    )
+    # Override duration_formatted
+    metadata._duration_formatted = duration
+
+    result = TranscriptionResult(
+        metadata=metadata,
+        segments=[],
+        speakers={},
+    )
+
+    # Call existing generate_tasks function
+    output_dir = output_path.parent
+    filename = output_path.name
+
+    return generate_tasks(
+        result=result,
+        output_dir=output_dir,
+        basic_report=basic_report,
+        filename=filename,
+        participants=participants,
+    )

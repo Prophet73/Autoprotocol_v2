@@ -660,6 +660,12 @@ class RiskBrief(BaseModel):
         description="Группировка рисков по категориям"
     )
 
+    # === УЧАСТНИКИ ===
+    participants: List[dict] = Field(
+        default_factory=list,
+        description="Участники совещания сгруппированные по организациям"
+    )
+
     # === COMPUTED PROPERTIES ===
 
     @property

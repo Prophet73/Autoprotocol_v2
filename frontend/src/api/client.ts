@@ -242,8 +242,12 @@ export interface JobListResponse {
   jobs: JobListItem[];
 }
 
-export async function getJobs(limit: number = 50): Promise<JobListResponse> {
-  const response = await api.get<JobListResponse>(`/transcribe?limit=${limit}`);
+export async function getJobs(limit: number = 50, domain?: string): Promise<JobListResponse> {
+  const params = new URLSearchParams({ limit: limit.toString() });
+  if (domain) {
+    params.append('domain', domain);
+  }
+  const response = await api.get<JobListResponse>(`/transcribe?${params.toString()}`);
   return response.data;
 }
 
@@ -431,8 +435,24 @@ export interface RiskBriefData {
   atmosphere: string;
   atmosphere_comment: string;
   risks: ProjectRisk[];
-  concerns: Array<{ text: string; source?: string }>;
+  concerns: ConcernItem[];
   abbreviations: Array<{ abbr: string; full: string }>;
+}
+
+// Concern item from RiskBrief
+export interface ConcernItem {
+  id: string;
+  category?: string;
+  title: string;
+  description: string;
+  recommendation?: string;
+  related_risk_ids?: string[];
+}
+
+// Participant group for display
+export interface ParticipantGroup {
+  org_name: string;
+  persons: string[];
 }
 
 export interface AnalyticsDetail {
@@ -460,6 +480,30 @@ export interface AnalyticsDetail {
   filename: string;
   // Risk brief JSON for interactive display
   risk_brief_json?: RiskBriefData;
+  // Basic report JSON (meeting_summary, expert_analysis, tasks)
+  basic_report_json?: BasicReportData;
+  // Meeting participants grouped by organization
+  participants?: ParticipantGroup[];
+}
+
+// Basic report data from BasicReport JSON
+export interface BasicReportData {
+  meeting_type?: string;
+  meeting_summary?: string;
+  expert_analysis?: string;
+  tasks?: TaskItem[];
+}
+
+// Task item from BasicReport
+export interface TaskItem {
+  category?: string;
+  description: string;
+  responsible?: string;
+  deadline?: string;
+  priority?: 'high' | 'medium' | 'low';
+  confidence?: string;
+  time_codes?: string[];
+  evidence?: string;
 }
 
 export async function getManagerDashboardView(
@@ -648,6 +692,34 @@ export async function addPersonToOrganization(
   const response = await api.post<Person>(
     `/api/manager/organizations/${organizationId}/persons`,
     data
+  );
+  return response.data;
+}
+
+// =============================================================================
+// Artifact editing (manager+ only)
+// =============================================================================
+
+// Update risk brief JSON and regenerate PDF
+export async function updateRiskBrief(
+  analyticsId: number,
+  riskBriefJson: RiskBriefData
+): Promise<{ success: boolean; message: string }> {
+  const response = await api.patch<{ success: boolean; message: string }>(
+    `/api/manager/analytics/${analyticsId}/risk_brief`,
+    { risk_brief_json: riskBriefJson }
+  );
+  return response.data;
+}
+
+// Update basic report JSON (tasks) and regenerate XLSX
+export async function updateTasks(
+  analyticsId: number,
+  basicReportJson: BasicReportData
+): Promise<{ success: boolean; message: string }> {
+  const response = await api.patch<{ success: boolean; message: string }>(
+    `/api/manager/analytics/${analyticsId}/tasks`,
+    { basic_report_json: basicReportJson }
   );
   return response.data;
 }

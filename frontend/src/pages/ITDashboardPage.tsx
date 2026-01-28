@@ -33,13 +33,13 @@ const IT_MEETING_TYPES = [
 ];
 
 export function ITDashboardPage() {
-  // Fetch recent jobs
+  // Fetch recent jobs filtered by IT domain
   const { data: jobsData, isLoading, error } = useQuery({
     queryKey: ['it-jobs'],
-    queryFn: () => getJobs(100),
+    queryFn: () => getJobs(100, 'it'),
   });
 
-  // Filter and compute statistics
+  // Compute statistics from real data
   const stats = useMemo(() => {
     if (!jobsData?.jobs) return null;
 
@@ -48,10 +48,10 @@ export function ITDashboardPage() {
     const processing = jobsData.jobs.filter(j => j.status === 'processing').length;
     const pending = jobsData.jobs.filter(j => j.status === 'pending').length;
 
-    // Count by meeting type (simulated - would need backend support)
+    // TODO: Count by meeting type from actual job data when backend supports it
     const byType: Record<string, number> = {};
     IT_MEETING_TYPES.forEach(type => {
-      byType[type.id] = Math.floor(Math.random() * 15); // Placeholder
+      byType[type.id] = 0;
     });
 
     return { total, completed, processing, pending, byType };

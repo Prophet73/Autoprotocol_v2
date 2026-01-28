@@ -49,10 +49,11 @@ function App() {
           <Route path="/auth/callback" element={<SSOCallbackPage />} />
 
           {/* Domain-aware dashboard - routes to appropriate dashboard based on user's domain */}
+          {/* Accessible by viewer, manager, admin, superuser */}
           <Route
             path="/dashboard"
             element={
-              <AuthGuard requiredRole="manager">
+              <AuthGuard requiredRole="viewer">
                 <DashboardLayout>
                   <DomainDashboardRouter />
                 </DashboardLayout>
@@ -64,7 +65,7 @@ function App() {
           <Route
             path="/dashboard/construction"
             element={
-              <AuthGuard requiredRole="manager">
+              <AuthGuard requiredRole="viewer">
                 <DashboardLayout>
                   <ManagerDashboardPage />
                 </DashboardLayout>
@@ -74,7 +75,7 @@ function App() {
           <Route
             path="/dashboard/hr"
             element={
-              <AuthGuard requiredRole="manager">
+              <AuthGuard requiredRole="viewer">
                 <Layout>
                   <HRDashboardPage />
                 </Layout>
@@ -84,7 +85,7 @@ function App() {
           <Route
             path="/dashboard/it"
             element={
-              <AuthGuard requiredRole="manager">
+              <AuthGuard requiredRole="viewer">
                 <Layout>
                   <ITDashboardPage />
                 </Layout>

@@ -810,6 +810,7 @@ async def download_all_results(
 )
 async def list_jobs(
     limit: int = Query(default=50, le=100, description="Максимальное количество задач"),
+    domain: Optional[str] = Query(default=None, description="Фильтр по домену: construction, hr, it"),
     x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-ID", description="UUID гостя для фильтрации"),
     current_user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
@@ -823,19 +824,24 @@ async def list_jobs(
     - Авторизованные пользователи видят свои задачи
     - Гости (с X-Guest-ID) видят только свои задачи
     - Без идентификации — пустой список
+    - **domain** — фильтр по домену (construction, hr, it)
 
     Параметры:
     - **limit** — максимальное количество (по умолчанию 50)
+    - **domain** — фильтр по домену (опционально)
     """
     store = get_store()
 
     # Authenticated users: read history from PostgreSQL
     if current_user:
+        query = select(TranscriptionJob).where(TranscriptionJob.user_id == current_user.id)
+
+        # Apply domain filter if specified
+        if domain:
+            query = query.where(TranscriptionJob.domain == domain)
+
         result = await db.execute(
-            select(TranscriptionJob)
-            .where(TranscriptionJob.user_id == current_user.id)
-            .order_by(desc(TranscriptionJob.created_at))
-            .limit(limit)
+            query.order_by(desc(TranscriptionJob.created_at)).limit(limit)
         )
         jobs = result.scalars().all()
 
@@ -871,11 +877,14 @@ async def list_jobs(
 
     # Guests: prefer DB history (if guest_uid is stored), fallback to Redis by guest ID
     if x_guest_id:
+        query = select(TranscriptionJob).where(TranscriptionJob.guest_uid == x_guest_id)
+
+        # Apply domain filter if specified
+        if domain:
+            query = query.where(TranscriptionJob.domain == domain)
+
         result = await db.execute(
-            select(TranscriptionJob)
-            .where(TranscriptionJob.guest_uid == x_guest_id)
-            .order_by(desc(TranscriptionJob.created_at))
-            .limit(limit)
+            query.order_by(desc(TranscriptionJob.created_at)).limit(limit)
         )
         jobs = result.scalars().all()
 
@@ -1019,11 +1028,12 @@ async def run_transcription_background(
         from ...tasks.transcription import _run_domain_generators, _save_domain_report
 
         output_files = {}
-        generated_artifacts = _run_domain_generators(
+        generated_artifacts, ai_analysis, basic_report_obj, risk_brief_obj = _run_domain_generators(
             result=result,
             output_path=output_dir,
             artifact_options=artifact_options,
             progress_callback=progress_callback,
+            domain_type=domain_type,
         )
         output_files.update(generated_artifacts)
 
@@ -1039,6 +1049,10 @@ async def run_transcription_background(
                     output_files=output_files,
                     guest_uid=guest_uid,
                     uploader_id=uploader_id,
+                    ai_analysis=ai_analysis,
+                    artifact_options=artifact_options,
+                    basic_report=basic_report_obj,
+                    risk_brief=risk_brief_obj,
                 )
             except Exception as e:
                 logger.error(f"Domain report save failed (non-fatal): {e}")
@@ -1322,6 +1336,8 @@ async def run_text_report_generation(
                     guest_uid=guest_uid,
                     uploader_id=uploader_id,
                     ai_analysis=ai_analysis if domain == "construction" else None,
+                    artifact_options=artifact_options,
+                    basic_report=basic_report,  # Fixed: was missing!
                     risk_brief=risk_brief_obj,
                 )
             except Exception as e:
