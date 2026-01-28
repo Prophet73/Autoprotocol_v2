@@ -69,21 +69,21 @@ function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalP
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
-      <div className="relative bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4">
-        <h2 className="text-xl font-bold text-white mb-6">
+      <div className="relative bg-white rounded-lg p-6 w-full max-w-md shadow-xl border border-slate-200 mx-4">
+        <h2 className="text-xl font-bold text-slate-800 mb-6">
           {project ? 'Редактировать проект' : 'Создать проект'}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="bg-red-900/50 border border-red-500 rounded-lg p-3">
-              <p className="text-red-400 text-sm">{error}</p>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-red-600 text-sm">{error}</p>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Код проекта</label>
+              <label className="block text-sm font-medium text-slate-600 mb-1">Код проекта</label>
               <input
                 type="text"
                 value={formData.project_code}
@@ -93,36 +93,36 @@ function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalP
                 }}
                 placeholder="0000"
                 maxLength={4}
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white font-mono text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-800 font-mono text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-severin-red"
               />
-              <p className="text-xs text-gray-500 mt-1">4 цифры, авто если пусто</p>
+              <p className="text-xs text-slate-400 mt-1">4 цифры, авто если пусто</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Название</label>
+              <label className="block text-sm font-medium text-slate-600 mb-1">Название</label>
               <input
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 required
                 placeholder="Название проекта"
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Описание</label>
+            <label className="block text-sm font-medium text-slate-600 mb-1">Описание</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               rows={3}
               placeholder="Опциональное описание"
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">
+            <label className="block text-sm font-medium text-slate-600 mb-1">
               РПУ (Руководитель проекта)
             </label>
             <select
@@ -131,7 +131,7 @@ function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalP
                 ...formData,
                 manager_id: e.target.value ? Number(e.target.value) : null
               })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
             >
               <option value="">Не назначен</option>
               {users.map((user) => (
@@ -146,14 +146,14 @@ function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalP
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition"
+              className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg transition"
             >
               Отмена
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-lg transition"
+              className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-slate-800 rounded-lg transition"
             >
               {saving ? 'Сохранение...' : 'Сохранить'}
             </button>
@@ -253,15 +253,15 @@ function UserAccessModal({ isOpen, project, allUsers, onClose, onSave }: UserAcc
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
-      <div className="relative bg-gray-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+      <div className="relative bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl border border-slate-200 mx-4 max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-xl font-bold text-white">Доступ пользователей</h2>
-            <p className="text-gray-400 text-sm mt-1">
+            <h2 className="text-xl font-bold text-slate-800">Доступ пользователей</h2>
+            <p className="text-slate-500 text-sm mt-1">
               {project.name} ({project.project_code})
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-800">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -275,7 +275,7 @@ function UserAccessModal({ isOpen, project, allUsers, onClose, onSave }: UserAcc
             placeholder="Поиск по имени или email..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-severin-red"
           />
         </div>
 
@@ -293,53 +293,53 @@ function UserAccessModal({ isOpen, project, allUsers, onClose, onSave }: UserAcc
           >
             Снять все
           </button>
-          <span className="text-sm text-gray-400 ml-auto">
+          <span className="text-sm text-slate-500 ml-auto">
             Выбрано: {selectedUsers.size} из {allUsers.length}
           </span>
         </div>
 
         {/* User list */}
-        <div className="flex-1 overflow-y-auto min-h-[200px] max-h-[400px] border border-gray-700 rounded-lg">
+        <div className="flex-1 overflow-y-auto min-h-[200px] max-h-[400px] border border-slate-200 rounded-lg">
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
             </div>
           ) : sortedUsers.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-slate-500">
               Пользователи не найдены
             </div>
           ) : (
-            <div className="divide-y divide-gray-700">
+            <div className="divide-y divide-slate-200">
               {sortedUsers.map((user) => (
                 <label
                   key={user.id}
                   className={`flex items-center px-4 py-3 cursor-pointer transition ${
                     selectedUsers.has(user.id)
-                      ? 'bg-blue-900/30'
-                      : 'hover:bg-gray-700/50'
+                      ? 'bg-blue-50'
+                      : 'hover:bg-slate-100/50'
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={selectedUsers.has(user.id)}
                     onChange={() => toggleUser(user.id)}
-                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                    className="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 rounded focus:ring-severin-red"
                   />
                   <div className="ml-3 flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-white font-medium truncate">
+                      <span className="text-slate-800 font-medium truncate">
                         {user.full_name || 'Без имени'}
                       </span>
                       <span className={`px-1.5 py-0.5 text-xs rounded ${
-                        user.is_superuser ? 'bg-purple-900/50 text-purple-400' :
-                        user.role === 'admin' ? 'bg-blue-900/50 text-blue-400' :
-                        user.role === 'manager' ? 'bg-green-900/50 text-green-400' :
-                        'bg-gray-700 text-gray-400'
+                        user.is_superuser ? 'bg-purple-100 text-purple-700' :
+                        user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
+                        user.role === 'manager' ? 'bg-green-100 text-green-700' :
+                        'bg-slate-100 text-slate-500'
                       }`}>
                         {user.is_superuser ? 'Super' : user.role}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-400 truncate">
+                    <p className="text-sm text-slate-500 truncate">
                       {user.email}
                     </p>
                   </div>
@@ -350,18 +350,18 @@ function UserAccessModal({ isOpen, project, allUsers, onClose, onSave }: UserAcc
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end space-x-3 mt-4 pt-4 border-t border-gray-700">
+        <div className="flex justify-end space-x-3 mt-4 pt-4 border-t border-slate-200">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition"
+            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg transition"
           >
             Отмена
           </button>
           <button
             onClick={handleSave}
             disabled={saving || loading}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-lg transition"
+            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-slate-800 rounded-lg transition"
           >
             {saving ? 'Сохранение...' : 'Сохранить'}
           </button>
@@ -526,12 +526,12 @@ export default function ProjectsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Проекты</h1>
-          <p className="text-gray-400 mt-1">Управление строительными проектами ({total})</p>
+          <h1 className="text-2xl font-bold text-slate-800">Проекты</h1>
+          <p className="text-slate-500 mt-1">Управление строительными проектами ({total})</p>
         </div>
         <button
           onClick={handleCreate}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition flex items-center justify-center"
+          className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-slate-800 rounded-lg transition flex items-center justify-center"
         >
           <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -547,16 +547,16 @@ export default function ProjectsPage() {
             type="checkbox"
             checked={showArchived}
             onChange={(e) => setShowArchived(e.target.checked)}
-            className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+            className="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 rounded focus:ring-severin-red"
           />
-          <span className="ml-2 text-gray-300">Показать архивные</span>
+          <span className="ml-2 text-slate-600">Показать архивные</span>
         </label>
       </div>
 
       {/* Error */}
       {error && (
-        <div className="bg-red-900/50 border border-red-500 rounded-lg p-4">
-          <p className="text-red-400">{error}</p>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-600">{error}</p>
         </div>
       )}
 
@@ -566,14 +566,14 @@ export default function ProjectsPage() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
         </div>
       ) : projects.length === 0 ? (
-        <div className="bg-gray-800 rounded-lg p-12 text-center">
+        <div className="bg-white rounded-lg p-12 text-center shadow-sm border border-slate-200">
           <svg className="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
           </svg>
-          <p className="text-gray-400 mb-4">Проекты не найдены</p>
+          <p className="text-slate-500 mb-4">Проекты не найдены</p>
           <button
             onClick={handleCreate}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition"
+            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-slate-800 rounded-lg transition"
           >
             Создать первый проект
           </button>
@@ -583,20 +583,20 @@ export default function ProjectsPage() {
           {projects.map((project) => (
             <div
               key={project.id}
-              className={`bg-gray-800 rounded-lg p-6 ${
+              className={`bg-white rounded-lg p-6 shadow-sm border border-slate-200 ${
                 !project.is_active ? 'opacity-60' : ''
               }`}
             >
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <h3 className="text-lg font-semibold text-white">{project.name}</h3>
+                  <h3 className="text-lg font-semibold text-slate-800">{project.name}</h3>
                   <div className="flex items-center mt-1">
-                    <code className="text-sm font-mono text-blue-400 bg-gray-700 px-2 py-0.5 rounded">
+                    <code className="text-sm font-mono text-blue-400 bg-slate-100 px-2 py-0.5 rounded">
                       {project.project_code}
                     </code>
                     <button
                       onClick={() => copyCode(project.project_code)}
-                      className="ml-2 text-gray-400 hover:text-white transition"
+                      className="ml-2 text-slate-500 hover:text-slate-800 transition"
                       title="Копировать код"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -606,17 +606,17 @@ export default function ProjectsPage() {
                   </div>
                 </div>
                 <span className={`px-2 py-1 text-xs font-medium rounded ${
-                  project.is_active ? 'bg-green-900 text-green-300' : 'bg-gray-700 text-gray-400'
+                  project.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
                 }`}>
                   {project.is_active ? 'Активен' : 'Архив'}
                 </span>
               </div>
 
               {project.description && (
-                <p className="text-gray-400 text-sm mb-4 line-clamp-2">{project.description}</p>
+                <p className="text-slate-500 text-sm mb-4 line-clamp-2">{project.description}</p>
               )}
 
-              <div className="flex items-center justify-between text-sm text-gray-500 mb-2">
+              <div className="flex items-center justify-between text-sm text-slate-400 mb-2">
                 <span>Отчётов: {project.report_count}</span>
                 <span>{new Date(project.created_at).toLocaleDateString('ru-RU')}</span>
               </div>
@@ -624,13 +624,13 @@ export default function ProjectsPage() {
               {/* User access count */}
               <div className="flex items-center justify-between text-sm mb-4">
                 {project.manager_name && (
-                  <span className="text-gray-400">
+                  <span className="text-slate-500">
                     РПУ: {project.manager_name}
                   </span>
                 )}
                 <button
                   onClick={() => handleOpenAccessModal(project)}
-                  className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition ml-auto"
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded bg-slate-100 text-slate-600 hover:bg-slate-200 transition ml-auto"
                   title="Настроить доступы пользователей"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -639,35 +639,35 @@ export default function ProjectsPage() {
                   {projectUserCounts[project.id] !== undefined ? (
                     <span>{projectUserCounts[project.id]} чел.</span>
                   ) : (
-                    <span className="w-6 h-3 bg-gray-600 rounded animate-pulse"></span>
+                    <span className="w-6 h-3 bg-slate-200 rounded animate-pulse"></span>
                   )}
                 </button>
               </div>
 
-              <div className="flex justify-end space-x-2 pt-4 border-t border-gray-700">
+              <div className="flex justify-end space-x-2 pt-4 border-t border-slate-200">
                 <button
                   onClick={() => handleOpenAccessModal(project)}
-                  className="px-3 py-1.5 text-sm text-green-400 hover:text-green-300 hover:bg-gray-700 rounded transition"
+                  className="px-3 py-1.5 text-sm text-green-400 hover:text-green-300 hover:bg-slate-100 rounded transition"
                 >
                   Доступы
                 </button>
                 <button
                   onClick={() => handleEdit(project)}
-                  className="px-3 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-gray-700 rounded transition"
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded transition"
                 >
                   Изменить
                 </button>
                 {project.is_active ? (
                   <button
                     onClick={() => handleArchive(project)}
-                    className="px-3 py-1.5 text-sm text-yellow-400 hover:text-yellow-300 hover:bg-gray-700 rounded transition"
+                    className="px-3 py-1.5 text-sm text-yellow-400 hover:text-yellow-300 hover:bg-slate-100 rounded transition"
                   >
                     Архив
                   </button>
                 ) : (
                   <button
                     onClick={() => handleDelete(project)}
-                    className="px-3 py-1.5 text-sm text-red-400 hover:text-red-300 hover:bg-gray-700 rounded transition"
+                    className="px-3 py-1.5 text-sm text-red-600 hover:text-red-300 hover:bg-slate-100 rounded transition"
                   >
                     Удалить
                   </button>

@@ -12,12 +12,12 @@ interface StatCardProps {
 
 function StatCard({ title, value, subtitle, icon, color }: StatCardProps) {
   return (
-    <div className="bg-gray-800 rounded-lg p-6">
+    <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-gray-400 text-sm">{title}</p>
-          <p className="text-2xl font-bold text-white mt-1">{value}</p>
-          {subtitle && <p className="text-gray-500 text-xs mt-1">{subtitle}</p>}
+          <p className="text-slate-500 text-sm">{title}</p>
+          <p className="text-2xl font-bold text-slate-800 mt-1">{value}</p>
+          {subtitle && <p className="text-slate-400 text-xs mt-1">{subtitle}</p>}
         </div>
         <div className={`w-12 h-12 ${color} rounded-lg flex items-center justify-center`}>
           {icon}
@@ -30,9 +30,9 @@ function StatCard({ title, value, subtitle, icon, color }: StatCardProps) {
 function HealthIndicator({ label, healthy }: { label: string; healthy: boolean }) {
   return (
     <div className="flex items-center justify-between py-2">
-      <span className="text-gray-300">{label}</span>
+      <span className="text-slate-600">{label}</span>
       <span className={`px-2 py-1 rounded text-xs font-medium ${
-        healthy ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'
+        healthy ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
       }`}>
         {healthy ? 'OK' : 'Ошибка'}
       </span>
@@ -77,11 +77,11 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="bg-red-900/50 border border-red-500 rounded-lg p-4">
-        <p className="text-red-400">{error}</p>
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <p className="text-red-600">{error}</p>
         <button
           onClick={loadData}
-          className="mt-2 text-sm text-red-300 hover:text-red-200 underline"
+          className="mt-2 text-sm text-red-500 hover:text-red-700 underline"
         >
           Попробовать снова
         </button>
@@ -94,12 +94,12 @@ export default function DashboardPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Дашборд</h1>
-          <p className="text-gray-400 mt-1">Обзор системы</p>
+          <h1 className="text-2xl font-bold text-slate-800">Дашборд</h1>
+          <p className="text-slate-500 mt-1">Обзор системы</p>
         </div>
         <button
           onClick={loadData}
-          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition flex items-center"
+          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition flex items-center border border-slate-200"
         >
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -162,20 +162,20 @@ export default function DashboardPage() {
       {/* Second row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* System Health */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Состояние системы</h3>
-          <div className="space-y-1 divide-y divide-gray-700">
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Состояние системы</h3>
+          <div className="space-y-1 divide-y divide-slate-200">
             <HealthIndicator label="База данных" healthy={health?.database || false} />
             <HealthIndicator label="Redis" healthy={health?.redis || false} />
             <HealthIndicator label="GPU" healthy={health?.gpu || false} />
             <HealthIndicator label="Celery" healthy={health?.celery || false} />
           </div>
-          <div className="mt-4 pt-4 border-t border-gray-700">
+          <div className="mt-4 pt-4 border-t border-slate-200">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Диск</span>
-              <span className="text-white">{health?.disk_usage_percent?.toFixed(1) || 0}%</span>
+              <span className="text-slate-500">Диск</span>
+              <span className="text-slate-800">{health?.disk_usage_percent?.toFixed(1) || 0}%</span>
             </div>
-            <div className="w-full bg-gray-700 rounded-full h-2 mt-2">
+            <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
               <div
                 className={`h-2 rounded-full ${
                   (health?.disk_usage_percent || 0) > 90 ? 'bg-red-500' :
@@ -185,10 +185,10 @@ export default function DashboardPage() {
               />
             </div>
             <div className="flex justify-between text-sm mt-4">
-              <span className="text-gray-400">Память</span>
-              <span className="text-white">{health?.memory_usage_percent?.toFixed(1) || 0}%</span>
+              <span className="text-slate-500">Память</span>
+              <span className="text-slate-800">{health?.memory_usage_percent?.toFixed(1) || 0}%</span>
             </div>
-            <div className="w-full bg-gray-700 rounded-full h-2 mt-2">
+            <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
               <div
                 className={`h-2 rounded-full ${
                   (health?.memory_usage_percent || 0) > 90 ? 'bg-red-500' :
@@ -201,74 +201,74 @@ export default function DashboardPage() {
         </div>
 
         {/* Transcription Stats */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Статус транскрипций</h3>
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Статус транскрипций</h3>
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <span className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></span>
-                <span className="text-gray-300">Ожидают</span>
+                <span className="text-slate-600">Ожидают</span>
               </div>
-              <span className="text-white font-medium">{stats?.transcriptions.pending || 0}</span>
+              <span className="text-slate-800 font-medium">{stats?.transcriptions.pending || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <span className="w-3 h-3 bg-blue-500 rounded-full mr-2"></span>
-                <span className="text-gray-300">В обработке</span>
+                <span className="text-slate-600">В обработке</span>
               </div>
-              <span className="text-white font-medium">{stats?.transcriptions.processing || 0}</span>
+              <span className="text-slate-800 font-medium">{stats?.transcriptions.processing || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <span className="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
-                <span className="text-gray-300">Завершено</span>
+                <span className="text-slate-600">Завершено</span>
               </div>
-              <span className="text-white font-medium">{stats?.transcriptions.completed || 0}</span>
+              <span className="text-slate-800 font-medium">{stats?.transcriptions.completed || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <span className="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
-                <span className="text-gray-300">Ошибка</span>
+                <span className="text-slate-600">Ошибка</span>
               </div>
-              <span className="text-white font-medium">{stats?.transcriptions.failed || 0}</span>
+              <span className="text-slate-800 font-medium">{stats?.transcriptions.failed || 0}</span>
             </div>
           </div>
         </div>
 
         {/* Users by Role */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Пользователи по ролям</h3>
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Пользователи по ролям</h3>
           <div className="space-y-3">
             {stats?.users.by_role && Object.entries(stats.users.by_role).length > 0 ? (
               Object.entries(stats.users.by_role).map(([role, count]) => (
                 <div key={role} className="flex items-center justify-between">
-                  <span className="text-gray-300 capitalize">{role}</span>
-                  <span className="text-white font-medium">{count}</span>
+                  <span className="text-slate-600 capitalize">{role}</span>
+                  <span className="text-slate-800 font-medium">{count}</span>
                 </div>
               ))
             ) : (
-              <p className="text-gray-500 text-sm">Нет данных</p>
+              <p className="text-slate-400 text-sm">Нет данных</p>
             )}
           </div>
 
-          <h4 className="text-sm font-medium text-gray-400 mt-6 mb-3">По доменам</h4>
+          <h4 className="text-sm font-medium text-slate-500 mt-6 mb-3">По доменам</h4>
           <div className="space-y-3">
             {stats?.users.by_domain && Object.entries(stats.users.by_domain).length > 0 ? (
               Object.entries(stats.users.by_domain).map(([domain, count]) => (
                 <div key={domain} className="flex items-center justify-between">
-                  <span className="text-gray-300">{domain || 'Без домена'}</span>
-                  <span className="text-white font-medium">{count}</span>
+                  <span className="text-slate-600">{domain || 'Без домена'}</span>
+                  <span className="text-slate-800 font-medium">{count}</span>
                 </div>
               ))
             ) : (
-              <p className="text-gray-500 text-sm">Нет данных</p>
+              <p className="text-slate-400 text-sm">Нет данных</p>
             )}
           </div>
         </div>
       </div>
 
       {/* Footer info */}
-      <div className="text-center text-gray-500 text-sm">
+      <div className="text-center text-slate-500 text-sm">
         <p>
           Данные обновлены: {stats?.generated_at ? new Date(stats.generated_at).toLocaleString('ru-RU') : 'N/A'}
         </p>

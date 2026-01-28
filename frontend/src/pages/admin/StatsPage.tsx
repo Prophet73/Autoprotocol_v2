@@ -67,14 +67,14 @@ interface KPICardProps {
 
 function KPICard({ title, value, subtitle, icon, color, trend }: KPICardProps) {
   return (
-    <div className="bg-gray-800 rounded-lg p-5">
+    <div className="bg-white rounded-lg p-5 shadow-sm border border-slate-200">
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <p className="text-gray-400 text-sm">{title}</p>
-          <p className="text-2xl font-bold text-white mt-1">{value}</p>
-          {subtitle && <p className="text-gray-500 text-xs mt-1">{subtitle}</p>}
+          <p className="text-slate-500 text-sm">{title}</p>
+          <p className="text-2xl font-bold text-slate-800 mt-1">{value}</p>
+          {subtitle && <p className="text-slate-400 text-xs mt-1">{subtitle}</p>}
           {trend && (
-            <div className={`flex items-center mt-2 text-xs ${trend.positive ? 'text-green-400' : 'text-red-400'}`}>
+            <div className={`flex items-center mt-2 text-xs ${trend.positive ? 'text-green-600' : 'text-red-600'}`}>
               {trend.positive ? (
                 <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
@@ -102,10 +102,10 @@ function ProgressBar({ value, max, label, color }: { value: number; max: number;
   return (
     <div className="mb-3">
       <div className="flex justify-between text-sm mb-1">
-        <span className="text-gray-300">{label}</span>
-        <span className="text-white">{value}</span>
+        <span className="text-slate-600">{label}</span>
+        <span className="text-slate-800">{value}</span>
       </div>
-      <div className="w-full bg-gray-700 rounded-full h-2">
+      <div className="w-full bg-slate-200 rounded-full h-2">
         <div className={`h-2 rounded-full ${color}`} style={{ width: `${Math.min(percentage, 100)}%` }} />
       </div>
     </div>
@@ -121,11 +121,11 @@ function BarChart({ data, height = 150 }: { data: Array<{ label: string; value: 
       {data.map((item, idx) => (
         <div key={idx} className="flex-1 flex flex-col items-center">
           <div
-            className="w-full bg-blue-500 rounded-t transition-all hover:bg-blue-400"
+            className="w-full bg-severin-red rounded-t transition-all hover:bg-severin-red-dark"
             style={{ height: `${(item.value / maxValue) * 100}%`, minHeight: item.value > 0 ? 4 : 0 }}
             title={`${item.label}: ${item.value}`}
           />
-          <span className="text-xs text-gray-500 mt-1 truncate w-full text-center">{item.label}</span>
+          <span className="text-xs text-slate-400 mt-1 truncate w-full text-center">{item.label}</span>
         </div>
       ))}
     </div>
@@ -260,9 +260,9 @@ export default function StatsPage() {
 
   if (error && !dashboard) {
     return (
-      <div className="bg-red-900/50 border border-red-500 rounded-lg p-4">
-        <p className="text-red-400">{error}</p>
-        <button onClick={loadDashboard} className="mt-2 text-sm text-red-300 hover:text-red-200 underline">
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <p className="text-red-600">{error}</p>
+        <button onClick={loadDashboard} className="mt-2 text-sm text-red-500 hover:text-red-700 underline">
           Попробовать снова
         </button>
       </div>
@@ -274,12 +274,12 @@ export default function StatsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Статистика</h1>
-          <p className="text-gray-400 mt-1">Аналитика и отчёты</p>
+          <h1 className="text-2xl font-bold text-slate-800">Статистика</h1>
+          <p className="text-slate-500 mt-1">Аналитика и отчёты</p>
         </div>
         <button
           onClick={loadDashboard}
-          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition flex items-center self-start"
+          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition flex items-center self-start border border-slate-200"
         >
           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -289,32 +289,32 @@ export default function StatsPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-gray-800 rounded-lg p-4">
+      <div className="bg-white rounded-lg p-4 shadow-sm border border-slate-200">
         <div className="flex flex-wrap items-end gap-4">
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Период с</label>
+            <label className="block text-sm text-slate-500 mb-1">Период с</label>
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+              className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">по</label>
+            <label className="block text-sm text-slate-500 mb-1">по</label>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+              className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Домен</label>
+            <label className="block text-sm text-slate-500 mb-1">Домен</label>
             <select
               value={filters.domain || ''}
               onChange={(e) => setFilters({ ...filters, domain: e.target.value || undefined })}
-              className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+              className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent"
             >
               <option value="">Все домены</option>
               {domains.map(d => (
@@ -324,13 +324,13 @@ export default function StatsPage() {
           </div>
           <button
             onClick={applyFilters}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm transition"
+            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-white rounded-lg text-sm transition"
           >
             Применить
           </button>
           <button
             onClick={clearFilters}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm transition"
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm transition border border-slate-200"
           >
             Сбросить
           </button>
@@ -338,7 +338,7 @@ export default function StatsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-700">
+      <div className="border-b border-slate-200">
         <nav className="flex space-x-1">
           {tabs.map((tab) => (
             <button
@@ -346,8 +346,8 @@ export default function StatsPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.id
-                  ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-gray-400 hover:text-white hover:border-gray-600'
+                  ? 'border-severin-red text-severin-red'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
               }`}
             >
               {tab.icon}
@@ -382,7 +382,7 @@ export default function StatsPage() {
 
       {/* Footer */}
       {dashboard && (
-        <div className="text-center text-gray-500 text-sm">
+        <div className="text-center text-slate-500 text-sm">
           Данные обновлены: {new Date(dashboard.generated_at).toLocaleString('ru-RU')}
         </div>
       )}
@@ -430,81 +430,81 @@ function OverviewTab({ dashboard, timelineData }: { dashboard: FullDashboardResp
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Timeline chart */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Обработки за период</h3>
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Обработки за период</h3>
           {timelineData.length > 0 ? (
             <BarChart data={timelineData} height={180} />
           ) : (
-            <p className="text-gray-500 text-center py-8">Нет данных за выбранный период</p>
+            <p className="text-slate-400 text-center py-8">Нет данных за выбранный период</p>
           )}
         </div>
 
         {/* Domains breakdown */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">По доменам</h3>
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">По доменам</h3>
           {domains.domains.length > 0 ? (
             <div className="space-y-4">
               {domains.domains.map(d => (
-                <div key={d.domain} className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg">
+                <div key={d.domain} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
                   <div>
-                    <p className="text-white font-medium">{d.display_name}</p>
-                    <p className="text-gray-400 text-sm">{d.total_jobs} обработок</p>
+                    <p className="text-slate-800 font-medium">{d.display_name}</p>
+                    <p className="text-slate-500 text-sm">{d.total_jobs} обработок</p>
                   </div>
                   <div className="text-right">
-                    <p className={`font-medium ${d.success_rate >= 90 ? 'text-green-400' : d.success_rate >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    <p className={`font-medium ${d.success_rate >= 90 ? 'text-green-600' : d.success_rate >= 70 ? 'text-yellow-600' : 'text-red-600'}`}>
                       {d.success_rate.toFixed(1)}%
                     </p>
-                    <p className="text-gray-400 text-sm">${d.total_cost_usd.toFixed(2)}</p>
+                    <p className="text-slate-500 text-sm">${d.total_cost_usd.toFixed(2)}</p>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-center py-8">Нет данных</p>
+            <p className="text-slate-400 text-center py-8">Нет данных</p>
           )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Artifacts */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Артефакты</h3>
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Артефакты</h3>
           <div className="grid grid-cols-2 gap-4">
-            <div className="text-center p-4 bg-gray-700/50 rounded-lg">
-              <p className="text-2xl font-bold text-white">{artifacts.transcripts_generated}</p>
-              <p className="text-gray-400 text-sm">Транскриптов</p>
-              <p className="text-blue-400 text-xs">{artifacts.transcript_rate.toFixed(1)}%</p>
+            <div className="text-center p-4 bg-slate-50 rounded-lg border border-slate-100">
+              <p className="text-2xl font-bold text-slate-800">{artifacts.transcripts_generated}</p>
+              <p className="text-slate-500 text-sm">Транскриптов</p>
+              <p className="text-severin-red text-xs">{artifacts.transcript_rate.toFixed(1)}%</p>
             </div>
-            <div className="text-center p-4 bg-gray-700/50 rounded-lg">
-              <p className="text-2xl font-bold text-white">{artifacts.tasks_generated}</p>
-              <p className="text-gray-400 text-sm">Задач</p>
-              <p className="text-blue-400 text-xs">{artifacts.tasks_rate.toFixed(1)}%</p>
+            <div className="text-center p-4 bg-slate-50 rounded-lg border border-slate-100">
+              <p className="text-2xl font-bold text-slate-800">{artifacts.tasks_generated}</p>
+              <p className="text-slate-500 text-sm">Задач</p>
+              <p className="text-severin-red text-xs">{artifacts.tasks_rate.toFixed(1)}%</p>
             </div>
-            <div className="text-center p-4 bg-gray-700/50 rounded-lg">
-              <p className="text-2xl font-bold text-white">{artifacts.reports_generated}</p>
-              <p className="text-gray-400 text-sm">Отчётов</p>
-              <p className="text-blue-400 text-xs">{artifacts.report_rate.toFixed(1)}%</p>
+            <div className="text-center p-4 bg-slate-50 rounded-lg border border-slate-100">
+              <p className="text-2xl font-bold text-slate-800">{artifacts.reports_generated}</p>
+              <p className="text-slate-500 text-sm">Отчётов</p>
+              <p className="text-severin-red text-xs">{artifacts.report_rate.toFixed(1)}%</p>
             </div>
-            <div className="text-center p-4 bg-gray-700/50 rounded-lg">
-              <p className="text-2xl font-bold text-white">{artifacts.analysis_generated}</p>
-              <p className="text-gray-400 text-sm">Анализов</p>
-              <p className="text-blue-400 text-xs">{artifacts.analysis_rate.toFixed(1)}%</p>
+            <div className="text-center p-4 bg-slate-50 rounded-lg border border-slate-100">
+              <p className="text-2xl font-bold text-slate-800">{artifacts.analysis_generated}</p>
+              <p className="text-slate-500 text-sm">Анализов</p>
+              <p className="text-severin-red text-xs">{artifacts.analysis_rate.toFixed(1)}%</p>
             </div>
           </div>
         </div>
 
         {/* Errors */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Ошибки</h3>
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Ошибки</h3>
           <div className="flex items-center justify-between mb-4">
             <div>
-              <p className="text-3xl font-bold text-red-400">{errors.total_errors}</p>
-              <p className="text-gray-400 text-sm">Всего ошибок ({errors.error_rate.toFixed(1)}%)</p>
+              <p className="text-3xl font-bold text-red-500">{errors.total_errors}</p>
+              <p className="text-slate-500 text-sm">Всего ошибок ({errors.error_rate.toFixed(1)}%)</p>
             </div>
           </div>
           {Object.keys(errors.by_stage).length > 0 && (
             <div>
-              <p className="text-sm text-gray-400 mb-2">По этапам:</p>
+              <p className="text-sm text-slate-500 mb-2">По этапам:</p>
               {Object.entries(errors.by_stage).map(([stage, count]) => (
                 <ProgressBar key={stage} label={stage} value={count as number} max={errors.total_errors} color="bg-red-500" />
               ))}
@@ -540,8 +540,8 @@ function DomainsTab({
             onClick={() => setSelectedDomain(d.id)}
             className={`px-4 py-2 rounded-lg font-medium transition ${
               selectedDomain === d.id
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                ? 'bg-severin-red text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
             }`}
           >
             {d.name}
@@ -581,13 +581,13 @@ function DomainsTab({
           </div>
 
           {/* Meeting Types */}
-          <div className="bg-gray-800 rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Типы встреч</h3>
+          <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">Типы встреч</h3>
             {domainStats.domain.meeting_types.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="text-left text-gray-400 text-sm">
+                    <tr className="text-left text-slate-500 text-sm">
                       <th className="pb-3">Тип</th>
                       <th className="pb-3 text-center">Всего</th>
                       <th className="pb-3 text-center">Успешно</th>
@@ -595,17 +595,17 @@ function DomainsTab({
                       <th className="pb-3 text-center">Успешность</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-700">
+                  <tbody className="divide-y divide-slate-200">
                     {domainStats.domain.meeting_types.map(mt => (
-                      <tr key={mt.meeting_type} className="text-white">
+                      <tr key={mt.meeting_type} className="text-slate-800">
                         <td className="py-3">{mt.name}</td>
                         <td className="py-3 text-center">{mt.count}</td>
-                        <td className="py-3 text-center text-green-400">{mt.completed}</td>
-                        <td className="py-3 text-center text-red-400">{mt.failed}</td>
+                        <td className="py-3 text-center text-green-600">{mt.completed}</td>
+                        <td className="py-3 text-center text-red-600">{mt.failed}</td>
                         <td className="py-3 text-center">
                           <span className={`px-2 py-1 rounded text-xs ${
-                            mt.success_rate >= 90 ? 'bg-green-900 text-green-400' :
-                            mt.success_rate >= 70 ? 'bg-yellow-900 text-yellow-400' : 'bg-red-900 text-red-400'
+                            mt.success_rate >= 90 ? 'bg-green-100 text-green-700' :
+                            mt.success_rate >= 70 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
                           }`}>
                             {mt.success_rate.toFixed(1)}%
                           </span>
@@ -616,20 +616,20 @@ function DomainsTab({
                 </table>
               </div>
             ) : (
-              <p className="text-gray-500 text-center py-4">Нет данных о типах встреч</p>
+              <p className="text-slate-400 text-center py-4">Нет данных о типах встреч</p>
             )}
           </div>
 
           {/* Projects (for construction) */}
           {domainStats.projects && domainStats.projects.projects.length > 0 && (
-            <div className="bg-gray-800 rounded-lg p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+              <h3 className="text-lg font-semibold text-slate-800 mb-4">
                 Проекты ({domainStats.projects.total_projects})
               </h3>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
-                    <tr className="text-left text-gray-400 text-sm">
+                    <tr className="text-left text-slate-500 text-sm">
                       <th className="pb-3">Проект</th>
                       <th className="pb-3">Код</th>
                       <th className="pb-3 text-center">Обработок</th>
@@ -637,21 +637,21 @@ function DomainsTab({
                       <th className="pb-3 text-center">Последняя активность</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-700">
+                  <tbody className="divide-y divide-slate-200">
                     {domainStats.projects.projects.map(p => (
-                      <tr key={p.project_id} className="text-white">
+                      <tr key={p.project_id} className="text-slate-800">
                         <td className="py-3">{p.project_name}</td>
-                        <td className="py-3 text-gray-400">{p.project_code}</td>
+                        <td className="py-3 text-slate-500">{p.project_code}</td>
                         <td className="py-3 text-center">{p.total_jobs}</td>
                         <td className="py-3 text-center">
                           <span className={`px-2 py-1 rounded text-xs ${
-                            p.success_rate >= 90 ? 'bg-green-900 text-green-400' :
-                            p.success_rate >= 70 ? 'bg-yellow-900 text-yellow-400' : 'bg-red-900 text-red-400'
+                            p.success_rate >= 90 ? 'bg-green-100 text-green-700' :
+                            p.success_rate >= 70 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
                           }`}>
                             {p.success_rate.toFixed(1)}%
                           </span>
                         </td>
-                        <td className="py-3 text-center text-gray-400 text-sm">
+                        <td className="py-3 text-center text-slate-500 text-sm">
                           {p.last_activity ? new Date(p.last_activity).toLocaleDateString('ru-RU') : '-'}
                         </td>
                       </tr>
@@ -664,7 +664,7 @@ function DomainsTab({
         </>
       ) : (
         <div className="flex items-center justify-center h-32">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-severin-red"></div>
         </div>
       )}
     </div>
@@ -696,48 +696,48 @@ function UsersTab({ dashboard }: { dashboard: FullDashboardResponse }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* By Role */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">По ролям</h3>
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">По ролям</h3>
           {Object.entries(users.by_role).length > 0 ? (
             <div className="space-y-3">
               {Object.entries(users.by_role).map(([role, count]) => (
-                <div key={role} className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg">
-                  <span className="text-gray-300 capitalize">{role}</span>
-                  <span className="text-white font-medium">{count}</span>
+                <div key={role} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <span className="text-slate-600 capitalize">{role}</span>
+                  <span className="text-slate-800 font-medium">{count}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-center py-4">Нет данных</p>
+            <p className="text-slate-400 text-center py-4">Нет данных</p>
           )}
         </div>
 
         {/* By Domain */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">По доменам</h3>
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">По доменам</h3>
           {Object.entries(users.by_domain).length > 0 ? (
             <div className="space-y-3">
               {Object.entries(users.by_domain).map(([domain, count]) => (
-                <div key={domain} className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg">
-                  <span className="text-gray-300">{domain || 'Без домена'}</span>
-                  <span className="text-white font-medium">{count}</span>
+                <div key={domain} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <span className="text-slate-600">{domain || 'Без домена'}</span>
+                  <span className="text-slate-800 font-medium">{count}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-center py-4">Нет данных</p>
+            <p className="text-slate-400 text-center py-4">Нет данных</p>
           )}
         </div>
       </div>
 
       {/* Top Users */}
-      <div className="bg-gray-800 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Топ пользователей по активности</h3>
+      <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+        <h3 className="text-lg font-semibold text-slate-800 mb-4">Топ пользователей по активности</h3>
         {users.top_users.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="text-left text-gray-400 text-sm">
+                <tr className="text-left text-slate-500 text-sm">
                   <th className="pb-3">Пользователь</th>
                   <th className="pb-3">Роль</th>
                   <th className="pb-3 text-center">Обработок</th>
@@ -746,30 +746,30 @@ function UsersTab({ dashboard }: { dashboard: FullDashboardResponse }) {
                   <th className="pb-3">Последняя активность</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700">
+              <tbody className="divide-y divide-slate-200">
                 {users.top_users.map(u => (
-                  <tr key={u.user_id} className="text-white">
+                  <tr key={u.user_id} className="text-slate-800">
                     <td className="py-3">
                       <div>
                         <p className="font-medium">{u.full_name || u.email}</p>
-                        {u.full_name && <p className="text-gray-400 text-sm">{u.email}</p>}
+                        {u.full_name && <p className="text-slate-500 text-sm">{u.email}</p>}
                       </div>
                     </td>
                     <td className="py-3">
-                      <span className="px-2 py-1 bg-gray-700 rounded text-xs capitalize">{u.role}</span>
+                      <span className="px-2 py-1 bg-slate-100 rounded text-xs capitalize">{u.role}</span>
                     </td>
                     <td className="py-3 text-center">{u.total_jobs}</td>
-                    <td className="py-3 text-center text-green-400">{u.completed_jobs}</td>
+                    <td className="py-3 text-center text-green-600">{u.completed_jobs}</td>
                     <td className="py-3">
                       <div className="flex flex-wrap gap-1">
                         {u.domains_used.map(d => (
-                          <span key={d} className="px-2 py-0.5 bg-blue-900/50 text-blue-400 rounded text-xs">
+                          <span key={d} className="px-2 py-0.5 bg-red-50 text-severin-red rounded text-xs">
                             {d}
                           </span>
                         ))}
                       </div>
                     </td>
-                    <td className="py-3 text-gray-400 text-sm">
+                    <td className="py-3 text-slate-500 text-sm">
                       {u.last_activity ? new Date(u.last_activity).toLocaleDateString('ru-RU') : '-'}
                     </td>
                   </tr>
@@ -778,7 +778,7 @@ function UsersTab({ dashboard }: { dashboard: FullDashboardResponse }) {
             </table>
           </div>
         ) : (
-          <p className="text-gray-500 text-center py-4">Нет данных об активности пользователей</p>
+          <p className="text-slate-400 text-center py-4">Нет данных об активности пользователей</p>
         )}
       </div>
     </div>
@@ -792,7 +792,7 @@ function CostsTab({ costStats, dashboard }: { costStats: CostStatsResponse | nul
   if (!costs) {
     return (
       <div className="flex items-center justify-center h-32">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-severin-red"></div>
       </div>
     );
   }
@@ -832,41 +832,41 @@ function CostsTab({ costStats, dashboard }: { costStats: CostStatsResponse | nul
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Costs by Domain */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Затраты по доменам</h3>
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Затраты по доменам</h3>
           {Object.entries(costs.by_domain).length > 0 ? (
             <div className="space-y-3">
               {Object.entries(costs.by_domain).map(([domain, cost]) => (
-                <div key={domain} className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg">
-                  <span className="text-gray-300 capitalize">{domain}</span>
-                  <span className="text-white font-medium">${(cost as number).toFixed(2)}</span>
+                <div key={domain} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <span className="text-slate-600 capitalize">{domain}</span>
+                  <span className="text-slate-800 font-medium">${(cost as number).toFixed(2)}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-center py-4">Нет данных</p>
+            <p className="text-slate-400 text-center py-4">Нет данных</p>
           )}
         </div>
 
         {/* Pricing Info */}
-        <div className="bg-gray-800 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Тарификация Gemini</h3>
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 mb-4">Тарификация Gemini</h3>
           <div className="space-y-4">
-            <div className="p-4 bg-gray-700/50 rounded-lg">
-              <p className="text-gray-400 text-sm mb-1">Gemini Flash 2.0</p>
+            <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+              <p className="text-slate-500 text-sm mb-1">Gemini Flash 2.0</p>
               <div className="flex justify-between">
-                <span className="text-gray-300">Input токены</span>
-                <span className="text-white">${costs.input_price_per_million} / 1M</span>
+                <span className="text-slate-600">Input токены</span>
+                <span className="text-slate-800">${costs.input_price_per_million} / 1M</span>
               </div>
               <div className="flex justify-between mt-1">
-                <span className="text-gray-300">Output токены</span>
-                <span className="text-white">${costs.output_price_per_million} / 1M</span>
+                <span className="text-slate-600">Output токены</span>
+                <span className="text-slate-800">${costs.output_price_per_million} / 1M</span>
               </div>
             </div>
-            <div className="p-4 bg-blue-900/30 border border-blue-800 rounded-lg">
-              <p className="text-blue-400 text-sm">
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-blue-600 text-sm">
                 Цены актуальны на момент настройки системы. Проверяйте актуальные тарифы на{' '}
-                <a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-300">
+                <a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-800">
                   Google AI
                 </a>
               </p>

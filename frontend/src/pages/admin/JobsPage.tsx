@@ -79,13 +79,13 @@ export default function JobsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Очередь задач</h1>
-          <p className="text-gray-400 mt-1">Мониторинг и управление обработками</p>
+          <h1 className="text-2xl font-bold text-slate-800">Очередь задач</h1>
+          <p className="text-slate-500 mt-1">Мониторинг и управление обработками</p>
         </div>
         <button
           onClick={fetchJobs}
           disabled={loading}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded-lg transition flex items-center gap-2"
+          className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-slate-300 text-white rounded-lg transition flex items-center gap-2"
         >
           <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -95,27 +95,27 @@ export default function JobsPage() {
       </div>
 
       {error && (
-        <div className="p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-200">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-600">
           {error}
         </div>
       )}
 
       {/* Active Jobs */}
-      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-700 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
             <span className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></span>
             Активные задачи
-            <span className="text-sm text-gray-400">({activeJobs.length})</span>
+            <span className="text-sm text-slate-500">({activeJobs.length})</span>
           </h2>
         </div>
 
         {activeJobs.length === 0 ? (
-          <div className="px-6 py-8 text-center text-gray-400">
+          <div className="px-6 py-8 text-center text-slate-400">
             Нет активных задач
           </div>
         ) : (
-          <div className="divide-y divide-gray-700">
+          <div className="divide-y divide-slate-100">
             {activeJobs.map((job) => (
               <div key={job.job_id} className="px-6 py-4">
                 <div className="flex items-start justify-between">
@@ -124,9 +124,9 @@ export default function JobsPage() {
                       <span className={`px-2 py-1 text-xs font-medium rounded ${STATUS_STYLES[job.status]}`}>
                         {STATUS_LABELS[job.status]}
                       </span>
-                      <span className="text-white font-medium truncate">{job.source_file}</span>
+                      <span className="text-slate-800 font-medium truncate">{job.source_file}</span>
                     </div>
-                    <div className="mt-2 flex items-center gap-4 text-sm text-gray-400">
+                    <div className="mt-2 flex items-center gap-4 text-sm text-slate-500">
                       <span>{formatDate(job.created_at)}</span>
                       {job.project_code && <span>Проект: {job.project_code}</span>}
                       {job.uploader_email && <span>Загрузил: {job.uploader_email}</span>}
@@ -134,17 +134,17 @@ export default function JobsPage() {
                     {job.status === 'processing' && (
                       <div className="mt-3">
                         <div className="flex items-center justify-between text-sm mb-1">
-                          <span className="text-gray-400">{job.current_stage || 'Обработка'}</span>
-                          <span className="text-white font-medium">{job.progress_percent}%</span>
+                          <span className="text-slate-500">{job.current_stage || 'Обработка'}</span>
+                          <span className="text-slate-800 font-medium">{job.progress_percent}%</span>
                         </div>
-                        <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                        <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-blue-600 transition-all duration-500"
+                            className="h-full bg-severin-red transition-all duration-500"
                             style={{ width: `${job.progress_percent}%` }}
                           />
                         </div>
                         {job.message && (
-                          <p className="mt-1 text-xs text-gray-500">{job.message}</p>
+                          <p className="mt-1 text-xs text-slate-400">{job.message}</p>
                         )}
                       </div>
                     )}
@@ -152,7 +152,7 @@ export default function JobsPage() {
                   <button
                     onClick={() => handleCancel(job.job_id)}
                     disabled={cancelling === job.job_id}
-                    className="ml-4 px-3 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 text-white text-sm rounded-lg transition flex items-center gap-1"
+                    className="ml-4 px-3 py-2 bg-red-500 hover:bg-red-600 disabled:bg-slate-300 text-white text-sm rounded-lg transition flex items-center gap-1"
                   >
                     {cancelling === job.job_id ? (
                       <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -174,50 +174,50 @@ export default function JobsPage() {
       </div>
 
       {/* Completed Jobs */}
-      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-white">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-slate-200">
+          <h2 className="text-lg font-semibold text-slate-800">
             Завершённые
-            <span className="text-sm text-gray-400 ml-2">({completedJobs.length})</span>
+            <span className="text-sm text-slate-500 ml-2">({completedJobs.length})</span>
           </h2>
         </div>
 
         {completedJobs.length === 0 ? (
-          <div className="px-6 py-8 text-center text-gray-400">
+          <div className="px-6 py-8 text-center text-slate-400">
             Нет завершённых задач
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-700/50">
+              <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Файл</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Статус</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Проект</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Пользователь</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Дата</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Файл</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Статус</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Проект</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Пользователь</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Дата</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700">
+              <tbody className="divide-y divide-slate-100">
                 {completedJobs.slice(0, 20).map((job) => (
-                  <tr key={job.job_id} className="hover:bg-gray-700/30">
+                  <tr key={job.job_id} className="hover:bg-slate-50">
                     <td className="px-4 py-3">
-                      <span className="text-white text-sm truncate max-w-xs block">{job.source_file}</span>
-                      <span className="text-gray-500 text-xs">{job.job_id.slice(0, 8)}...</span>
+                      <span className="text-slate-800 text-sm truncate max-w-xs block">{job.source_file}</span>
+                      <span className="text-slate-400 text-xs">{job.job_id.slice(0, 8)}...</span>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 text-xs font-medium rounded ${STATUS_STYLES[job.status]}`}>
                         {STATUS_LABELS[job.status]}
                       </span>
                       {job.error && (
-                        <p className="text-red-400 text-xs mt-1 truncate max-w-xs" title={job.error}>
+                        <p className="text-red-500 text-xs mt-1 truncate max-w-xs" title={job.error}>
                           {job.error}
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-300 text-sm">{job.project_code || '—'}</td>
-                    <td className="px-4 py-3 text-gray-300 text-sm">{job.uploader_email || 'Гость'}</td>
-                    <td className="px-4 py-3 text-gray-400 text-sm">{formatDate(job.created_at)}</td>
+                    <td className="px-4 py-3 text-slate-600 text-sm">{job.project_code || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 text-sm">{job.uploader_email || 'Гость'}</td>
+                    <td className="px-4 py-3 text-slate-500 text-sm">{formatDate(job.created_at)}</td>
                   </tr>
                 ))}
               </tbody>

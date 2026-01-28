@@ -43,14 +43,14 @@ function SettingModal({ isOpen, setting, onClose, onSave }: SettingModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
-      <div className="relative bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4">
-        <h2 className="text-xl font-bold text-white mb-6">
+      <div className="relative bg-white rounded-lg p-6 w-full max-w-md shadow-xl border border-slate-200 mx-4">
+        <h2 className="text-xl font-bold text-slate-800 mb-6">
           {setting ? 'Редактировать настройку' : 'Создать настройку'}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Ключ</label>
+            <label className="block text-sm font-medium text-slate-600 mb-1">Ключ</label>
             <input
               type="text"
               value={key}
@@ -58,29 +58,29 @@ function SettingModal({ isOpen, setting, onClose, onSave }: SettingModalProps) {
               required
               disabled={!!setting}
               placeholder="например: max_file_size_mb"
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red disabled:opacity-50"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Значение</label>
+            <label className="block text-sm font-medium text-slate-600 mb-1">Значение</label>
             <textarea
               value={value}
               onChange={(e) => setValue(e.target.value)}
               required
               rows={3}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Описание</label>
+            <label className="block text-sm font-medium text-slate-600 mb-1">Описание</label>
             <input
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Опциональное описание"
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
             />
           </div>
 
@@ -88,14 +88,14 @@ function SettingModal({ isOpen, setting, onClose, onSave }: SettingModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition"
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-300 text-slate-800 rounded-lg transition"
             >
               Отмена
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-lg transition"
+              className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-slate-800 rounded-lg transition"
             >
               {saving ? 'Сохранение...' : 'Сохранить'}
             </button>
@@ -189,14 +189,14 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Настройки системы</h1>
-          <p className="text-gray-400 mt-1">Конфигурация SeverinAutoprotocol ({settings.length})</p>
+          <h1 className="text-2xl font-bold text-slate-800">Настройки системы</h1>
+          <p className="text-slate-500 mt-1">Конфигурация SeverinAutoprotocol ({settings.length})</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={handleInitialize}
             disabled={initializing}
-            className="px-4 py-2 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 text-white rounded-lg transition flex items-center"
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-300 disabled:bg-slate-50 text-slate-800 rounded-lg transition flex items-center"
           >
             {initializing ? (
               <>
@@ -214,7 +214,7 @@ export default function SettingsPage() {
           </button>
           <button
             onClick={handleCreate}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition flex items-center"
+            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-slate-800 rounded-lg transition flex items-center"
           >
             <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -226,8 +226,8 @@ export default function SettingsPage() {
 
       {/* Error */}
       {error && (
-        <div className="bg-red-900/50 border border-red-500 rounded-lg p-4">
-          <p className="text-red-400">{error}</p>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-600">{error}</p>
         </div>
       )}
 
@@ -237,15 +237,15 @@ export default function SettingsPage() {
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
         </div>
       ) : settings.length === 0 ? (
-        <div className="bg-gray-800 rounded-lg p-12 text-center">
+        <div className="bg-white rounded-lg p-12 text-center shadow-sm border border-slate-200">
           <svg className="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
-          <p className="text-gray-400 mb-4">Настройки не найдены</p>
+          <p className="text-slate-500 mb-4">Настройки не найдены</p>
           <button
             onClick={handleInitialize}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition"
+            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-slate-800 rounded-lg transition"
           >
             Инициализировать настройки по умолчанию
           </button>
@@ -253,25 +253,25 @@ export default function SettingsPage() {
       ) : (
         <div className="space-y-6">
           {Object.entries(groupedSettings).map(([category, categorySettings]) => (
-            <div key={category} className="bg-gray-800 rounded-lg overflow-hidden">
-              <div className="bg-gray-700 px-6 py-3">
-                <h3 className="text-sm font-medium text-gray-300 uppercase">{category}</h3>
+            <div key={category} className="bg-white rounded-lg overflow-hidden shadow-sm border border-slate-200">
+              <div className="bg-slate-50 px-6 py-3">
+                <h3 className="text-sm font-medium text-slate-600 uppercase">{category}</h3>
               </div>
-              <div className="divide-y divide-gray-700">
+              <div className="divide-y divide-slate-200">
                 {categorySettings.map((setting) => (
                   <div key={setting.key} className="px-6 py-4">
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center">
-                          <code className="text-sm font-mono text-blue-400">{setting.key}</code>
+                          <code className="text-sm font-mono text-severin-red">{setting.key}</code>
                         </div>
                         {setting.description && (
-                          <p className="text-sm text-gray-400 mt-1">{setting.description}</p>
+                          <p className="text-sm text-slate-500 mt-1">{setting.description}</p>
                         )}
-                        <div className="mt-2 p-2 bg-gray-900 rounded font-mono text-sm text-gray-300 break-all">
+                        <div className="mt-2 p-2 bg-slate-100 rounded font-mono text-sm text-slate-600 break-all">
                           {setting.value}
                         </div>
-                        <p className="text-xs text-gray-500 mt-2">
+                        <p className="text-xs text-slate-400 mt-2">
                           Обновлено: {new Date(setting.updated_at).toLocaleString('ru-RU')}
                           {setting.updated_by && ` пользователем ${setting.updated_by}`}
                         </p>
@@ -279,7 +279,7 @@ export default function SettingsPage() {
                       <div className="flex space-x-2 ml-4">
                         <button
                           onClick={() => handleEdit(setting)}
-                          className="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700 rounded transition"
+                          className="p-2 text-slate-500 hover:text-severin-red hover:bg-slate-50 rounded transition"
                           title="Редактировать"
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -288,7 +288,7 @@ export default function SettingsPage() {
                         </button>
                         <button
                           onClick={() => handleDelete(setting)}
-                          className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded transition"
+                          className="p-2 text-slate-500 hover:text-red-600 hover:bg-slate-50 rounded transition"
                           title="Удалить"
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

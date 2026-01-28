@@ -106,52 +106,52 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
-      <div className="relative bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4">
-        <h2 className="text-xl font-bold text-white mb-6">
+      <div className="relative bg-white rounded-lg p-6 w-full max-w-md shadow-xl border border-slate-200 mx-4">
+        <h2 className="text-xl font-bold text-slate-800 mb-6">
           {user ? 'Редактировать пользователя' : 'Создать пользователя'}
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Email</label>
+            <label className="block text-sm font-medium text-slate-600 mb-1">Email</label>
             <input
               type="email"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               required
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
             />
           </div>
 
           {!user && (
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1">Пароль</label>
+              <label className="block text-sm font-medium text-slate-600 mb-1">Пароль</label>
               <input
                 type="password"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 required
-                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
               />
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Полное имя</label>
+            <label className="block text-sm font-medium text-slate-600 mb-1">Полное имя</label>
             <input
               type="text"
               value={formData.full_name}
               onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Роль</label>
+            <label className="block text-sm font-medium text-slate-600 mb-1">Роль</label>
             <select
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
             >
               <option value="user">User</option>
               <option value="admin">Admin</option>
@@ -161,28 +161,28 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-slate-600 mb-2">
               Домены
-              {loadingDomains && <span className="ml-2 text-gray-500 text-xs">(загрузка...)</span>}
+              {loadingDomains && <span className="ml-2 text-slate-400 text-xs">(загрузка...)</span>}
             </label>
-            <div className="space-y-2 bg-gray-700 border border-gray-600 rounded-lg p-3">
+            <div className="space-y-2 bg-slate-50 border border-slate-300 rounded-lg p-3">
               {AVAILABLE_DOMAINS.map((domain) => (
                 <label
                   key={domain.value}
-                  className="flex items-center cursor-pointer hover:bg-gray-600/50 rounded px-2 py-1 -mx-2"
+                  className="flex items-center cursor-pointer hover:bg-slate-200/50 rounded px-2 py-1 -mx-2"
                 >
                   <input
                     type="checkbox"
                     checked={formData.domains.includes(domain.value)}
                     onChange={() => toggleDomain(domain.value)}
                     disabled={loadingDomains}
-                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-500 rounded focus:ring-blue-500"
+                    className="w-4 h-4 text-blue-600 bg-slate-50 border-gray-500 rounded focus:ring-severin-red"
                   />
-                  <span className="ml-2 text-white">{domain.label}</span>
+                  <span className="ml-2 text-slate-800">{domain.label}</span>
                 </label>
               ))}
               {formData.domains.length === 0 && !loadingDomains && (
-                <p className="text-xs text-gray-400 italic">Домены не выбраны</p>
+                <p className="text-xs text-slate-500 italic">Домены не выбраны</p>
               )}
             </div>
           </div>
@@ -193,9 +193,9 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
               id="is_superuser"
               checked={formData.is_superuser}
               onChange={(e) => setFormData({ ...formData, is_superuser: e.target.checked })}
-              className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+              className="w-4 h-4 text-blue-600 bg-slate-50 border-slate-300 rounded focus:ring-severin-red"
             />
-            <label htmlFor="is_superuser" className="ml-2 text-sm text-gray-300">
+            <label htmlFor="is_superuser" className="ml-2 text-sm text-slate-600">
               Суперпользователь
             </label>
           </div>
@@ -204,14 +204,14 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition"
+              className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg transition"
             >
               Отмена
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-lg transition"
+              className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-slate-800 rounded-lg transition"
             >
               {saving ? 'Сохранение...' : 'Сохранить'}
             </button>
@@ -311,15 +311,15 @@ function ProjectAccessModal({ isOpen, user, projects, onClose, onSave }: Project
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
-      <div className="relative bg-gray-800 rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+      <div className="relative bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl border border-slate-200 mx-4 max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-xl font-bold text-white">Доступ к проектам</h2>
-            <p className="text-gray-400 text-sm mt-1">
+            <h2 className="text-xl font-bold text-slate-800">Доступ к проектам</h2>
+            <p className="text-slate-500 text-sm mt-1">
               {user.full_name || user.email}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-800">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -333,7 +333,7 @@ function ProjectAccessModal({ isOpen, user, projects, onClose, onSave }: Project
             placeholder="Поиск по названию или коду..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-severin-red"
           />
         </div>
 
@@ -351,59 +351,59 @@ function ProjectAccessModal({ isOpen, user, projects, onClose, onSave }: Project
           >
             Снять все
           </button>
-          <span className="text-sm text-gray-400 ml-auto">
+          <span className="text-sm text-slate-500 ml-auto">
             Выбрано: {selectedProjects.size} из {projects.length}
           </span>
         </div>
 
         {/* Project list */}
-        <div className="flex-1 overflow-y-auto min-h-[200px] max-h-[400px] border border-gray-700 rounded-lg">
+        <div className="flex-1 overflow-y-auto min-h-[200px] max-h-[400px] border border-slate-200 rounded-lg">
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
             </div>
           ) : sortedProjects.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-slate-500">
               Проекты не найдены
             </div>
           ) : (
-            <div className="divide-y divide-gray-700">
+            <div className="divide-y divide-slate-200">
               {sortedProjects.map((project) => (
                 <label
                   key={project.id}
                   className={`flex items-center px-4 py-3 cursor-pointer transition ${
                     selectedProjects.has(project.id)
-                      ? 'bg-blue-900/30'
-                      : 'hover:bg-gray-700/50'
+                      ? 'bg-blue-50'
+                      : 'hover:bg-slate-50/50'
                   }`}
                 >
                   <input
                     type="checkbox"
                     checked={selectedProjects.has(project.id)}
                     onChange={() => toggleProject(project.id)}
-                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                    className="w-4 h-4 text-blue-600 bg-slate-50 border-slate-300 rounded focus:ring-severin-red"
                   />
                   <div className="ml-3 flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-white font-medium truncate">
+                      <span className="text-slate-800 font-medium truncate">
                         {project.name}
                       </span>
                       <span className={`px-1.5 py-0.5 text-xs rounded ${
                         project.is_active
-                          ? 'bg-green-900/50 text-green-400'
-                          : 'bg-gray-700 text-gray-400'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-slate-50 text-slate-500'
                       }`}>
                         {project.project_code}
                       </span>
                     </div>
                     {project.description && (
-                      <p className="text-sm text-gray-400 truncate mt-0.5">
+                      <p className="text-sm text-slate-500 truncate mt-0.5">
                         {project.description}
                       </p>
                     )}
                   </div>
                   {project.manager_name && (
-                    <span className="text-xs text-gray-500 ml-2">
+                    <span className="text-xs text-slate-400 ml-2">
                       РПУ: {project.manager_name}
                     </span>
                   )}
@@ -414,18 +414,18 @@ function ProjectAccessModal({ isOpen, user, projects, onClose, onSave }: Project
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end space-x-3 mt-4 pt-4 border-t border-gray-700">
+        <div className="flex justify-end space-x-3 mt-4 pt-4 border-t border-slate-200">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition"
+            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg transition"
           >
             Отмена
           </button>
           <button
             onClick={handleSave}
             disabled={saving || loading}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-lg transition"
+            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-slate-800 rounded-lg transition"
           >
             {saving ? 'Сохранение...' : 'Сохранить'}
           </button>
@@ -570,12 +570,12 @@ export default function UsersPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Пользователи</h1>
-          <p className="text-gray-400 mt-1">Управление пользователями и доступами ({total})</p>
+          <h1 className="text-2xl font-bold text-slate-800">Пользователи</h1>
+          <p className="text-slate-500 mt-1">Управление пользователями и доступами ({total})</p>
         </div>
         <button
           onClick={handleCreate}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition flex items-center justify-center"
+          className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-slate-800 rounded-lg transition flex items-center justify-center"
         >
           <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -589,7 +589,7 @@ export default function UsersPage() {
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
-          className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
         >
           <option value="">Все роли</option>
           <option value="user">User</option>
@@ -602,7 +602,7 @@ export default function UsersPage() {
         <select
           value={domainFilter}
           onChange={(e) => setDomainFilter(e.target.value)}
-          className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
         >
           <option value="">Все домены</option>
           <option value="construction">Строительство</option>
@@ -614,19 +614,19 @@ export default function UsersPage() {
 
       {/* Error */}
       {error && (
-        <div className="bg-red-900/50 border border-red-500 rounded-lg p-4">
-          <p className="text-red-400">{error}</p>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-red-600">{error}</p>
         </div>
       )}
 
       {/* Table */}
-      <div className="bg-gray-800 rounded-lg overflow-hidden">
+      <div className="bg-white rounded-lg overflow-hidden shadow-sm border border-slate-200">
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
           </div>
         ) : users.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-slate-500">
             <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
             </svg>
@@ -635,55 +635,55 @@ export default function UsersPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-700">
+              <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
                     Пользователь
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
                     Роль
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
                     Домен
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
                     Проекты
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
                     Статус
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
                     Создан
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-600 uppercase tracking-wider">
                     Действия
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-700">
+              <tbody className="divide-y divide-slate-200">
                 {users.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-700/50">
+                  <tr key={user.id} className="hover:bg-slate-50/50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
-                        <div className="w-10 h-10 bg-gray-600 rounded-full flex items-center justify-center">
-                          <span className="text-white font-medium">
+                        <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center">
+                          <span className="text-slate-800 font-medium">
                             {user.full_name?.charAt(0) || user.email.charAt(0).toUpperCase()}
                           </span>
                         </div>
                         <div className="ml-4">
-                          <div className="text-sm font-medium text-white">
+                          <div className="text-sm font-medium text-slate-800">
                             {user.full_name || 'Без имени'}
                           </div>
-                          <div className="text-sm text-gray-400">{user.email}</div>
+                          <div className="text-sm text-slate-500">{user.email}</div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 py-1 text-xs font-medium rounded ${
-                        user.is_superuser ? 'bg-purple-900 text-purple-300' :
-                        user.role === 'admin' ? 'bg-blue-900 text-blue-300' :
-                        user.role === 'manager' ? 'bg-green-900 text-green-300' :
-                        'bg-gray-700 text-gray-300'
+                        user.is_superuser ? 'bg-purple-100 text-purple-700' :
+                        user.role === 'admin' ? 'bg-blue-100 text-blue-700' :
+                        user.role === 'manager' ? 'bg-green-100 text-green-700' :
+                        'bg-slate-50 text-slate-600'
                       }`}>
                         {user.is_superuser ? 'Superuser' : user.role}
                       </span>
@@ -695,24 +695,24 @@ export default function UsersPage() {
                             <span
                               key={d}
                               className={`px-1.5 py-0.5 text-xs rounded ${
-                                d === 'construction' ? 'bg-orange-900/50 text-orange-300' :
-                                d === 'hr' ? 'bg-pink-900/50 text-pink-300' :
-                                d === 'it' ? 'bg-cyan-900/50 text-cyan-300' :
-                                'bg-gray-700 text-gray-300'
+                                d === 'construction' ? 'bg-orange-100 text-orange-700' :
+                                d === 'hr' ? 'bg-pink-100 text-pink-700' :
+                                d === 'it' ? 'bg-cyan-100 text-cyan-700' :
+                                'bg-slate-50 text-slate-600'
                               }`}
                             >
                               {d}
                             </span>
                           ))
                         ) : (
-                          <span className="text-gray-500">-</span>
+                          <span className="text-slate-400">-</span>
                         )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
                         onClick={() => handleOpenAccessModal(user)}
-                        className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition"
+                        className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded bg-slate-50 text-slate-600 hover:bg-slate-200 transition"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -720,18 +720,18 @@ export default function UsersPage() {
                         {userProjectCounts[user.id] !== undefined ? (
                           <span>{userProjectCounts[user.id]}</span>
                         ) : (
-                          <span className="w-4 h-3 bg-gray-600 rounded animate-pulse"></span>
+                          <span className="w-4 h-3 bg-slate-200 rounded animate-pulse"></span>
                         )}
                       </button>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 py-1 text-xs font-medium rounded ${
-                        user.is_active ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
+                        user.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                       }`}>
                         {user.is_active ? 'Активен' : 'Неактивен'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                       {new Date(user.created_at).toLocaleDateString('ru-RU')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -750,7 +750,7 @@ export default function UsersPage() {
                       </button>
                       <button
                         onClick={() => handleDelete(user)}
-                        className="text-red-400 hover:text-red-300"
+                        className="text-red-600 hover:text-red-300"
                       >
                         Удалить
                       </button>

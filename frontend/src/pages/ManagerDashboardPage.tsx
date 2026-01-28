@@ -256,21 +256,6 @@ export function ManagerDashboardPage() {
 
         {/* Center Column - Main Content */}
         <div className="bg-slate-50 overflow-y-auto">
-          {/* Dashboard Header */}
-          <div className="bg-white border-b border-slate-200 px-6 py-4">
-            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
-              <LayoutDashboard className="w-7 h-7 text-severin-red" />
-              {selectedProjectId
-                ? dashboard?.projects_health?.find(p => p.id === selectedProjectId)?.name || 'Проект'
-                : 'Панель управления'}
-            </h1>
-            {selectedProjectId && (
-              <p className="text-sm text-slate-500 mt-1">
-                Код проекта: {dashboard?.projects_health?.find(p => p.id === selectedProjectId)?.project_code}
-              </p>
-            )}
-          </div>
-
           <div className="p-6">
             {/* KPI Cards */}
             {dashboard?.kpi && (
