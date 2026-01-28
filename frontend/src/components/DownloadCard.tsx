@@ -1,5 +1,6 @@
-import { Download, FileText, FileSpreadsheet, Brain, FileCode, Archive, Shield } from 'lucide-react';
-import { getDownloadUrl, getDownloadAllUrl } from '../api/client';
+import { useState } from 'react';
+import { Download, FileText, FileSpreadsheet, Brain, FileCode, Archive, Shield, Loader2 } from 'lucide-react';
+import { downloadJobFile, downloadJobFileAll } from '../api/client';
 
 interface DownloadCardProps {
   jobId: string;
@@ -58,7 +59,34 @@ const fileConfig: Record<string, { label: string; icon: typeof FileText; color: 
 };
 
 export function DownloadCard({ jobId, outputFiles }: DownloadCardProps) {
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
   const files = Object.entries(outputFiles).filter(([fileType]) => fileType !== 'analysis');
+
+  const handleDownload = async (fileType: string) => {
+    setDownloading(fileType);
+    setError(null);
+    try {
+      await downloadJobFile(jobId, fileType);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка скачивания');
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handleDownloadAll = async () => {
+    setDownloading('all');
+    setError(null);
+    try {
+      await downloadJobFileAll(jobId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка скачивания');
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   if (files.length === 0) {
     return (
@@ -70,20 +98,29 @@ export function DownloadCard({ jobId, outputFiles }: DownloadCardProps) {
 
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      <a
-        href={getDownloadAllUrl(jobId)}
-        download
-        className="flex items-center gap-4 p-4 rounded-xl border-2 border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition-all sm:col-span-2"
+      {error && (
+        <div className="sm:col-span-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          {error}
+        </div>
+      )}
+      <button
+        onClick={handleDownloadAll}
+        disabled={downloading !== null}
+        className="flex items-center gap-4 p-4 rounded-xl border-2 border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition-all sm:col-span-2 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <div className="p-2 bg-white rounded-lg shadow-sm">
-          <Archive className="w-6 h-6" />
+          {downloading === 'all' ? (
+            <Loader2 className="w-6 h-6 animate-spin" />
+          ) : (
+            <Archive className="w-6 h-6" />
+          )}
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 text-left">
           <p className="font-semibold">Скачать все файлы</p>
           <p className="text-sm opacity-70 truncate">Архив со всеми результатами</p>
         </div>
         <Download className="w-5 h-5 opacity-50" />
-      </a>
+      </button>
       {files.map(([fileType]) => {
         const config = fileConfig[fileType] || {
           label: fileType,
@@ -92,23 +129,28 @@ export function DownloadCard({ jobId, outputFiles }: DownloadCardProps) {
           desc: 'Файл',
         };
         const Icon = config.icon;
+        const isDownloading = downloading === fileType;
 
         return (
-          <a
+          <button
             key={fileType}
-            href={getDownloadUrl(jobId, fileType)}
-            download
-            className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all ${config.color}`}
+            onClick={() => handleDownload(fileType)}
+            disabled={downloading !== null}
+            className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-all ${config.color} disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             <div className="p-2 bg-white rounded-lg shadow-sm">
-              <Icon className="w-6 h-6" />
+              {isDownloading ? (
+                <Loader2 className="w-6 h-6 animate-spin" />
+              ) : (
+                <Icon className="w-6 h-6" />
+              )}
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 text-left">
               <p className="font-semibold">{config.label}</p>
               <p className="text-sm opacity-70 truncate">{config.desc}</p>
             </div>
             <Download className="w-5 h-5 opacity-50" />
-          </a>
+          </button>
         );
       })}
     </div>

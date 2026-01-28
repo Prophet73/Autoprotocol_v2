@@ -16,8 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app directory
-WORKDIR /app
+# IMPORTANT: Use /opt/whisperx instead of /app to avoid base image's VOLUME /app
+# The base image declares VOLUME /app which creates anonymous volumes that
+# shadow new code with old data on container restarts.
+WORKDIR /opt/whisperx
 
 # Install pip first (not included in base image)
 RUN curl -sSL https://bootstrap.pypa.io/get-pip.py | /venv/bin/python
@@ -27,7 +29,7 @@ COPY docker/requirements-extra.txt .
 RUN /venv/bin/python -m pip install --no-cache-dir -r requirements-extra.txt
 
 # Copy application code
-COPY backend/ /app/backend/
+COPY backend/ /opt/whisperx/backend/
 
 # Create data directories
 RUN mkdir -p /data/uploads /data/output /data/models /data/db && \
@@ -36,7 +38,7 @@ RUN mkdir -p /data/uploads /data/output /data/models /data/db && \
 # Set environment variables
 ENV STORAGE_PATH=/data/storage
 ENV HF_HOME=/data/models
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/opt/whisperx
 
 # Expose port
 EXPOSE 8000
@@ -48,3 +50,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 # Override entrypoint and run API server
 ENTRYPOINT []
 CMD ["/venv/bin/python", "-m", "uvicorn", "backend.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# Note: Base image's VOLUME /app still exists but is now unused.
+# Our code lives in /opt/whisperx, so anonymous volumes won't affect it.

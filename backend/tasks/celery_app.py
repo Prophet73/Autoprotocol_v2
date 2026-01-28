@@ -29,15 +29,16 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
 
-    # Task routing
+    # Task routing - separate queues for GPU and LLM tasks
     task_routes={
-        "transcription.*": {"queue": "transcription"},
+        "transcription.process": {"queue": "transcription_gpu"},      # GPU: WhisperX + pyannote
+        "transcription.process_text": {"queue": "transcription_llm"}, # LLM: Gemini API only
+        "transcription.cleanup": {"queue": "transcription_gpu"},      # Cleanup runs on GPU worker
         "cleanup.*": {"queue": "cleanup"},
     },
 
-    # Worker settings
-    worker_prefetch_multiplier=1,  # One task at a time (GPU constraint)
-    worker_concurrency=1,  # Single worker per GPU
+    # Worker settings (concurrency configured per-worker in docker-compose)
+    worker_prefetch_multiplier=1,  # One task at a time
 
     # Task time limits
     task_soft_time_limit=3600,  # 1 hour soft limit

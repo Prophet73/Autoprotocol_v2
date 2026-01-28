@@ -148,6 +148,86 @@ export function getDownloadAllUrl(jobId: string): string {
   return `${getApiBaseUrl()}/transcribe/${jobId}/download/all`;
 }
 
+// Download job file with authentication
+export async function downloadJobFile(jobId: string, fileType: string): Promise<void> {
+  const url = getDownloadUrl(jobId, fileType);
+  const token = useAuthStore.getState().token;
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    headers['X-Guest-ID'] = getGuestId();
+  }
+
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Download failed: ${response.status}`);
+  }
+
+  // Get filename from Content-Disposition header or use default
+  const contentDisposition = response.headers.get('Content-Disposition');
+  let filename = `${fileType}.${fileType === 'tasks' ? 'xlsx' : fileType === 'risk_brief' ? 'pdf' : 'docx'}`;
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+    if (match) {
+      filename = match[1];
+    }
+  }
+
+  // Create blob and trigger download
+  const blob = await response.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(blobUrl);
+}
+
+// Download all job files as zip with authentication
+export async function downloadJobFileAll(jobId: string): Promise<void> {
+  const url = getDownloadAllUrl(jobId);
+  const token = useAuthStore.getState().token;
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    headers['X-Guest-ID'] = getGuestId();
+  }
+
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || `Download failed: ${response.status}`);
+  }
+
+  const contentDisposition = response.headers.get('Content-Disposition');
+  let filename = `job_${jobId}_files.zip`;
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+    if (match) {
+      filename = match[1];
+    }
+  }
+
+  const blob = await response.blob();
+  const blobUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(blobUrl);
+}
+
 // History types
 export interface JobListItem {
   job_id: string;
@@ -428,7 +508,7 @@ export async function downloadAnalyticsReport(
   type: 'main' | 'detailed' | 'transcript' | 'tasks' | 'risk_brief'
 ): Promise<void> {
   const url = getAnalyticsReportUrl(analyticsId, type);
-  const token = localStorage.getItem('token');
+  const token = useAuthStore.getState().token;
 
   const response = await fetch(url, {
     headers: {
@@ -472,7 +552,7 @@ export async function downloadAnalyticsReport(
 
 export async function downloadAnalyticsReportAll(analyticsId: number): Promise<void> {
   const url = `${getApiBaseUrl()}/api/manager/analytics/${analyticsId}/report/all`;
-  const token = localStorage.getItem('token');
+  const token = useAuthStore.getState().token;
 
   const response = await fetch(url, {
     headers: {
