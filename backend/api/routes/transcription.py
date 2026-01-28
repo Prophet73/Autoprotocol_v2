@@ -1287,7 +1287,6 @@ async def run_text_report_generation(
             # Generate risk brief (optional) - reuses participants fetched above
             risk_brief_obj = None
             if artifact_options.get("generate_risk_brief", False):
-                progress_callback("llm_generation", 95, "Формирование риск-брифа...")
                 try:
                     # generate_risk_brief returns tuple[Path, RiskBrief]
                     risk_brief_path, risk_brief_obj = generate_risk_brief(

@@ -267,7 +267,6 @@ def _run_domain_generators(
 
         # 5. Risk Brief (construction only) - INoT approach, PDF for client
         if artifact_options.get("generate_risk_brief", False) and generate_risk_brief:
-            progress_callback("domain_generators", 99, "Формирование риск-брифа...")
             try:
                 # Reuse participants already fetched above
                 project_name = artifact_options.get("project_name")
