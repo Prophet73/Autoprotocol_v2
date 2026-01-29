@@ -5,7 +5,7 @@
  * Only shown for users with multiple domains.
  */
 import { useState, useRef, useEffect } from 'react';
-import { Building2, Users, Monitor, ChevronDown, Check } from 'lucide-react';
+import { Building2, Monitor, ChevronDown, Check } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { authApi } from '../api/adminApi';
 import clsx from 'clsx';
@@ -16,11 +16,6 @@ const DOMAIN_CONFIG: Record<string, { label: string; icon: typeof Building2; col
     label: 'Construction',
     icon: Building2,
     color: 'text-amber-600 bg-amber-50',
-  },
-  hr: {
-    label: 'HR',
-    icon: Users,
-    color: 'text-purple-600 bg-purple-50',
   },
   dct: {
     label: 'ДЦТ',
@@ -58,7 +53,7 @@ export function DomainSwitcher() {
 
   // If superuser, show all domains
   const displayDomains = user?.is_superuser
-    ? ['construction', 'hr', 'dct']
+    ? ['construction', 'dct']
     : availableDomains;
 
   // Don't show if user has only one domain

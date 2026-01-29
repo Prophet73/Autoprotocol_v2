@@ -124,6 +124,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
+    redirect_slashes=False,  # Отключаем редиректы - они ломают HTTPS за reverse proxy
 )
 
 # Add rate limiter to app state (if available)

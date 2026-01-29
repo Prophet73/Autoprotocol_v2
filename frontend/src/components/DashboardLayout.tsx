@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom';
-import { ArrowLeft, Building2, Sparkles } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Building2, Sparkles, LogOut } from 'lucide-react';
+import { useAuthStore } from '../stores/authStore';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -9,6 +10,14 @@ interface DashboardLayoutProps {
  * Full-screen layout for Dashboard with top bar like admin.
  */
 export function DashboardLayout({ children }: DashboardLayoutProps) {
+  const navigate = useNavigate();
+  const { user, logout } = useAuthStore();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
   return (
     <div className="h-screen flex flex-col bg-slate-100 overflow-hidden">
       {/* Top bar */}
@@ -31,7 +40,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <span className="text-sm text-slate-500 hidden sm:inline">Дашборд</span>
         </div>
 
-        {/* Right: External links */}
+        {/* Right: External links + User + Logout */}
         <div className="flex items-center gap-3 text-sm">
           <a
             href="https://portal.svrd.ru"
@@ -51,6 +60,20 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             <Sparkles className="w-4 h-4" />
             <span className="hidden sm:inline">AI Hub</span>
           </a>
+          {user && (
+            <>
+              <div className="w-px h-5 bg-slate-200" />
+              <span className="text-slate-600 hidden sm:inline">{user.full_name || user.email}</span>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-600 transition-all"
+                title="Выйти"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">Выйти</span>
+              </button>
+            </>
+          )}
         </div>
       </header>
 

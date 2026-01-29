@@ -605,9 +605,7 @@ export default function UsersPage() {
         >
           <option value="">Все домены</option>
           <option value="construction">Строительство</option>
-          <option value="hr">HR</option>
           <option value="dct">ДЦТ</option>
-          <option value="general">Общий</option>
         </select>
       </div>
 
@@ -695,7 +693,6 @@ export default function UsersPage() {
                               key={d}
                               className={`px-1.5 py-0.5 text-xs rounded ${
                                 d === 'construction' ? 'bg-orange-100 text-orange-700' :
-                                d === 'hr' ? 'bg-pink-100 text-pink-700' :
                                 d === 'dct' ? 'bg-cyan-100 text-cyan-700' :
                                 'bg-slate-50 text-slate-600'
                               }`}

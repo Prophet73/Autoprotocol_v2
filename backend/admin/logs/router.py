@@ -2,7 +2,7 @@
 Роутер логов ошибок.
 
 Эндпоинты для просмотра и управления логами ошибок.
-Все эндпоинты требуют прав суперпользователя.
+Все эндпоинты требуют прав администратора.
 """
 from datetime import datetime
 from typing import Annotated, Optional
@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.shared.database import get_db
-from backend.core.auth.dependencies import SuperUser
+from backend.core.auth.dependencies import AdminUser
 from .service import ErrorLogService
 from .schemas import ErrorLogResponse, ErrorLogListResponse, ErrorLogSummary
 
@@ -20,13 +20,13 @@ router = APIRouter(prefix="/logs", tags=["Админ - Логи ошибок"])
 
 
 @router.get(
-    "/",
+    "",
     response_model=ErrorLogListResponse,
     summary="Список логов ошибок",
     description="Получение логов ошибок с пагинацией и фильтрацией."
 )
 async def list_logs(
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     page: int = Query(1, ge=1, description="Номер страницы"),
     page_size: int = Query(50, ge=1, le=200, description="Записей на странице"),
@@ -39,7 +39,7 @@ async def list_logs(
     """
     Список логов ошибок с пагинацией и фильтрацией.
 
-    Требует прав суперпользователя.
+    Требует прав администратора.
     """
     service = ErrorLogService(db)
     return await service.list_logs(
@@ -60,7 +60,7 @@ async def list_logs(
     description="Агрегированная статистика ошибок."
 )
 async def get_summary(
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ErrorLogSummary:
     """
@@ -83,7 +83,7 @@ async def get_summary(
 )
 async def get_log(
     log_id: int,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ErrorLogResponse:
     """Получить детали лога ошибки по ID."""
@@ -114,7 +114,7 @@ async def get_log(
     description="Удаление логов ошибок старше указанного количества дней."
 )
 async def cleanup_logs(
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     days: int = Query(30, ge=1, le=365, description="Удалить логи старше указанного количества дней"),
 ) -> dict:

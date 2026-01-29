@@ -190,7 +190,36 @@ async def require_superuser(
     return user
 
 
+async def require_admin(
+    user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    """
+    Ensure current user is an admin or superuser.
+
+    Allows access for users with:
+    - role = 'admin' or 'superuser'
+    - is_superuser = True
+
+    Raises:
+        HTTPException 403: If user is not an admin or superuser
+
+    Usage:
+        @app.get("/admin")
+        async def admin_route(user: User = Depends(require_admin)):
+            return {"admin": user.email}
+    """
+    if user.is_superuser:
+        return user
+    if user.role in ("admin", "superuser"):
+        return user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin privileges required"
+    )
+
+
 # Type aliases for cleaner dependency injection
 CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalUser = Annotated[Optional[User], Depends(get_optional_user)]
 SuperUser = Annotated[User, Depends(require_superuser)]
+AdminUser = Annotated[User, Depends(require_admin)]

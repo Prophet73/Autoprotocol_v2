@@ -2,7 +2,7 @@
 Роутер системных настроек.
 
 CRUD эндпоинты для динамической конфигурации системы.
-Все эндпоинты требуют прав суперпользователя.
+Все эндпоинты требуют прав администратора.
 """
 from typing import Annotated
 
@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.shared.database import get_db
-from backend.core.auth.dependencies import SuperUser
+from backend.core.auth.dependencies import AdminUser
 from .service import SettingsService
 from .schemas import (
     SettingResponse,
@@ -25,13 +25,13 @@ router = APIRouter(prefix="/settings", tags=["Админ - Настройки"])
 
 
 @router.get(
-    "/",
+    "",
     response_model=SettingListResponse,
     summary="Список настроек",
     description="Получение всех системных настроек с текущими значениями."
 )
 async def list_settings(
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -49,7 +49,7 @@ async def list_settings(
 )
 async def get_setting(
     key: str,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SettingResponse:
     """Получить конкретную настройку."""
@@ -64,7 +64,7 @@ async def get_setting(
 
 
 @router.post(
-    "/",
+    "",
     response_model=SettingResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Создать настройку",
@@ -72,7 +72,7 @@ async def get_setting(
 )
 async def create_setting(
     request: CreateSettingRequest,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SettingResponse:
     """Создать новую настройку."""
@@ -99,7 +99,7 @@ async def create_setting(
 async def update_setting(
     key: str,
     request: UpdateSettingRequest,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SettingResponse:
     """Обновить настройку."""
@@ -126,7 +126,7 @@ async def update_setting(
 )
 async def delete_setting(
     key: str,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
     """Удалить настройку."""
@@ -147,7 +147,7 @@ async def delete_setting(
 )
 async def bulk_update_settings(
     request: SettingBulkUpdateRequest,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SettingListResponse:
     """Обновить несколько настроек одновременно."""
@@ -169,7 +169,7 @@ async def bulk_update_settings(
     description="Создание настроек по умолчанию, если они не существуют."
 )
 async def initialize_defaults(
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     """Инициализировать настройки по умолчанию."""

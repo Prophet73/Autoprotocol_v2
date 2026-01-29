@@ -76,9 +76,8 @@ class UserRole(str, Enum):
 class Domain(str, Enum):
     """Available domains for role assignment."""
     CONSTRUCTION = "construction"
-    HR = "hr"
-    IT = "it"
     GENERAL = "general"
+    DCT = "dct"  # Департамент Цифровой Трансформации
 
 
 class Tenant(Base):

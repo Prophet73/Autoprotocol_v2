@@ -8,7 +8,6 @@
  */
 import { useAuthStore } from '../stores/authStore';
 import { ManagerDashboardPage } from '../pages/ManagerDashboardPage';
-import { HRDashboardPage } from '../pages/HRDashboardPage';
 import { DCTDashboardPage } from '../pages/DCTDashboardPage';
 
 export function DomainDashboardRouter() {
@@ -19,8 +18,6 @@ export function DomainDashboardRouter() {
 
   // Render appropriate dashboard
   switch (activeDomain) {
-    case 'hr':
-      return <HRDashboardPage />;
     case 'dct':
       return <DCTDashboardPage />;
     case 'construction':
