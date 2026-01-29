@@ -1,0 +1,162 @@
+# Test/Staging Docker Compose (NO GPU)
+# For testing auth, DB, frontend without GPU transcription
+#
+# Usage:
+#   cd docker
+#   docker-compose -f docker-compose.test.yml up -d
+
+services:
+  # Frontend (Nginx + React build)
+  frontend:
+    container_name: whisperx-frontend
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        VITE_API_URL: ""
+        VITE_SSO_HUB_ENABLED: "true"
+    ports:
+      - "3001:80"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - whisperx-net
+
+  # API Server
+  api:
+    container_name: whisperx-api
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    expose:
+      - "8000"
+    ports:
+      - "8000:8000"  # Also expose for direct API testing
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    env_file:
+      - .env.production
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://whisperx:${POSTGRES_PASSWORD:-whisperx_prod}@postgres:5432/whisperx
+      - WHISPER_MODEL=tiny  # Small model for CPU
+      - COMPUTE_TYPE=int8
+      - DEVICE=cpu  # CPU mode
+      - ENVIRONMENT=production
+    volumes:
+      - uploads:/data/uploads
+      - output:/data/output
+      - models:/data/models
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - whisperx-net
+
+  # Celery Worker (CPU only) - combined GPU+LLM tasks
+  worker:
+    container_name: whisperx-worker
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: celery -A backend.tasks.celery_app worker -Q transcription_gpu,transcription_llm -c 2 --loglevel=info -n worker@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A backend.tasks.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 60s
+      timeout: 30s
+      start_period: 120s
+      retries: 3
+    env_file:
+      - .env.production
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://whisperx:${POSTGRES_PASSWORD:-whisperx_prod}@postgres:5432/whisperx
+      - WHISPER_MODEL=tiny
+      - COMPUTE_TYPE=int8
+      - DEVICE=cpu
+    volumes:
+      - uploads:/data/uploads
+      - output:/data/output
+      - models:/data/models
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - whisperx-net
+
+  # Redis
+  redis:
+    container_name: whisperx-redis
+    image: redis:7-alpine
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - whisperx-net
+
+  # Postgres
+  postgres:
+    container_name: whisperx-postgres
+    image: postgres:15-alpine
+    expose:
+      - "5432"
+    environment:
+      - POSTGRES_USER=whisperx
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-whisperx_prod}
+      - POSTGRES_DB=whisperx
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whisperx -d whisperx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - whisperx-net
+
+networks:
+  whisperx-net:
+    driver: bridge
+
+volumes:
+  uploads:
+    name: whisperx_uploads
+  output:
+    name: whisperx_output
+  models:
+    name: whisperx_models
+  redis_data:
+    name: whisperx_redis_data
+  postgres_data:
+    name: whisperx_postgres_data
