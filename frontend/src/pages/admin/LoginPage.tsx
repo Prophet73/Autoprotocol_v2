@@ -103,6 +103,18 @@ export default function LoginPage() {
     const providers = getAvailableSSOProviders();
     setSsoProviders(providers);
 
+    // Auto-redirect to Hub SSO if it's the only/primary provider
+    // Skip if there's an error in URL (returning from failed SSO)
+    const params = new URLSearchParams(location.search);
+    const hasError = params.get('error');
+    const skipAutoRedirect = params.get('manual') === 'true';
+
+    if (!hasError && !skipAutoRedirect && providers.includes('hub')) {
+      // Auto-redirect to Hub SSO
+      initiateSSOLogin('hub');
+      return;
+    }
+
     // Check if dev mode is enabled and get users
     authApi.devGetUsers().then((res) => {
       setDevEnabled(res.enabled);

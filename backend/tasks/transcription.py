@@ -169,12 +169,18 @@ def _run_domain_generators(
     generate_analysis = None
     generate_risk_brief = None  # Default - only construction has risk_brief
     get_basic_report = None  # Only construction has shared basic report
-    if domain == "hr":
-        from ..domains.hr.generators import generate_transcript, generate_report
-        generate_tasks = None  # HR doesn't have separate tasks generator
-    elif domain == "it":
-        from ..domains.it.generators import generate_transcript, generate_report
-        generate_tasks = None  # IT doesn't have separate tasks generator
+    get_dct_report = None  # DCT domain report generator
+    # HR domain - disabled for now
+    # if domain == "hr":
+    #     from ..domains.hr.generators import generate_transcript, generate_report
+    #     generate_tasks = None  # HR doesn't have separate tasks generator
+    if domain == "dct":
+        from ..domains.dct.generators import (
+            generate_transcript,
+            generate_report,
+            generate_tasks,
+            get_dct_report,  # LLM call for DCT reports
+        )
     else:  # construction (default)
         from ..domains.construction.generators import (
             get_basic_report,  # Shared LLM call for tasks.xlsx and report.docx
@@ -211,13 +217,16 @@ def _run_domain_generators(
             except Exception as e:
                 logger.warning(f"Failed to fetch participants: {e}")
 
-        # Generate BasicReport ONCE for both tasks.xlsx and report.docx (construction only)
-        basic_report = None
-        needs_basic_report = (
+        # Generate domain report ONCE for both tasks.xlsx and report.docx
+        basic_report = None  # Construction domain
+        dct_report = None  # DCT domain
+        needs_llm_report = (
             artifact_options.get("generate_tasks", False) or
             artifact_options.get("generate_report", False)
         )
-        if needs_basic_report and get_basic_report:
+
+        # Construction domain - BasicReport
+        if needs_llm_report and get_basic_report:
             progress_callback("domain_generators", 93, "Анализ совещания через LLM...")
             try:
                 basic_report = get_basic_report(result, meeting_date=meeting_date)
@@ -226,35 +235,82 @@ def _run_domain_generators(
             except Exception as e:
                 logger.error(f"BasicReport generation failed: {e}")
 
-        # 2. Tasks Excel (construction only) - uses pre-generated BasicReport
-        if artifact_options.get("generate_tasks", False) and generate_tasks and basic_report:
-            progress_callback("domain_generators", 94, "Формирование списка задач...")
+        # DCT domain - DCT Report
+        if needs_llm_report and get_dct_report:
+            progress_callback("domain_generators", 93, "Анализ встречи ДЦТ через LLM...")
             try:
-                tasks_path = generate_tasks(
-                    result, output_path,
-                    basic_report=basic_report,
-                    participants=participants,
-                )
-                output_files["tasks"] = str(tasks_path)
-                logger.info(f"Generated tasks: {tasks_path}")
+                dct_report = get_dct_report(result, meeting_type=meeting_type, meeting_date=meeting_date)
+                if dct_report:
+                    logger.info(f"DCT report generated for meeting type: {meeting_type}")
+                else:
+                    logger.warning("DCT report returned None (LLM may not be configured)")
             except Exception as e:
-                logger.error(f"Tasks generation failed: {e}")
+                logger.error(f"DCT report generation failed: {e}")
 
-        # 3. Report Word - uses pre-generated BasicReport
-        if artifact_options.get("generate_report", False) and basic_report:
-            progress_callback("domain_generators", 96, "Формирование отчёта...")
-            try:
-                report_path = generate_report(
-                    result, output_path,
-                    basic_report=basic_report,
-                    meeting_type=meeting_type,
-                    meeting_date=meeting_date,
-                    participants=participants,
-                )
-                output_files["report"] = str(report_path)
-                logger.info(f"Generated report: {report_path}")
-            except Exception as e:
-                logger.error(f"Report generation failed: {e}")
+        # 2. Tasks Excel
+        if artifact_options.get("generate_tasks", False) and generate_tasks:
+            # Construction - uses BasicReport
+            if basic_report:
+                progress_callback("domain_generators", 94, "Формирование списка задач...")
+                try:
+                    tasks_path = generate_tasks(
+                        result, output_path,
+                        basic_report=basic_report,
+                        participants=participants,
+                    )
+                    output_files["tasks"] = str(tasks_path)
+                    logger.info(f"Generated tasks: {tasks_path}")
+                except Exception as e:
+                    logger.error(f"Tasks generation failed: {e}")
+            # DCT - uses DCT Report
+            elif dct_report:
+                progress_callback("domain_generators", 94, "Формирование Excel отчёта...")
+                try:
+                    from ..domains.dct.schemas import DCTMeetingType
+                    tasks_path = generate_tasks(
+                        DCTMeetingType(meeting_type),
+                        dct_report,
+                        output_path / f"dct_report_{meeting_type}.xlsx",
+                        meeting_date=meeting_date,
+                    )
+                    output_files["tasks"] = str(tasks_path)
+                    logger.info(f"Generated DCT Excel: {tasks_path}")
+                except Exception as e:
+                    logger.error(f"DCT Excel generation failed: {e}")
+
+        # 3. Report Word
+        if artifact_options.get("generate_report", False):
+            # Construction - uses BasicReport
+            if basic_report:
+                progress_callback("domain_generators", 96, "Формирование отчёта...")
+                try:
+                    report_path = generate_report(
+                        result, output_path,
+                        basic_report=basic_report,
+                        meeting_type=meeting_type,
+                        meeting_date=meeting_date,
+                        participants=participants,
+                    )
+                    output_files["report"] = str(report_path)
+                    logger.info(f"Generated report: {report_path}")
+                except Exception as e:
+                    logger.error(f"Report generation failed: {e}")
+            # DCT - uses DCT Report
+            elif dct_report:
+                progress_callback("domain_generators", 96, "Формирование Word отчёта...")
+                try:
+                    from ..domains.dct.schemas import DCTMeetingType
+                    from ..domains.dct.generators.report import generate_dct_report as gen_dct_docx
+                    report_path = gen_dct_docx(
+                        DCTMeetingType(meeting_type),
+                        dct_report,
+                        output_path / f"dct_report_{meeting_type}.docx",
+                        meeting_date=meeting_date,
+                    )
+                    output_files["report"] = str(report_path)
+                    logger.info(f"Generated DCT report: {report_path}")
+                except Exception as e:
+                    logger.error(f"DCT report generation failed: {e}")
 
         # 4. Manager brief (construction only) - generates AIAnalysis for dashboard
         if artifact_options.get("generate_analysis", False) and generate_analysis:

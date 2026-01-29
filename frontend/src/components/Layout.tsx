@@ -12,8 +12,7 @@ interface LayoutProps {
 // Domain configuration
 const DOMAIN_CONFIG: Record<string, { label: string; shortLabel: string; color: string }> = {
   construction: { label: 'Строительство', shortLabel: 'Стройка', color: 'bg-amber-500' },
-  hr: { label: 'HR / Кадры', shortLabel: 'HR', color: 'bg-purple-500' },
-  it: { label: 'IT / Разработка', shortLabel: 'IT', color: 'bg-blue-500' },
+  dct: { label: 'ДЦТ', shortLabel: 'ДЦТ', color: 'bg-blue-500' },
   general: { label: 'Общий', shortLabel: 'Общий', color: 'bg-slate-500' },
 };
 
@@ -56,7 +55,7 @@ export function Layout({ children }: LayoutProps) {
   };
 
   // Domain switching
-  const availableDomains = user?.is_superuser ? ['construction', 'hr', 'it'] : (user?.domains || []);
+  const availableDomains = user?.is_superuser ? ['construction', 'dct'] : (user?.domains || []);
   const activeDomain = user?.active_domain || user?.domain || availableDomains[0] || 'construction';
   const currentDomainConfig = DOMAIN_CONFIG[activeDomain] || DOMAIN_CONFIG.general;
   const canSwitchDomain = availableDomains.length > 1;

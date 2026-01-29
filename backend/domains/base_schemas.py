@@ -55,65 +55,27 @@ DOMAIN_MEETING_TYPES: Dict[str, List[MeetingTypeInfo]] = {
             default=True
         ),
     ],
-    "hr": [
+    "dct": [
         MeetingTypeInfo(
-            id="recruitment",
-            name="Собеседование",
-            description="Интервью с кандидатом на вакансию"
-        ),
-        MeetingTypeInfo(
-            id="one_on_one",
-            name="Встреча 1-на-1",
-            description="Регулярная встреча руководителя с сотрудником",
+            id="brainstorm",
+            name="Мозговой штурм",
+            description="Генерация и обсуждение идей",
             default=True
         ),
         MeetingTypeInfo(
-            id="performance_review",
-            name="Performance Review",
-            description="Оценка эффективности сотрудника"
+            id="production",
+            name="Производственное совещание",
+            description="Обсуждение текущих задач и процессов"
         ),
         MeetingTypeInfo(
-            id="team_meeting",
-            name="Командное совещание",
-            description="Общекомандная встреча"
+            id="negotiation",
+            name="Переговоры с контрагентом",
+            description="Деловые переговоры с партнёрами"
         ),
         MeetingTypeInfo(
-            id="onboarding",
-            name="Onboarding",
-            description="Адаптация нового сотрудника"
-        ),
-    ],
-    "it": [
-        MeetingTypeInfo(
-            id="standup",
-            name="Daily Standup",
-            description="Ежедневный статус команды",
-            default=True
-        ),
-        MeetingTypeInfo(
-            id="planning",
-            name="Sprint Planning",
-            description="Планирование спринта"
-        ),
-        MeetingTypeInfo(
-            id="retrospective",
-            name="Retrospective",
-            description="Ретроспектива спринта"
-        ),
-        MeetingTypeInfo(
-            id="incident_review",
-            name="Разбор инцидента",
-            description="Postmortem анализ инцидента"
-        ),
-        MeetingTypeInfo(
-            id="architecture",
-            name="Архитектурное обсуждение",
-            description="Обсуждение архитектурных решений"
-        ),
-        MeetingTypeInfo(
-            id="demo",
-            name="Sprint Demo",
-            description="Демонстрация результатов спринта"
+            id="lecture",
+            name="Лекция/Вебинар",
+            description="Обучающее мероприятие"
         ),
     ],
 }

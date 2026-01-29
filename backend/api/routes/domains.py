@@ -63,7 +63,6 @@ def _get_domain_display_name(domain: str) -> str:
     """Получить человекочитаемое название домена."""
     names = {
         "construction": "Строительство",
-        "hr": "HR / Персонал",
-        "it": "IT / Разработка",
+        "dct": "ДЦТ",
     }
     return names.get(domain, domain.title())

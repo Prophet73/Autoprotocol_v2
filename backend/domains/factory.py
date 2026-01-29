@@ -93,19 +93,19 @@ def _register_default_domains():
     except ImportError:
         pass  # Construction domain not available
 
-    # HR domain
-    try:
-        from .hr.service import HRService
-        DomainServiceFactory.register('hr', HRService)
-    except ImportError:
-        pass  # HR domain not available
+    # HR domain - disabled for now
+    # try:
+    #     from .hr.service import HRService
+    #     DomainServiceFactory.register('hr', HRService)
+    # except ImportError:
+    #     pass  # HR domain not available
 
-    # IT domain
+    # DCT domain (Департамент Цифровой Трансформации)
     try:
-        from .it.service import ITService
-        DomainServiceFactory.register('it', ITService)
+        from .dct.service import DCTService
+        DomainServiceFactory.register('dct', DCTService)
     except ImportError:
-        pass  # IT domain not available
+        pass  # DCT domain not available
 
 
 # Register on module load

@@ -200,7 +200,7 @@ async def set_active_domain(
 
     # Суперпользователи имеют доступ к любому домену
     if current_user.is_superuser:
-        allowed_domains = ["construction", "hr", "it", "general"]
+        allowed_domains = ["construction", "dct"]
 
     if data.domain not in allowed_domains:
         raise HTTPException(

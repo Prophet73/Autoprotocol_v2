@@ -22,8 +22,8 @@ const DOMAIN_CONFIG: Record<string, { label: string; icon: typeof Building2; col
     icon: Users,
     color: 'text-purple-600 bg-purple-50',
   },
-  it: {
-    label: 'IT',
+  dct: {
+    label: 'ДЦТ',
     icon: Monitor,
     color: 'text-blue-600 bg-blue-50',
   },
@@ -58,7 +58,7 @@ export function DomainSwitcher() {
 
   // If superuser, show all domains
   const displayDomains = user?.is_superuser
-    ? ['construction', 'hr', 'it']
+    ? ['construction', 'hr', 'dct']
     : availableDomains;
 
   // Don't show if user has only one domain

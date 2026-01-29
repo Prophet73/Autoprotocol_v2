@@ -6,6 +6,7 @@ OAuth2 authentication via Hub (corporate SSO gateway).
 import os
 import secrets
 from datetime import timedelta
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -47,17 +48,19 @@ async def hub_login(redirect_to: str = "/admin"):
     state = secrets.token_urlsafe(32)
     _pending_states[state] = redirect_to
 
-    # Build Hub authorization URL
+    # Build Hub authorization URL with proper URL encoding
     params = {
         "client_id": HUB_CLIENT_ID,
         "redirect_uri": HUB_REDIRECT_URI,
         "response_type": "code",
         "scope": "openid email profile",
         "state": state,
+        # Skip login prompt if user already has active Hub session
+        # Remove this line if you want to force re-authentication every time
+        # "prompt": "none",
     }
 
-    query_string = "&".join(f"{k}={v}" for k, v in params.items())
-    auth_url = f"{HUB_URL}/oauth/authorize?{query_string}"
+    auth_url = f"{HUB_URL}/oauth/authorize?{urlencode(params)}"
 
     return RedirectResponse(url=auth_url)
 
@@ -126,11 +129,15 @@ async def hub_callback(
         )
 
     # Extract user data from Hub userinfo
+    # Hub returns: sub, email, name, preferred_username, groups
     email = userinfo.get("email")
-    full_name = userinfo.get("name") or userinfo.get("display_name")
-    hub_user_id = userinfo.get("sub") or userinfo.get("id")
-    is_admin = userinfo.get("is_admin", False)
-    _department = userinfo.get("department")  # Reserved for future use
+    full_name = userinfo.get("name") or userinfo.get("preferred_username")
+    hub_user_id = userinfo.get("sub")
+
+    # Check admin status via groups (e.g., "Admins", "IT-Admins", etc.)
+    groups = userinfo.get("groups", [])
+    admin_groups = {"Admins", "IT-Admins", "Administrators", "admins"}
+    is_admin = bool(set(groups) & admin_groups)
 
     if not email:
         raise HTTPException(

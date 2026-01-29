@@ -1,35 +1,33 @@
 """
-IT Domain Service.
+DCT Domain Service - Департамент Цифровой Трансформации.
 
-Provides IT/Development meeting analysis functionality.
+Provides meeting analysis functionality for various meeting types.
 """
 from typing import Optional
 
 from backend.domains.base import BaseDomainService
 from backend.config import get_prompt
-from .schemas import ITMeetingType, ITReport
+from .schemas import DCTMeetingType, DCTReport
 
 
-class ITService(BaseDomainService):
-    """Service for IT domain meeting analysis."""
+class DCTService(BaseDomainService):
+    """Service for DCT domain meeting analysis."""
 
-    DOMAIN_NAME = "it"
+    DOMAIN_NAME = "dct"
     REPORT_TYPES = [
-        "standup",
-        "planning",
-        "retrospective",
-        "incident_review",
-        "architecture",
-        "demo",
+        "brainstorm",
+        "production",
+        "negotiation",
+        "lecture",
     ]
 
     def get_system_prompt(self, meeting_type: Optional[str] = None) -> str:
-        """Get system prompt for IT meeting type."""
-        mt = meeting_type or "standup"
+        """Get system prompt for DCT meeting type."""
+        mt = meeting_type or "brainstorm"
         try:
-            return get_prompt(f"domains.it.{mt}.system")
+            return get_prompt(f"domains.dct.{mt}.system")
         except (KeyError, TypeError):
-            return get_prompt("domains.it.standup.system")
+            return get_prompt("domains.dct.brainstorm.system")
 
     def get_report_prompt(
         self,
@@ -37,16 +35,16 @@ class ITService(BaseDomainService):
         transcript_text: str,
         **kwargs
     ) -> str:
-        """Get user prompt for IT meeting type."""
+        """Get user prompt for DCT meeting type."""
         try:
             return get_prompt(
-                f"domains.it.{report_type}.user",
+                f"domains.dct.{report_type}.user",
                 transcript=transcript_text,
                 **kwargs
             )
         except (KeyError, TypeError):
             return get_prompt(
-                "domains.it.standup.user",
+                "domains.dct.brainstorm.user",
                 transcript=transcript_text,
                 **kwargs
             )
@@ -54,18 +52,18 @@ class ITService(BaseDomainService):
     async def generate_report(
         self,
         transcription,
-        report_type: str = "standup",
+        report_type: str = "brainstorm",
         **kwargs
     ):
         """
-        Generate IT report from transcription.
+        Generate DCT report from transcription.
 
         This is a placeholder - actual implementation will use
         the domain generators.
         """
-        return ITReport(
-            meeting_type=ITMeetingType(report_type),
-            meeting_summary="IT meeting analysis pending",
+        return DCTReport(
+            meeting_type=DCTMeetingType(report_type),
+            meeting_summary="DCT meeting analysis pending",
             key_points=[],
             action_items=[],
             participants_summary={},
@@ -74,10 +72,10 @@ class ITService(BaseDomainService):
     def generate_report_simple(
         self,
         transcription,
-        report_type: str = "standup"
+        report_type: str = "brainstorm"
     ):
         """
-        Generate simple IT report without LLM.
+        Generate simple DCT report without LLM.
 
         Creates a basic report structure from transcription data.
         """
@@ -98,9 +96,9 @@ class ITService(BaseDomainService):
                 if hasattr(seg, 'text') and len(seg.text) > 20:
                     key_points.append(seg.text[:100] + "..." if len(seg.text) > 100 else seg.text)
 
-        return ITReport(
-            meeting_type=ITMeetingType(report_type),
-            meeting_summary=f"IT {report_type} meeting transcript",
+        return DCTReport(
+            meeting_type=DCTMeetingType(report_type),
+            meeting_summary=f"DCT {report_type} meeting transcript",
             key_points=key_points,
             action_items=[],
             participants_summary=participants,

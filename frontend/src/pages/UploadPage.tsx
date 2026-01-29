@@ -97,11 +97,12 @@ export function UploadPage() {
 
       const response = await createTranscription(file, {
         languages: languages.join(','),
+        domain: userDomain,  // Pass current domain
         generate_transcript: artifacts.transcript,
         generate_tasks: artifacts.tasks,
         generate_report: artifacts.report,
-        generate_risk_brief: true,  // Always generate risk brief
-        // Only send project_code if it's valid (for construction or if manually entered for HR/IT)
+        generate_risk_brief: userDomain === 'construction',  // Risk brief only for construction
+        // Only send project_code if it's valid (for construction or if manually entered for other domains)
         project_code: codeValidation?.valid ? projectCode : undefined,
         meeting_type: showMeetingTypeSelector ? meetingType : undefined,
         meeting_date: meetingDate || undefined,

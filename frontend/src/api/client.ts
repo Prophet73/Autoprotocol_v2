@@ -75,6 +75,8 @@ export interface TranscribeOptions {
   notify_emails?: string;
   // Meeting participants (person IDs)
   participant_ids?: number[];
+  // Domain for domain-specific processing (construction, hr, dct)
+  domain?: string;
 }
 
 // Meeting type info from backend
@@ -113,6 +115,8 @@ export async function createTranscription(
   if (options.generate_risk_brief) formData.append('generate_risk_brief', 'true');
   // Project code for Drop Box workflow
   if (options.project_code) formData.append('project_code', options.project_code);
+  // Domain for domain-specific processing
+  if (options.domain) formData.append('domain', options.domain);
   // Meeting type for domain-specific processing
   if (options.meeting_type) formData.append('meeting_type', options.meeting_type);
   // Meeting date

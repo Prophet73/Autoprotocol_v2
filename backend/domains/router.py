@@ -24,20 +24,11 @@ DOMAIN_MEETING_TYPES = {
     "construction": [
         MeetingTypeInfo(id="site_meeting", name="Совещание на объекте", default=True),
     ],
-    "hr": [
-        MeetingTypeInfo(id="recruitment", name="Собеседование", default=True),
-        MeetingTypeInfo(id="one_on_one", name="Встреча 1-на-1"),
-        MeetingTypeInfo(id="performance_review", name="Performance Review"),
-        MeetingTypeInfo(id="team_meeting", name="Командное совещание"),
-        MeetingTypeInfo(id="onboarding", name="Onboarding"),
-    ],
-    "it": [
-        MeetingTypeInfo(id="standup", name="Daily Standup", default=True),
-        MeetingTypeInfo(id="planning", name="Sprint Planning"),
-        MeetingTypeInfo(id="retrospective", name="Retrospective"),
-        MeetingTypeInfo(id="incident_review", name="Разбор инцидента"),
-        MeetingTypeInfo(id="architecture", name="Архитектурное обсуждение"),
-        MeetingTypeInfo(id="demo", name="Sprint Demo"),
+    "dct": [
+        MeetingTypeInfo(id="brainstorm", name="Мозговой штурм", default=True),
+        MeetingTypeInfo(id="production", name="Производственное совещание"),
+        MeetingTypeInfo(id="negotiation", name="Переговоры с контрагентом"),
+        MeetingTypeInfo(id="lecture", name="Лекция/Вебинар"),
     ],
 }
 

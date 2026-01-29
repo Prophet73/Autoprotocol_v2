@@ -261,8 +261,10 @@ async def create_transcription(
     skip_emotions: bool = Form(default=False, description="Пропустить анализ эмоций"),
     # Project linkage (for construction domain)
     project_code: Optional[str] = Form(default=None, description="4-значный код проекта для анонимной загрузки"),
-    # Meeting type (for HR/IT domains)
-    meeting_type: Optional[str] = Form(default=None, description="Тип встречи (recruitment, standup, и т.д.)"),
+    # Domain for domain-specific processing
+    domain: Optional[str] = Form(default=None, description="Домен обработки (construction, dct)"),
+    # Meeting type (for non-construction domains)
+    meeting_type: Optional[str] = Form(default=None, description="Тип встречи (brainstorm, production, и т.д.)"),
     # Meeting date (optional)
     meeting_date: Optional[str] = Form(default=None, description="Дата встречи (YYYY-MM-DD)"),
     # Guest ID for anonymous users (from X-Guest-ID header)
@@ -315,7 +317,7 @@ async def create_transcription(
     # Validate project code if provided
     project_id = None
     tenant_id = None
-    domain_type = None
+    domain_type = domain  # Use domain from form, can be overridden by project_code
     project_name = None  # For risk brief header
     if project_code:
         project_service = ProjectService(db)
@@ -1222,6 +1224,8 @@ async def run_text_report_generation(
         # Import generators based on domain
         domain = domain_type or "construction"
         ai_analysis = None  # Will be populated if generate_analysis is called (construction only)
+        basic_report = None  # Construction domain report data
+        risk_brief_obj = None  # Construction domain risk brief data
 
         if domain == "construction":
             from ...domains.construction.generators import (
@@ -1299,7 +1303,6 @@ async def run_text_report_generation(
                     logger.error(f"Manager brief generation failed: {e}")
 
             # Generate risk brief (optional) - reuses participants fetched above
-            risk_brief_obj = None
             if artifact_options.get("generate_risk_brief", False):
                 try:
                     # generate_risk_brief returns tuple[Path, RiskBrief]
@@ -1315,6 +1318,69 @@ async def run_text_report_generation(
                     logger.info(f"Generated risk brief: {risk_brief_path}")
                 except Exception as e:
                     logger.error(f"Risk brief generation failed: {e}")
+
+        elif domain == "dct":
+            # DCT domain - generate reports via LLM
+            from ...domains.dct.generators import (
+                get_dct_report,
+                generate_tasks as generate_dct_excel,
+                generate_report as generate_dct_docx,
+            )
+            from ...domains.dct.schemas import DCTMeetingType
+
+            meeting_type = artifact_options.get("meeting_type") or "brainstorm"
+            meeting_date = artifact_options.get("meeting_date")
+
+            # Generate DCT Report via LLM
+            dct_report = None
+            needs_dct_report = (
+                artifact_options.get("generate_tasks", False) or
+                artifact_options.get("generate_report", False)
+            )
+            if needs_dct_report:
+                progress_callback("llm_generation", 40, f"Анализ встречи ДЦТ ({meeting_type})...")
+                try:
+                    dct_report = get_dct_report(
+                        result,
+                        meeting_type=meeting_type,
+                        meeting_date=meeting_date,
+                    )
+                    if dct_report:
+                        logger.info(f"DCT report generated for meeting type: {meeting_type}")
+                    else:
+                        logger.warning("DCT report returned None")
+                except Exception as e:
+                    logger.error(f"DCT report generation failed: {e}")
+
+            # Generate Excel report
+            if artifact_options.get("generate_tasks", False) and dct_report:
+                progress_callback("llm_generation", 60, "Формирование Excel отчёта...")
+                try:
+                    excel_path = generate_dct_excel(
+                        DCTMeetingType(meeting_type),
+                        dct_report,
+                        output_dir / f"dct_report_{meeting_type}.xlsx",
+                        meeting_date=meeting_date,
+                    )
+                    output_files["tasks"] = str(excel_path)
+                    logger.info(f"Generated DCT Excel: {excel_path}")
+                except Exception as e:
+                    logger.error(f"DCT Excel generation failed: {e}")
+
+            # Generate Word report
+            if artifact_options.get("generate_report", False) and dct_report:
+                progress_callback("llm_generation", 80, "Формирование Word отчёта...")
+                try:
+                    docx_path = generate_dct_docx(
+                        DCTMeetingType(meeting_type),
+                        dct_report,
+                        output_dir / f"dct_report_{meeting_type}.docx",
+                        meeting_date=meeting_date,
+                    )
+                    output_files["report"] = str(docx_path)
+                    logger.info(f"Generated DCT report: {docx_path}")
+                except Exception as e:
+                    logger.error(f"DCT report generation failed: {e}")
 
         # Save original text as transcript
         if artifact_options.get("generate_transcript", True):

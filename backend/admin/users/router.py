@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.shared.database import get_db
 from backend.shared.models import UserRole, Domain
 from backend.core.auth.dependencies import SuperUser
+from backend.core.auth.hub_sync import HubSyncService
 from .service import UserService
 from .schemas import (
     UserResponse,
@@ -387,3 +388,49 @@ async def get_project_users(
         result.users = users
 
     return result
+
+
+# =============================================================================
+# Hub Sync
+# =============================================================================
+
+@router.post(
+    "/sync-from-hub",
+    summary="Синхронизация из Hub",
+    description="Синхронизировать пользователей из Hub SSO в локальную БД."
+)
+async def sync_users_from_hub(
+    current_user: SuperUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """
+    Синхронизировать всех пользователей из Hub.
+
+    - Новые пользователи создаются автоматически
+    - Существующие обновляются (имя, статус)
+    - Локальные роли и права сохраняются
+
+    Требует HUB_SERVICE_TOKEN в .env
+    """
+    try:
+        sync_service = HubSyncService(db)
+        stats = await sync_service.sync_all_users()
+        return {
+            "success": True,
+            "stats": stats
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e)
+        )
+    except PermissionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Sync failed: {str(e)}"
+        )
