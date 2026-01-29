@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-COMPOSE_FILE="docker/docker-compose.test.yml"
+COMPOSE_FILE="docker/docker compose.test.yml"
 ENV_FILE="docker/.env.production"
 
 echo -e "${BLUE}========================================${NC}"
@@ -37,15 +37,15 @@ echo -e "${GREEN}Docker OK${NC}"
 
 # Stop existing
 echo -e "${BLUE}[2/4] Stopping existing containers...${NC}"
-docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
+docker compose -f "$COMPOSE_FILE" down 2>/dev/null || true
 
 # Build
 echo -e "${BLUE}[3/4] Building images...${NC}"
-docker-compose -f "$COMPOSE_FILE" build
+docker compose -f "$COMPOSE_FILE" build
 
 # Start
 echo -e "${BLUE}[4/4] Starting services...${NC}"
-docker-compose -f "$COMPOSE_FILE" up -d
+docker compose -f "$COMPOSE_FILE" up -d
 
 # Wait for health
 echo -e "${BLUE}Waiting for services...${NC}"
@@ -64,8 +64,8 @@ for i in $(seq 1 30); do
         echo -e "  API:      ${BLUE}http://localhost:8000/docs${NC}"
         echo ""
         echo -e "Commands:"
-        echo -e "  Logs:  docker-compose -f $COMPOSE_FILE logs -f"
-        echo -e "  Stop:  docker-compose -f $COMPOSE_FILE down"
+        echo -e "  Logs:  docker compose -f $COMPOSE_FILE logs -f"
+        echo -e "  Stop:  docker compose -f $COMPOSE_FILE down"
         echo ""
         echo -e "${YELLOW}NOTE: Transcription will be SLOW without GPU!${NC}"
         exit 0
@@ -76,5 +76,5 @@ done
 
 echo ""
 echo -e "${RED}Health check failed. Check logs:${NC}"
-docker-compose -f "$COMPOSE_FILE" logs --tail=50
+docker compose -f "$COMPOSE_FILE" logs --tail=50
 exit 1
