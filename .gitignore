@@ -147,6 +147,13 @@ test-results/
 *.tar
 docker-compose.override.yml
 docker/.env
+# docker/.env.production  # Included for private repo
+
+# ============================
+# Backups
+# ============================
+backups/
+*.sql.gz
 
 # ============================
 # Секреты (никогда не коммитить!)
