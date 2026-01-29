@@ -33,7 +33,7 @@ router = APIRouter(prefix="/users", tags=["Админ - Пользователи
 
 
 @router.get(
-    "/",
+    "",
     response_model=UserListResponse,
     summary="Список пользователей",
     description="Получение списка пользователей с пагинацией и фильтрацией по роли/домену."
