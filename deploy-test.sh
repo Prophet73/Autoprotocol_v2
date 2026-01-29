@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-COMPOSE_FILE="docker/docker compose.test.yml"
+COMPOSE_FILE="docker/docker-compose.test.yml"
 ENV_FILE="docker/.env.production"
 
 echo -e "${BLUE}========================================${NC}"
