@@ -1,135 +1,200 @@
-# Быстрый старт SeverinAutoprotocol
+# 🚀 Быстрый старт SeverinAutoprotocol
+
+## Содержание
+
+- [Требования](#требования)
+- [Быстрый деплой на GPU сервер](#быстрый-деплой-на-gpu-сервер)
+- [Быстрый деплой без GPU (тест)](#быстрый-деплой-без-gpu-тест)
+- [Настройка Nginx Proxy Manager](#настройка-nginx-proxy-manager)
+- [Проверка работоспособности](#проверка-работоспособности)
+- [Частые проблемы](#частые-проблемы)
+
+---
 
 ## Требования
 
-- Docker Desktop с поддержкой GPU (NVIDIA Container Toolkit)
-- Node.js 18+ (для фронтенда)
-- Файл `.env` в корне проекта с ключами:
-  ```
-  HUGGINGFACE_TOKEN=hf_xxx
-  GEMINI_API_KEY=AIzaSy...
-  ```
+### GPU сервер (production)
+- Ubuntu 22.04+ / Debian 12+
+- Docker 24+ с Docker Compose v2
+- NVIDIA GPU с драйверами 535+
+- NVIDIA Container Toolkit
+- 16GB+ RAM, 50GB+ диск
+
+### Без GPU (тестирование)
+- Docker 24+ с Docker Compose v2
+- 8GB+ RAM
 
 ---
 
-## Запуск через Docker (рекомендуется)
+## Быстрый деплой на GPU сервер
 
-### Первый запуск
+### 1. Клонирование репозитория
 
 ```bash
-# 1. Перейти в папку docker
-cd docker
-
-# 2. Собрать и запустить все сервисы
-docker-compose up -d --build
-
-# 3. Проверить статус
-docker-compose ps
+git clone https://github.com/Prophet73/Autoprotocol_v2.git /opt/autoprotocol
+cd /opt/autoprotocol
 ```
 
-### Повседневные команды
+### 2. Создание файла конфигурации
 
 ```bash
-cd docker  # ВСЕГДА из этой папки!
+cp docker/.env.example docker/.env.production
+nano docker/.env.production
+```
 
-# Запустить сервисы
-docker-compose up -d
+**Обязательные параметры:**
 
-# Остановить сервисы
-docker-compose down
+```bash
+# API ключи (ОБЯЗАТЕЛЬНО ЗАМЕНИТЬ!)
+HUGGINGFACE_TOKEN=hf_ваш_токен_здесь
+GEMINI_API_KEY=AIzaSy_ваш_ключ_здесь
 
-# Перезапустить конкретный сервис
-docker-compose restart api
-docker-compose restart worker
+# Безопасность (ОБЯЗАТЕЛЬНО СГЕНЕРИРОВАТЬ НОВЫЙ!)
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+POSTGRES_PASSWORD=ваш_сложный_пароль
 
-# Посмотреть логи
-docker-compose logs -f           # все сервисы
-docker-compose logs -f api       # только API
-docker-compose logs -f worker    # только Worker
+# CORS - укажите ваш домен
+CORS_ORIGINS=https://ваш-домен.ru,http://localhost:3001
 
+# GPU настройки
+WHISPER_MODEL=large-v3
+COMPUTE_TYPE=float16
+DEVICE=cuda
+```
+
+### 3. Проверка NVIDIA
+
+```bash
+# Проверить драйверы
+nvidia-smi
+
+# Проверить Docker с GPU
+docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
+```
+
+### 4. Запуск
+
+```bash
+# Способ 1: Через скрипт (рекомендуется)
+./deploy.sh
+
+# Способ 2: Вручную
+cd /opt/autoprotocol
+docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.production up -d --build
+```
+
+### 5. Проверка статуса
+
+```bash
 # Статус контейнеров
-docker-compose ps
-```
+docker compose -f docker/docker-compose.prod.yml ps
 
-### После изменения кода
-
-```bash
-cd docker
-
-# Пересобрать и перезапустить
-docker-compose build --no-cache && docker-compose up -d --force-recreate
-
-# Или по отдельности:
-docker-compose build --no-cache api worker
-docker-compose up -d --force-recreate api worker
-```
-
-### Очистка
-
-```bash
-# Удалить контейнеры (данные сохраняются в volumes)
-docker-compose down
-
-# Удалить контейнеры И volumes (УДАЛИТ ВСЕ ДАННЫЕ!)
-docker-compose down -v
-
-# Очистить build cache
-docker builder prune -f
-
-# Полная очистка Docker (осторожно!)
-docker system prune -a
+# Логи (если что-то не работает)
+docker compose -f docker/docker-compose.prod.yml logs -f
 ```
 
 ---
 
-## Запуск фронтенда
+## Быстрый деплой без GPU (тест)
+
+Для тестирования на сервере без GPU:
+
+### 1. Конфигурация
 
 ```bash
-cd frontend
-npm install      # только первый раз
-npm run dev      # http://localhost:3000
+cp docker/.env.example docker/.env.production
+nano docker/.env.production
+```
+
+Измените параметры транскрипции:
+
+```bash
+# CPU настройки (медленно, но работает)
+WHISPER_MODEL=tiny
+COMPUTE_TYPE=int8
+DEVICE=cpu
+```
+
+### 2. Запуск
+
+```bash
+./deploy-test.sh
+```
+
+Или вручную:
+
+```bash
+docker compose -f docker/docker-compose.test.yml --env-file docker/.env.production up -d --build
 ```
 
 ---
 
-## Запуск без Docker (для разработки)
+## Настройка Nginx Proxy Manager
 
-### 1. Подготовка окружения
+Если используете Nginx Proxy Manager для SSL:
 
-```bash
-# Создать виртуальное окружение
-python -m venv venv310
-.\venv310\Scripts\Activate.ps1  # Windows PowerShell
-# или
-source venv310/bin/activate     # Linux/Mac
+### 1. Добавить Proxy Host
 
-# Установить PyTorch с CUDA
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+| Поле | Значение |
+|------|----------|
+| Domain | `ваш-домен.ru` |
+| Scheme | `http` |
+| Forward Hostname/IP | `IP_сервера` (например 10.0.6.72) |
+| Forward Port | `3001` |
 
-# Установить зависимости
-pip install -r requirements.txt
+### 2. SSL
+
+- ✅ Request new SSL certificate
+- ✅ Force SSL
+- ✅ HTTP/2 Support
+
+### 3. Advanced (опционально)
+
+```nginx
+# Увеличить таймауты для больших файлов
+proxy_connect_timeout 600;
+proxy_send_timeout 600;
+proxy_read_timeout 600;
+client_max_body_size 2G;
 ```
 
-### 2. Запустить Redis (нужен для Celery)
+---
+
+## Проверка работоспособности
+
+### Проверить API
 
 ```bash
-# Через Docker
-docker run -d --name redis -p 6379:6379 redis:7-alpine
+# Health check
+curl http://localhost:3001/health
 
-# Или установить локально
+# Или через домен
+curl https://ваш-домен.ru/api/health
 ```
 
-### 3. Запустить сервисы
+### Проверить контейнеры
 
 ```bash
-# Терминал 1: API сервер
-python -m backend.api.main
+docker ps --filter name=whisperx
+```
 
-# Терминал 2: Celery worker
-celery -A backend.tasks.celery_app worker -Q transcription -c 1 --loglevel=info
+Все контейнеры должны быть `healthy`:
+- `whisperx-frontend` - веб-интерфейс
+- `whisperx-api` - API сервер  
+- `whisperx-worker-gpu` - GPU воркер (только prod)
+- `whisperx-worker-llm` - LLM воркер
+- `whisperx-redis` - очередь задач
+- `whisperx-postgres` - база данных
 
-# Терминал 3: Фронтенд
-cd frontend && npm run dev
+### Проверить логи
+
+```bash
+# Все логи
+docker compose -f docker/docker-compose.prod.yml logs -f
+
+# Конкретный сервис
+docker compose -f docker/docker-compose.prod.yml logs -f api
+docker compose -f docker/docker-compose.prod.yml logs -f worker-gpu
 ```
 
 ---
@@ -138,115 +203,147 @@ cd frontend && npm run dev
 
 | Сервис | URL |
 |--------|-----|
-| Фронтенд | http://localhost:3000 |
-| API | http://localhost:8000 |
-| API Docs (Swagger) | http://localhost:8000/docs |
-| Health Check | http://localhost:8000/health |
-| Flower (мониторинг Celery) | http://localhost:5555 |
+| Фронтенд | http://localhost:3001 |
+| API Docs (Swagger) | http://localhost:3001/api/docs |
+| Health Check | http://localhost:3001/health |
 
 ---
 
-## Проверка работоспособности
+## Команды управления
+
+### Перезапуск сервисов
 
 ```bash
-# Проверить API
-curl http://localhost:8000/health
+# Перезапустить все
+docker compose -f docker/docker-compose.prod.yml restart
 
-# Проверить что контейнеры healthy
-docker ps --filter name=whisperx
+# Перезапустить конкретный сервис
+docker compose -f docker/docker-compose.prod.yml restart api
+docker compose -f docker/docker-compose.prod.yml restart frontend
+```
 
-# Проверить логи на ошибки
-cd docker && docker-compose logs --tail=50
+### Обновление кода
+
+```bash
+cd /opt/autoprotocol
+
+# Получить обновления
+git pull
+
+# Пересобрать БЕЗ кэша (важно!)
+docker compose -f docker/docker-compose.prod.yml build --no-cache
+
+# Перезапустить
+docker compose -f docker/docker-compose.prod.yml up -d
+```
+
+### Остановка
+
+```bash
+# Остановить (данные сохраняются)
+docker compose -f docker/docker-compose.prod.yml down
+
+# ⚠️ ОПАСНО: Удалить с данными
+docker compose -f docker/docker-compose.prod.yml down -v
 ```
 
 ---
 
-## Типичные проблемы
+## Частые проблемы
 
-### Контейнер не стартует / unhealthy
+### Mixed Content (http/https)
 
+**Симптом:** В консоли браузера ошибки "Mixed Content", запросы блокируются.
+
+**Причина:** Неправильная передача заголовков X-Forwarded-Proto.
+
+**Решение:** Убедитесь что используете актуальную версию из git:
 ```bash
-cd docker
-docker-compose logs api      # посмотреть ошибки
-docker-compose restart api   # перезапустить
+git pull
+docker compose -f docker/docker-compose.prod.yml build --no-cache frontend api
+docker compose -f docker/docker-compose.prod.yml up -d
 ```
 
-### GPU не видно в контейнере
+### Старый код после обновления
 
-```bash
-# Проверить NVIDIA runtime
-docker run --rm --gpus all nvidia/cuda:12.1-base nvidia-smi
-```
+**Симптом:** После `git pull` изменения не применяются.
 
-### Изменения кода не применяются
-
-**Шаг 1:** Пересобрать и перезапустить:
-```bash
-cd docker
-docker-compose build --no-cache
-docker-compose up -d --force-recreate
-```
-
-**Шаг 2:** Если не помогло — проверить анонимные volumes:
-```bash
-# Посмотреть что смонтировано в контейнер
-docker inspect whisperx-worker --format '{{json .Mounts}}' | python -m json.tool
-```
-
-Если видишь volume смонтированный на `/app` — это **анонимный volume**, который затеняет код из образа старыми данными!
-
-**Причина:** Базовый образ whisperx имеет директиву `VOLUME /app`. Docker создаёт анонимный volume при первом запуске и переиспользует его, игнорируя новый код.
+**Причина:** Docker кэширует слои сборки.
 
 **Решение:**
 ```bash
-cd docker
-
-# Остановить и удалить контейнеры
-docker-compose down
-
-# Найти и удалить анонимные volumes (те что с длинным хешем в имени)
-docker volume ls | grep -E "^local\s+[a-f0-9]{64}$"
-docker volume rm <volume_id>
-
-# Или удалить ВСЕ неиспользуемые volumes (осторожно!)
-docker volume prune
-
-# Запустить заново
-docker-compose up -d
+# Удалить образы и пересобрать
+docker compose -f docker/docker-compose.prod.yml down
+docker rmi docker-frontend docker-api docker-worker 2>/dev/null
+docker compose -f docker/docker-compose.prod.yml build --no-cache
+docker compose -f docker/docker-compose.prod.yml up -d
 ```
 
-**Проверка что код обновился:**
+### GPU не найден
+
+**Симптом:** Ошибка "could not select device driver nvidia".
+
+**Решение:**
 ```bash
-# Должно вернуть число > 0 если изменения применились
-docker exec whisperx-worker sh -c 'grep -c "ТВОЙ_УНИКАЛЬНЫЙ_ТЕКСТ" /app/backend/путь/к/файлу.py'
+# 1. Проверить драйверы
+nvidia-smi
+
+# 2. Установить NVIDIA Container Toolkit
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+sudo systemctl restart docker
+
+# 3. Проверить
+docker run --rm --gpus all nvidia/cuda:12.0-base nvidia-smi
 ```
 
-### Недостаточно памяти GPU
+### Ошибка авторизации (401)
 
-Worker использует `-c 1` (одна задача), но если памяти всё равно не хватает:
-- Уменьшить `BATCH_SIZE` в `.env`
-- Использовать модель поменьше: `WHISPER_MODEL=medium`
+**Симптом:** "Not authenticated" на страницах админки.
+
+**Решение:** Очистить кэш браузера и куки, заново авторизоваться.
+
+### База данных не запускается
+
+**Симптом:** PostgreSQL не стартует или падает.
+
+**Решение:**
+```bash
+# Проверить логи
+docker compose -f docker/docker-compose.prod.yml logs postgres
+
+# Если проблема с правами
+sudo chown -R 999:999 /var/lib/docker/volumes/docker_postgres_data
+```
 
 ---
 
-## Мониторинг (опционально)
+## Структура проекта
 
-```bash
-cd docker
-
-# Запустить с Flower (веб-интерфейс для Celery)
-docker-compose --profile monitoring up -d
-
-# Открыть http://localhost:5555
+```
+/opt/autoprotocol/
+├── backend/           # FastAPI бэкенд
+├── frontend/          # React фронтенд
+├── docker/
+│   ├── docker-compose.prod.yml   # GPU production
+│   ├── docker-compose.test.yml   # CPU тестовый
+│   ├── .env.production           # Конфигурация (НЕ В GIT!)
+│   ├── .env.example              # Шаблон конфигурации
+│   └── nginx.frontend.conf       # Nginx конфиг
+├── deploy.sh          # Скрипт деплоя GPU
+├── deploy-test.sh     # Скрипт деплоя CPU
+└── QUICKSTART.md      # Это руководство
 ```
 
 ---
 
-## Структура данных
+## Поддержка
 
-Все данные хранятся в Docker volumes:
-- `uploads` — загруженные файлы
-- `output` — результаты (docx, pdf, json)
-- `models` — кэш ML моделей
-- `redis_data` — очередь задач
-- `postgres_data` — база данных
+При проблемах:
+1. Проверьте логи: `docker compose logs -f`
+2. Убедитесь что `.env.production` настроен правильно
+3. Проверьте что все контейнеры `healthy`
