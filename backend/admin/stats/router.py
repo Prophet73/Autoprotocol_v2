@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.shared.database import get_db
-from backend.core.auth.dependencies import AdminUser, CurrentUser
+from backend.core.auth.dependencies import SuperUser, CurrentUser
 from backend.domains.base_schemas import DOMAIN_MEETING_TYPES
 from .service import StatsService
 from .schemas import (
@@ -54,7 +54,7 @@ router = APIRouter(prefix="/stats", tags=["Админ - Статистика"])
 """
 )
 async def get_dashboard(
-    current_user: AdminUser,
+    current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     date_from: Optional[date] = Query(None, description="Начало периода"),
     date_to: Optional[date] = Query(None, description="Конец периода"),
@@ -83,7 +83,7 @@ async def get_dashboard(
     description="KPI, домены, временная шкала, артефакты."
 )
 async def get_overview(
-    current_user: AdminUser,
+    current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
@@ -125,7 +125,7 @@ async def get_domains_list(
 )
 async def get_domain_stats(
     domain_id: str,
-    current_user: AdminUser,
+    current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
@@ -151,7 +151,7 @@ async def get_domain_stats(
     description="Статистика по пользователям: всего, активных, по ролям, топ пользователей."
 )
 async def get_users_stats(
-    current_user: AdminUser,
+    current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
@@ -181,7 +181,7 @@ async def get_users_stats(
     description="Статистика использования и стоимости Gemini API."
 )
 async def get_costs_stats(
-    current_user: AdminUser,
+    current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
@@ -220,13 +220,13 @@ async def get_costs_stats(
 """
 )
 async def get_global_stats(
-    current_user: AdminUser,
+    current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> GlobalStatsResponse:
     """
     Получить глобальную статистику системы (устаревший).
 
-    Требует прав администратора.
+    Требует прав суперпользователя.
     """
     service = StatsService(db)
     return await service.get_global_stats()
@@ -239,7 +239,7 @@ async def get_global_stats(
     description="Проверка состояния всех компонентов: Redis, база данных, GPU, Celery."
 )
 async def get_system_health(
-    current_user: AdminUser,
+    current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SystemHealthResponse:
     """
@@ -264,7 +264,8 @@ def _get_domain_display_name(domain_id: str) -> str:
     """Получить человекочитаемое название домена."""
     names = {
         "construction": "Строительство",
-        "dct": "ДЦТ",
+        "hr": "HR",
+        "it": "IT",
         "general": "Общий",
     }
     return names.get(domain_id, domain_id.title())

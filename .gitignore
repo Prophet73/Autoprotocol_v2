@@ -27,6 +27,11 @@ ENV/
 .env
 .env.local
 .env.*.local
+.env.production
+.env.production.*
+*.env.production
+docker/.env*
+!docker/.env.example
 
 # ============================
 # IDE / Редакторы
@@ -147,7 +152,7 @@ test-results/
 *.tar
 docker-compose.override.yml
 docker/.env
-docker/.env.production
+# docker/.env.production  # Included for private repo
 
 # ============================
 # Backups

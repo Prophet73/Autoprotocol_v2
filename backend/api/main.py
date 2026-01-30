@@ -19,6 +19,7 @@ load_dotenv(_env_path)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 # Rate limiting is optional - may not be installed in Docker
 try:
@@ -124,13 +125,16 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
-    redirect_slashes=False,  # Отключаем редиректы - они ломают HTTPS за reverse proxy
 )
 
 # Add rate limiter to app state (if available)
 if SLOWAPI_AVAILABLE and limiter:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Proxy headers middleware - trust X-Forwarded-* headers from reverse proxy
+# This is needed for correct URL generation (https vs http) behind nginx/proxy
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 # Error logging middleware (must be added before CORS for proper ordering)
 app.add_middleware(ErrorLoggingMiddleware)
