@@ -147,7 +147,7 @@ test-results/
 *.tar
 docker-compose.override.yml
 docker/.env
-# docker/.env.production  # Included for private repo
+docker/.env.production
 
 # ============================
 # Backups
