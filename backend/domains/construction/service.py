@@ -210,7 +210,8 @@ class ConstructionService(BaseDomainService):
     def generate_report_simple(
         self,
         transcription: TranscriptionResult,
-        report_type: str = "weekly_summary"
+        report_type: str = "weekly_summary",
+        meeting_date: Optional[str] = None
     ) -> ConstructionReport:
         """
         Простая генерация отчёта БЕЗ LLM.
@@ -254,7 +255,8 @@ class ConstructionService(BaseDomainService):
             risks=[],
             compliance_items=[],
             participants=[sp.speaker_id for sp in transcription.speakers.values()],
-            source_file=transcription.metadata.source_file
+            source_file=transcription.metadata.source_file,
+            meeting_date=self._parse_date(meeting_date) if meeting_date else None
         )
 
     # === Dashboard и сохранение в БД ===

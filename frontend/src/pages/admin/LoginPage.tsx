@@ -93,6 +93,8 @@ export default function LoginPage() {
   const [ssoProviders, setSsoProviders] = useState<SSOProvider[]>([]);
   const [ssoLoading, setSsoLoading] = useState<SSOProvider | null>(null);
 
+  const ssoOnly = import.meta.env.VITE_SSO_ONLY === 'true';
+
   // Dev tools state
   const [devEnabled, setDevEnabled] = useState(false);
   const [devUsers, setDevUsers] = useState<DevUser[]>([]);
@@ -103,16 +105,34 @@ export default function LoginPage() {
     const providers = getAvailableSSOProviders();
     setSsoProviders(providers);
 
+    // Also query backend to detect Hub SSO at runtime (no rebuild needed)
+    // If backend reports Hub configured, ensure 'hub' provider is present.
+    (async () => {
+      try {
+        const res = await fetch('/auth/hub/check');
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.configured && !providers.includes('hub')) {
+            setSsoProviders((prev) => Array.from(new Set([...prev, 'hub'])));
+          }
+        }
+      } catch (e) {
+        // ignore network errors — fall back to env-based providers
+      }
+    })();
+
     // Auto-redirect to Hub SSO if it's the only/primary provider
     // Skip if there's an error in URL (returning from failed SSO)
     const params = new URLSearchParams(location.search);
     const hasError = params.get('error');
     const skipAutoRedirect = params.get('manual') === 'true';
 
-    if (!hasError && !skipAutoRedirect && providers.includes('hub')) {
-      // Auto-redirect to Hub SSO
-      initiateSSOLogin('hub');
-      return;
+    if (!hasError && !skipAutoRedirect && (providers.includes('hub') || ssoProviders.includes('hub'))) {
+      // Auto-redirect to Hub SSO (if SSO-only mode or hub is primary)
+      if (ssoOnly || providers.length === 1) {
+        initiateSSOLogin('hub');
+        return;
+      }
     }
 
     // Check if dev mode is enabled and get users
@@ -229,6 +249,18 @@ export default function LoginPage() {
             <p className="text-slate-500 mt-2">Вход в систему</p>
           </div>
 
+          {/* Direct Hub SSO button (always available in production) */}
+          {(ssoOnly || import.meta.env.PROD) && (
+            <div className="mb-4">
+              <a
+                href="/auth/hub/login?redirect_to=/admin"
+                className="w-full inline-block text-center py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition"
+              >
+                Войти через корпоративный SSO
+              </a>
+            </div>
+          )}
+
           {/* Error Message */}
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
@@ -237,7 +269,8 @@ export default function LoginPage() {
           )}
 
           {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          {!ssoOnly && (
+            <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-2">
                 Email или имя пользователя
@@ -285,7 +318,8 @@ export default function LoginPage() {
                 'Войти'
               )}
             </button>
-          </form>
+            </form>
+          )}
 
           {/* SSO Login Options */}
           {ssoProviders.length > 0 && (

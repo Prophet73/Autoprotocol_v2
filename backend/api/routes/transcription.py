@@ -1390,6 +1390,7 @@ async def run_text_report_generation(
             output_files["transcript"] = str(transcript_path)
 
         # Save domain report to database if project is linked
+        logger.info(f"[DOMAIN_SAVE_CHECK] domain_type={domain_type}, project_id={project_id}, risk_brief_obj={risk_brief_obj is not None}")
         if domain_type and project_id:
             progress_callback("domain_report", 98, "Saving report to database...")
             try:
@@ -1406,8 +1407,53 @@ async def run_text_report_generation(
                     basic_report=basic_report,  # Fixed: was missing!
                     risk_brief=risk_brief_obj,
                 )
+                
+                # Auto-send critical risk brief to project managers
+                if risk_brief_obj is not None and domain == "construction":
+                    try:
+                        overall_status = getattr(risk_brief_obj, 'overall_status', None)
+                        # Handle both enum and string
+                        if hasattr(overall_status, 'value'):
+                            status_value = overall_status.value
+                        else:
+                            status_value = str(overall_status) if overall_status else None
+                        
+                        logger.info(
+                            f"[CRITICAL_NOTIFY_CHECK] job_id={job_id}, project_id={project_id}, "
+                            f"overall_status={overall_status}, status_value={status_value}"
+                        )
+                        
+                        if status_value == "critical":
+                            from ...core.email.service import email_service
+                            
+                            # Get project name
+                            project_name = getattr(risk_brief_obj, 'project_name', None)
+                            
+                            logger.info(
+                                f"[CRITICAL_NOTIFY_SEND] Sending notification for project_id={project_id}, "
+                                f"project_name={project_name}, job_id={job_id}"
+                            )
+                            
+                            result_sent = email_service.send_critical_risk_brief_to_managers(
+                                project_id=project_id,
+                                job_id=job_id,
+                                project_name=project_name,
+                                risk_brief_status=status_value,
+                            )
+                            
+                            if result_sent:
+                                logger.info(f"[CRITICAL_NOTIFY_SUCCESS] Critical risk brief notification sent for project {project_id}")
+                            else:
+                                logger.warning(f"[CRITICAL_NOTIFY_FAILED] Notification returned False for project {project_id}")
+                        else:
+                            logger.info(f"[CRITICAL_NOTIFY_SKIP] Status is '{status_value}', not 'critical' - skipping notification")
+                    except Exception as e:
+                        logger.error(f"[CRITICAL_NOTIFY_ERROR] Critical brief notification failed (non-fatal): {e}", exc_info=True)
+                        
             except Exception as e:
                 logger.error(f"Domain report save failed (non-fatal): {e}")
+        else:
+            logger.info(f"[DOMAIN_SAVE_SKIP] Skipping domain report save: domain_type={domain_type}, project_id={project_id}")
 
         # No need to filter - analysis is no longer a file
         public_output_files = output_files

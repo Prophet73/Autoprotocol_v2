@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { Loader2, PlayCircle, Check, X, Mail, Calendar } from 'lucide-react';
+import { Loader2, PlayCircle, Check, X, Mail, Calendar, LogIn, Shield } from 'lucide-react';
 import { FileDropzone } from '../components/FileDropzone';
 import { ArtifactOptions, defaultArtifactState } from '../components/ArtifactOptions';
 import { LanguageSelector, defaultLanguages } from '../components/LanguageSelector';
@@ -11,9 +11,86 @@ import type { ArtifactState } from '../components/ArtifactOptions';
 import { createTranscription, validateProjectCode } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
 
+// Login prompt component for unauthenticated users
+function LoginPrompt() {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSSOLogin = () => {
+    setIsLoading(true);
+    // Redirect to Hub SSO with return to home page
+    window.location.href = '/auth/hub/login?redirect_to=/';
+  };
+
+  return (
+    <div className="max-w-xl mx-auto">
+      <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-8 text-center bg-gradient-to-r from-slate-50 to-red-50/30 border-b border-slate-100">
+          <div className="w-16 h-16 bg-severin-red/10 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Shield className="w-8 h-8 text-severin-red" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-800 mb-2">
+            Требуется авторизация
+          </h1>
+          <p className="text-slate-600">
+            Для загрузки файлов и создания протоколов необходимо войти в систему
+          </p>
+        </div>
+
+        {/* Features list */}
+        <div className="px-6 py-6 border-b border-slate-100">
+          <h2 className="text-sm font-semibold text-slate-800 mb-3">
+            Возможности сервиса:
+          </h2>
+          <ul className="space-y-2 text-sm text-slate-600">
+            <li className="flex items-start gap-2">
+              <Check className="w-4 h-4 text-severin-red mt-0.5 flex-shrink-0" />
+              <span>Автоматическая расшифровка аудио и видео записей совещаний</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <Check className="w-4 h-4 text-severin-red mt-0.5 flex-shrink-0" />
+              <span>Генерация протоколов с выделением ключевых решений и задач</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <Check className="w-4 h-4 text-severin-red mt-0.5 flex-shrink-0" />
+              <span>Отправка готовых отчётов на email</span>
+            </li>
+          </ul>
+        </div>
+
+        {/* Login button */}
+        <div className="px-6 py-6 bg-slate-50/50">
+          <button
+            onClick={handleSSOLogin}
+            disabled={isLoading}
+            className="w-full py-3 px-6 rounded-lg font-semibold text-white bg-severin-red hover:bg-severin-red-dark shadow-lg shadow-severin-red/25 hover:shadow-severin-red/40 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Перенаправление...
+              </>
+            ) : (
+              <>
+                <LogIn className="w-5 h-5" />
+                Войти через корпоративный SSO
+              </>
+            )}
+          </button>
+          <p className="text-xs text-slate-500 mt-3 text-center">
+            Используйте вашу корпоративную учётную запись для входа
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function UploadPage() {
   const navigate = useNavigate();
-  const { user } = useAuthStore();
+  const { user, isAuthenticated } = useAuthStore();
+
+  // All hooks must be called unconditionally at the top
   const [file, setFile] = useState<File | null>(null);
   const [languages, setLanguages] = useState<string[]>(defaultLanguages);
   const [artifacts, setArtifacts] = useState<ArtifactState>(defaultArtifactState);
@@ -45,6 +122,7 @@ export function UploadPage() {
 
   // Validate project code when it changes
   useEffect(() => {
+    if (!isAuthenticated) return; // Skip if not authenticated
     if (projectCode.length === 4 && /^\d{4}$/.test(projectCode)) {
       setIsValidating(true);
       validateProjectCode(projectCode)
@@ -61,7 +139,7 @@ export function UploadPage() {
     } else if (projectCode.length === 0) {
       setCodeValidation(null);
     }
-  }, [projectCode]);
+  }, [projectCode, isAuthenticated]);
 
   const handleCodeChange = (value: string) => {
     // Only allow digits, max 4
@@ -122,6 +200,11 @@ export function UploadPage() {
   const isCodeValid = showProjectCodeRequired ? codeValidation?.valid === true : true;
   const isMeetingTypeValid = !showMeetingTypeSelector || meetingType !== '';
   const canSubmit = file && hasAnyArtifact && isCodeValid && isMeetingTypeValid && !mutation.isPending;
+
+  // Show login prompt for unauthenticated users (after all hooks)
+  if (!isAuthenticated) {
+    return <LoginPrompt />;
+  }
 
   return (
     <div className="max-w-3xl mx-auto">

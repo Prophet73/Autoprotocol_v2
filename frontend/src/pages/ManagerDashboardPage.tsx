@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
@@ -58,10 +59,24 @@ const healthColors = {
 export function ManagerDashboardPage() {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [projectSearch, setProjectSearch] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedAnalyticsId, setSelectedAnalyticsId] = useState<number | null>(null);
+
+  // Handle deep link: ?analytics=ID opens the analytics modal automatically
+  useEffect(() => {
+    const analyticsParam = searchParams.get('analytics');
+    if (analyticsParam) {
+      const analyticsId = parseInt(analyticsParam, 10);
+      if (!isNaN(analyticsId) && analyticsId > 0) {
+        setSelectedAnalyticsId(analyticsId);
+        // Clear the URL param after opening modal (clean URL)
+        setSearchParams({}, { replace: true });
+      }
+    }
+  }, [searchParams, setSearchParams]);
 
   // Check if user can see full risk brief (manager, admin, superuser)
   const canSeeFullRiskBrief = user?.is_superuser || ['manager', 'admin', 'superuser'].includes(user?.role || '');

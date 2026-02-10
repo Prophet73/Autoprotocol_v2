@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from backend.core.auth import require_superuser
+from backend.core.auth import require_admin
 from backend.core.storage import get_job_store
 from backend.shared.database import get_db
 from backend.shared.models import User
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/jobs", tags=["Админ - Задачи"])
 @router.get("", summary="Список всех задач")
 async def list_all_jobs(
     limit: int = 100,
-    _: User = Depends(require_superuser),
+    _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -69,7 +69,7 @@ async def list_all_jobs(
 @router.delete("/{job_id}", summary="Отменить задачу")
 async def cancel_job(
     job_id: str,
-    _: User = Depends(require_superuser),
+    _: User = Depends(require_admin),
 ):
     """
     Принудительно отменить задачу (для админов).

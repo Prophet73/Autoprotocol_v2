@@ -318,22 +318,18 @@ async def get_dashboard_view(
             project_name=report.project.name if report.project else "Без проекта"
         ))
 
-    # Проблемы требующие внимания
+    # Проблемы требующие внимания (включая выполненные - они отображаются внизу списка)
     problems_query = (
         select(ReportProblem)
         .join(ReportAnalytics)
         .join(ConstructionReportDB)
-        .where(
-            and_(
-                ConstructionReportDB.project_id.in_(project_ids),
-                ReportProblem.status == 'new'
-            )
-        )
+        .where(ConstructionReportDB.project_id.in_(project_ids))
         .order_by(
+            case((ReportProblem.status == 'new', 0), else_=1),  # new сначала, done внизу
             case((ReportProblem.severity == 'critical', 0), else_=1),
             desc(ReportProblem.created_at)
         )
-        .limit(20)
+        .limit(30)
     )
     problems_result = await db.execute(problems_query)
     problems = problems_result.scalars().all()
@@ -665,6 +661,7 @@ async def update_problem_status(
         problem.resolved_at = None
 
     await db.commit()
+    await db.refresh(problem)
 
     return {"success": True, "message": f"Problem status updated to {data.status}"}
 

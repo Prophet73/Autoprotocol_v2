@@ -47,10 +47,30 @@ class DiarizationProcessor:
         if self.diarize_model is None:
             logger.info("Loading diarization model...")
             from whisperx.diarize import DiarizationPipeline
-            self.diarize_model = DiarizationPipeline(
-                use_auth_token=self.hf_token,
-                device=self.device
-            )
+            try:
+                self.diarize_model = DiarizationPipeline(
+                    use_auth_token=self.hf_token,
+                    device=self.device
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to load DiarizationPipeline: %s. "
+                    "Ensure HUGGINGFACE_TOKEN is set, token has read access, "
+                    "and you've accepted the model terms on https://hf.co/pyannote/speaker-diarization-3.1",
+                    str(e),
+                )
+                raise RuntimeError(
+                    "Could not initialize diarization model. "
+                    "Set a valid HUGGINGFACE_TOKEN with read access and accept the model terms on Hugging Face: https://hf.co/pyannote/speaker-diarization-3.1"
+                ) from e
+            if self.diarize_model is None:
+                logger.error(
+                    "DiarizationPipeline.from_pretrained returned None. "
+                    "This usually means the pipeline is gated or the token lacks access."
+                )
+                raise RuntimeError(
+                    "Diarization pipeline unavailable. Ensure HUGGINGFACE_TOKEN is valid and model access accepted."
+                )
 
     def process(
         self,

@@ -8,6 +8,7 @@ Endpoints for:
 """
 from datetime import timedelta
 from typing import Annotated
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -27,6 +28,9 @@ from .dependencies import (
 
 
 router = APIRouter(prefix="/auth", tags=["Авторизация"])
+
+# Если нужно разрешить только вход через SSO — включите переменную окружения SSO_ONLY
+SSO_ONLY = os.getenv("SSO_ONLY", "false").lower() in ("1", "true", "yes")
 
 
 # =============================================================================
@@ -87,6 +91,12 @@ async def login(
     `Authorization: Bearer <token>`
     """
     # Поиск пользователя по email ИЛИ username
+    # Если система настроена на работу только через SSO — запрещаем локальный вход
+    if SSO_ONLY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Local authentication is disabled. Use SSO at /auth/hub/login",
+        )
     result = await db.execute(
         select(User).where(
             or_(
@@ -139,6 +149,12 @@ async def register(
     Примечание: Новые пользователи создаются с ролью 'user'.
     Права суперпользователя должны быть выданы другим суперпользователем.
     """
+    # Если система работает только через SSO — регистрация локальных аккаунтов запрещена
+    if SSO_ONLY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Local registration is disabled. Use SSO to provision accounts.",
+        )
     # Проверка существования email
     result = await db.execute(
         select(User).where(User.email == data.email)
@@ -260,6 +276,10 @@ async def dev_list_users(
     if not DEV_MODE:
         return DevUsersList(users=[], enabled=False)
 
+    # В режиме SSO_ONLY dev-эндпоинты не должны позволять быстрый вход
+    if SSO_ONLY:
+        return DevUsersList(users=[], enabled=False)
+
     # Получение существующих пользователей
     result = await db.execute(select(User).where(User.is_active == True))
     users = result.scalars().all()
@@ -300,6 +320,12 @@ async def dev_login(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Dev login disabled in production"
+        )
+
+    if SSO_ONLY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dev login disabled when SSO_ONLY is enabled",
         )
 
     # Маппинг роли на конфигурацию пользователя

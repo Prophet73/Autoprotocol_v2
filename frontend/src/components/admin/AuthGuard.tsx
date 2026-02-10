@@ -17,7 +17,10 @@ export default function AuthGuard({ children, requiredRole = 'admin' }: AuthGuar
 
   // Check if user is authenticated
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+    // If not authenticated, redirect user directly to Hub SSO login
+    // preserving the original destination so Hub can redirect back
+    const redirectTo = encodeURIComponent(location.pathname + (location.search || ''));
+    return <Navigate to={`/auth/hub/login?redirect_to=${redirectTo}`} replace />;
   }
 
   // Check role-based access

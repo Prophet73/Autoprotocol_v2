@@ -78,6 +78,7 @@ class Domain(str, Enum):
     CONSTRUCTION = "construction"
     HR = "hr"
     IT = "it"
+    DCT = "dct"
     GENERAL = "general"
 
 

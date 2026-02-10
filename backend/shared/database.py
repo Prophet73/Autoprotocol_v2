@@ -72,6 +72,52 @@ def get_celery_session_factory():
     )
 
 
+def get_celery_sync_session():
+    """
+    Create a synchronous database session for Celery tasks.
+    
+    Use this when you need synchronous database access in Celery workers
+    (e.g., in non-async code paths like email service).
+    
+    Returns a context manager for use with 'with' statement.
+    
+    Usage:
+        with get_celery_sync_session() as db:
+            result = db.execute(select(User))
+            ...
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker, Session
+    from contextlib import contextmanager
+    
+    # Convert async URL to sync URL
+    sync_url = DATABASE_URL.replace("+asyncpg", "").replace("postgresql://", "postgresql+psycopg2://")
+    if "psycopg2" not in sync_url:
+        sync_url = sync_url.replace("postgresql://", "postgresql+psycopg2://")
+    
+    sync_engine = create_engine(
+        sync_url,
+        echo=os.getenv("SQL_ECHO", "false").lower() == "true",
+    )
+    
+    SyncSession = sessionmaker(bind=sync_engine, expire_on_commit=False)
+    
+    @contextmanager
+    def session_scope():
+        session = SyncSession()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+            sync_engine.dispose()
+    
+    return session_scope()
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     FastAPI dependency for database session.

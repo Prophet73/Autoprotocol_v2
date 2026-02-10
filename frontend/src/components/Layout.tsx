@@ -74,6 +74,27 @@ export function Layout({ children }: LayoutProps) {
     }
   };
 
+  // If visiting root and not authenticated, redirect to Hub SSO (production SSO-only behavior)
+  useEffect(() => {
+    // Runtime check: ask backend if Hub SSO is configured and redirect unauthenticated
+    // users visiting root to the Hub login. This avoids depending on build-time env.
+    if (isAuthenticated || location.pathname !== '/') return;
+
+    (async () => {
+      try {
+        const res = await fetch('/auth/hub/check');
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json?.configured) {
+          const redirectTo = encodeURIComponent(location.pathname + (location.search || ''));
+          window.location.href = `/auth/hub/login?redirect_to=${redirectTo}`;
+        }
+      } catch (e) {
+        // ignore network errors
+      }
+    })();
+  }, [isAuthenticated, location.pathname]);
+
   return (
     <div className="h-screen flex flex-col bg-slate-100">
       {/* Top bar - Logo + Service name */}

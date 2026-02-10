@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.shared.database import get_db
 from backend.shared.models import UserRole, Domain
-from backend.core.auth.dependencies import SuperUser
+from backend.core.auth.dependencies import AdminUser, SuperUser
 from backend.core.auth.hub_sync import HubSyncService
 from .service import UserService
 from .schemas import (
@@ -39,7 +39,7 @@ router = APIRouter(prefix="/users", tags=["Админ - Пользователи
     description="Получение списка пользователей с пагинацией и фильтрацией по роли/домену."
 )
 async def list_users(
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     skip: int = Query(0, ge=0, description="Пропустить записей"),
     limit: int = Query(100, ge=1, le=1000, description="Максимум записей"),
@@ -68,7 +68,7 @@ async def list_users(
 )
 async def get_user(
     user_id: int,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
     """Получить детали пользователя по ID."""
@@ -91,14 +91,28 @@ async def get_user(
 )
 async def create_user(
     request: CreateUserRequest,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
     """
-    Создать нового пользователя (только суперпользователь).
+    Создать нового пользователя (админ или суперпользователь).
 
     Пароль хешируется перед сохранением.
+    Админы не могут создавать суперадминов или админов.
     """
+    # Admins cannot create superusers or other admins
+    if not current_user.is_superuser:
+        if request.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can create superuser accounts"
+            )
+        if request.role == UserRole.ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can create admin accounts"
+            )
+    
     service = UserService(db)
     try:
         user = await service.create_user(request)
@@ -118,16 +132,33 @@ async def create_user(
 )
 async def assign_role(
     request: AssignRoleRequest,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AssignRoleResponse:
     """
     Назначить роль и домен пользователю.
 
-    Требует прав суперпользователя.
-    Установка роли 'superuser' автоматически устанавливает is_superuser=True.
+    Требует прав админа или суперпользователя.
+    Админы не могут назначать роли admin или superuser.
+    Админы не могут изменять суперпользователей.
     """
     service = UserService(db)
+    
+    # Check if target user is a superuser (admins cannot modify superusers)
+    if not current_user.is_superuser:
+        target_user = await service.get_user(request.user_id)
+        if target_user and target_user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can modify superuser accounts"
+            )
+        # Admins cannot assign admin or superuser roles
+        if request.role in [UserRole.ADMIN, UserRole.SUPERUSER]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can assign admin or superuser roles"
+            )
+    
     try:
         user = await service.assign_role(request)
         return AssignRoleResponse(
@@ -150,11 +181,37 @@ async def assign_role(
 async def update_user(
     user_id: int,
     request: UpdateUserRequest,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
-    """Обновить данные пользователя."""
+    """
+    Обновить данные пользователя.
+    
+    Админы не могут изменять суперпользователей.
+    Админы не могут назначать роль admin или superuser.
+    """
     service = UserService(db)
+    
+    # Check if target user is a superuser (admins cannot modify superusers)
+    if not current_user.is_superuser:
+        target_user = await service.get_user(user_id)
+        if target_user and target_user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can modify superuser accounts"
+            )
+        # Admins cannot set is_superuser or admin role
+        if request.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can grant superuser privileges"
+            )
+        if request.role and request.role in [UserRole.ADMIN, UserRole.SUPERUSER]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can assign admin or superuser roles"
+            )
+    
     try:
         user = await service.update_user(user_id, request)
         return UserResponse.model_validate(user)
@@ -173,13 +230,14 @@ async def update_user(
 )
 async def delete_user(
     user_id: int,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
     """
     Удалить пользователя.
 
     Нельзя удалить самого себя.
+    Админы не могут удалять суперпользователей.
     """
     if user_id == current_user.id:
         raise HTTPException(
@@ -188,6 +246,16 @@ async def delete_user(
         )
 
     service = UserService(db)
+    
+    # Check if target user is a superuser (admins cannot delete superusers)
+    if not current_user.is_superuser:
+        target_user = await service.get_user(user_id)
+        if target_user and target_user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superusers can delete superuser accounts"
+            )
+    
     deleted = await service.delete_user(user_id)
     if not deleted:
         raise HTTPException(
@@ -209,7 +277,7 @@ async def delete_user(
 async def assign_domains(
     user_id: int,
     domains: list[str],
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
     """
@@ -241,7 +309,7 @@ async def assign_domains(
 )
 async def get_user_domains(
     user_id: int,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[str]:
     """Получить список доменов пользователя."""
@@ -262,7 +330,7 @@ async def get_user_domains(
 async def grant_project_access(
     user_id: int,
     project_id: int,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ProjectAccessResponse:
     """
@@ -293,7 +361,7 @@ async def grant_project_access(
 async def revoke_project_access(
     user_id: int,
     project_id: int,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ProjectAccessResponse:
     """Отозвать у пользователя доступ к проекту."""
@@ -315,7 +383,7 @@ async def revoke_project_access(
 )
 async def get_user_projects(
     user_id: int,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserProjectAccessList:
     """Получить список ID проектов, к которым пользователь имеет доступ."""
@@ -333,7 +401,7 @@ async def get_user_projects(
 async def batch_update_project_access(
     user_id: int,
     request: BatchUpdateProjectAccessRequest,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> BatchUpdateProjectAccessResponse:
     """
@@ -368,7 +436,7 @@ async def batch_update_project_access(
 )
 async def get_project_users(
     project_id: int,
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
     include_details: bool = False,
 ) -> ProjectUserAccessList:
@@ -400,7 +468,7 @@ async def get_project_users(
     description="Синхронизировать пользователей из Hub SSO в локальную БД."
 )
 async def sync_users_from_hub(
-    current_user: SuperUser,
+    current_user: AdminUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict:
     """

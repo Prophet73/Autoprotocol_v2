@@ -87,6 +87,20 @@ class EmotionAnalyzer:
                 trust_remote_code=True
             )
             self.model.to(self.device)
+            # Diagnostic logs: report where model parameters live and CUDA memory usage
+            try:
+                param_dev = next(self.model.parameters()).device
+                logger.info(f"Emotion model parameters device: {param_dev}")
+                if torch.cuda.is_available() and 'cuda' in str(param_dev):
+                    try:
+                        logger.info(f"CUDA memory allocated: {torch.cuda.memory_allocated():,}")
+                        logger.info(f"CUDA memory reserved: {torch.cuda.memory_reserved():,}")
+                    except Exception as e:
+                        logger.debug(f"Could not read CUDA memory stats: {e}")
+            except StopIteration:
+                logger.warning("Emotion model has no parameters to inspect")
+            except Exception as e:
+                logger.debug(f"Could not inspect emotion model device: {e}")
             self.model.eval()
 
             logger.info(f"Emotion model loaded: {self.model_id} (90% accuracy)")

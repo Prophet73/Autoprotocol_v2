@@ -16,12 +16,15 @@ RUN npm ci --include=dev
 COPY frontend/ ./
 
 # Build args for environment
-ARG VITE_API_URL=/api
+# Default to empty to force relative URLs in production builds
+ARG VITE_API_URL=
 ARG VITE_SSO_HUB_ENABLED=false
+ARG VITE_SSO_ONLY=false
 
 # Set env for build
 ENV VITE_API_URL=${VITE_API_URL}
 ENV VITE_SSO_HUB_ENABLED=${VITE_SSO_HUB_ENABLED}
+ENV VITE_SSO_ONLY=${VITE_SSO_ONLY}
 
 # Build production
 RUN npm run build
