@@ -85,7 +85,7 @@ Transcript:
 ---
 
 Respond in JSON format.
-""".format(transcript=transcript_text[:15000])
+""".format(transcript=transcript_text)
 
     try:
         response = run_llm_call(

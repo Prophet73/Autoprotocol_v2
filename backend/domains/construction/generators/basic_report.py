@@ -93,7 +93,7 @@ def _extract_basic_report_via_llm(transcript_text: str, meeting_date: str) -> Ba
 
     # Format prompt with variables
     full_prompt = user_prompt_template.format(
-        transcript=transcript_text[:15000],
+        transcript=transcript_text,
         meeting_date=meeting_date,
     )
 

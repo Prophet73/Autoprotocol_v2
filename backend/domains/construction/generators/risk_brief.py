@@ -154,7 +154,7 @@ def _get_risk_brief(transcript_text: str, meeting_date: str = None) -> RiskBrief
 
     # Format user prompt with transcript and meeting date
     user_prompt = RISK_BRIEF_USER.format(
-        transcript=transcript_text[:20000],
+        transcript=transcript_text,
         meeting_date=meeting_date or "не указана"
     )
 

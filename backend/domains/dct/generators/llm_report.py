@@ -108,7 +108,7 @@ def _extract_dct_report_via_llm(
 
     # Format user prompt
     full_prompt = user_prompt_template.format(
-        transcript=transcript_text[:15000],
+        transcript=transcript_text,
         meeting_date=meeting_date,
     ) if "{transcript}" in user_prompt_template else f"""
 {user_prompt_template}
@@ -116,7 +116,7 @@ def _extract_dct_report_via_llm(
 Дата встречи: {meeting_date}
 
 Стенограмма:
-{transcript_text[:15000]}
+{transcript_text}
 
 Ответь строго в формате JSON согласно схеме:
 {json.dumps(schema_json, ensure_ascii=False, indent=2)}
