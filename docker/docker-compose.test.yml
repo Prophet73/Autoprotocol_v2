@@ -127,7 +127,7 @@ services:
   # Postgres
   postgres:
     container_name: whisperx-postgres
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     expose:
       - "5432"
     environment:

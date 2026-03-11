@@ -223,7 +223,7 @@ services:
   # Postgres (Primary Database)
   postgres:
     container_name: whisperx-postgres
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     shm_size: 256m
     # No external ports in production
     expose:
