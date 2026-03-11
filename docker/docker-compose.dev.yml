@@ -190,6 +190,12 @@ services:
       - DATABASE_URL=postgresql+asyncpg://whisperx:whisperx@postgres:5432/whisperx
     volumes:
       - ../backend:/opt/whisperx/backend:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8100/check || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       api:
         condition: service_healthy

@@ -46,4 +46,8 @@ asyncpg
 python-jose[cryptography]
 bcrypt>=4.0.0,<5.0  # Pin to 4.x for passlib compatibility (MUST be before passlib)
 passlib[bcrypt]
+limits>=3.0  # Redis-backed rate limiting for login endpoint
+
+# Database Migrations
+alembic>=1.13.0
 
