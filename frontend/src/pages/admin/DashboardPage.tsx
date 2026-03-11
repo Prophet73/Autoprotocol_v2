@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { statsApi } from '../../api/adminApi';
-import type { GlobalStats, SystemHealth } from '../../api/adminApi';
+import { useNavigate } from 'react-router-dom';
+import { statsApi, logsApi } from '../../api/adminApi';
+import { getApiErrorMessage } from '../../utils/errorMessage';
+import type { GlobalStats, SystemHealth, ErrorLog } from '../../api/adminApi';
 
 interface StatCardProps {
   title: string;
@@ -43,8 +45,10 @@ function HealthIndicator({ label, healthy }: { label: string; healthy: boolean }
 export default function DashboardPage() {
   const [stats, setStats] = useState<GlobalStats | null>(null);
   const [health, setHealth] = useState<SystemHealth | null>(null);
+  const [recentErrors, setRecentErrors] = useState<ErrorLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     loadData();
@@ -60,8 +64,16 @@ export default function DashboardPage() {
       setStats(statsData);
       setHealth(healthData);
       setError('');
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Ошибка загрузки данных');
+
+      // Fetch recent error logs separately — don't block main dashboard
+      try {
+        const logsData = await logsApi.list({ page: 1, page_size: 5 });
+        setRecentErrors(logsData.logs || []);
+      } catch {
+        setRecentErrors([]);
+      }
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Ошибка загрузки данных'));
     } finally {
       setLoading(false);
     }
@@ -266,6 +278,55 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Recent Errors */}
+      {recentErrors.length > 0 && (
+        <div className="bg-white rounded-lg p-6 shadow-sm border border-red-200">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center">
+              <svg className="w-5 h-5 text-red-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              Последние ошибки
+            </h3>
+            <button
+              onClick={() => navigate('/admin/logs')}
+              className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+            >
+              Смотреть все логи
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  <th className="text-left py-2 px-3 text-slate-500 font-medium">Время</th>
+                  <th className="text-left py-2 px-3 text-slate-500 font-medium">Endpoint / Задача</th>
+                  <th className="text-left py-2 px-3 text-slate-500 font-medium">Тип ошибки</th>
+                  <th className="text-left py-2 px-3 text-slate-500 font-medium">Код</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentErrors.map((log) => (
+                  <tr key={log.id} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="py-2 px-3 text-slate-600 whitespace-nowrap">
+                      {new Date(log.timestamp).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="py-2 px-3">
+                      <span className="text-slate-800 font-mono text-xs">{log.endpoint}</span>
+                      {log.method === 'CELERY' && (
+                        <span className="ml-2 px-1.5 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">CELERY</span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-red-600 font-medium">{log.error_type}</td>
+                    <td className="py-2 px-3 text-slate-600">{log.status_code}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Footer info */}
       <div className="text-center text-slate-500 text-sm">

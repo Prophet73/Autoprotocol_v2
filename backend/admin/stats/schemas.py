@@ -21,25 +21,47 @@ from backend.domains.base_schemas import DOMAIN_MEETING_TYPES
 # =============================================================================
 
 class GeminiPricing:
-    """Константы ценообразования Gemini API (USD за миллион токенов)."""
-    # Flash 2.0 (модель по умолчанию)
-    FLASH_2_INPUT = 0.10  # $0.10 за 1M входных токенов
-    FLASH_2_OUTPUT = 0.40  # $0.40 за 1M выходных токенов
+    """Константы ценообразования Gemini API (USD за миллион токенов).
 
-    # Flash 2.5
-    FLASH_25_INPUT = 0.30
-    FLASH_25_OUTPUT = 2.50
+    Используемые модели:
+    - gemini-2.5-flash — перевод (translate stage)
+    - gemini-2.5-pro   — генерация отчётов, задач, анализ
 
-    # Текущая используемая модель
-    INPUT_PRICE = FLASH_2_INPUT
-    OUTPUT_PRICE = FLASH_2_OUTPUT
+    Токены трекаются по-модельно (flash/pro) в TranscriptionJob.
+    """
+    # Gemini 2.5 Flash (перевод)
+    FLASH_INPUT = 0.30    # $0.30 / 1M
+    FLASH_OUTPUT = 2.50   # $2.50 / 1M
+
+    # Gemini 2.5 Pro (отчёты, анализ)
+    PRO_INPUT = 1.25      # $1.25 / 1M (prompts ≤200k)
+    PRO_OUTPUT = 10.00    # $10.00 / 1M (prompts ≤200k)
+
+    # Legacy: used when only total tokens available (old jobs)
+    INPUT_PRICE = FLASH_INPUT
+    OUTPUT_PRICE = FLASH_OUTPUT
 
     @classmethod
     def calculate_cost(cls, input_tokens: int, output_tokens: int) -> float:
-        """Рассчитать общую стоимость в USD."""
-        input_cost = (input_tokens / 1_000_000) * cls.INPUT_PRICE
-        output_cost = (output_tokens / 1_000_000) * cls.OUTPUT_PRICE
+        """Рассчитать стоимость по Flash тарифу (для общих/legacy токенов)."""
+        input_cost = (input_tokens / 1_000_000) * cls.FLASH_INPUT
+        output_cost = (output_tokens / 1_000_000) * cls.FLASH_OUTPUT
         return round(input_cost + output_cost, 4)
+
+    @classmethod
+    def calculate_cost_precise(
+        cls,
+        flash_input: int = 0, flash_output: int = 0,
+        pro_input: int = 0, pro_output: int = 0,
+    ) -> float:
+        """Рассчитать точную стоимость по модели."""
+        cost = (
+            (flash_input / 1_000_000) * cls.FLASH_INPUT
+            + (flash_output / 1_000_000) * cls.FLASH_OUTPUT
+            + (pro_input / 1_000_000) * cls.PRO_INPUT
+            + (pro_output / 1_000_000) * cls.PRO_OUTPUT
+        )
+        return round(cost, 4)
 
 
 # =============================================================================
@@ -179,9 +201,22 @@ class CostStats(BaseModel):
     avg_cost_per_job: float = Field(0.0, description="Средняя стоимость задачи")
     by_domain: Dict[str, float] = Field(default={}, description="Стоимость по доменам")
 
-    # Информация о ценах
-    input_price_per_million: float = Field(default=GeminiPricing.INPUT_PRICE, description="Цена за 1M входных токенов")
-    output_price_per_million: float = Field(default=GeminiPricing.OUTPUT_PRICE, description="Цена за 1M выходных токенов")
+    # Per-model token breakdown
+    flash_input_tokens: int = Field(0, description="Flash входных токенов")
+    flash_output_tokens: int = Field(0, description="Flash выходных токенов")
+    pro_input_tokens: int = Field(0, description="Pro входных токенов")
+    pro_output_tokens: int = Field(0, description="Pro выходных токенов")
+    flash_cost_usd: float = Field(0.0, description="Стоимость Flash")
+    pro_cost_usd: float = Field(0.0, description="Стоимость Pro")
+
+    # Pricing info
+    flash_input_price: float = Field(default=GeminiPricing.FLASH_INPUT, description="Flash вход за 1M")
+    flash_output_price: float = Field(default=GeminiPricing.FLASH_OUTPUT, description="Flash выход за 1M")
+    pro_input_price: float = Field(default=GeminiPricing.PRO_INPUT, description="Pro вход за 1M")
+    pro_output_price: float = Field(default=GeminiPricing.PRO_OUTPUT, description="Pro выход за 1M")
+    # Legacy (keep for backward compat)
+    input_price_per_million: float = Field(default=GeminiPricing.FLASH_INPUT)
+    output_price_per_million: float = Field(default=GeminiPricing.FLASH_OUTPUT)
 
 
 # =============================================================================
@@ -194,6 +229,7 @@ class TimelinePoint(BaseModel):
     jobs: int = Field(0, description="Задач")
     completed: int = Field(0, description="Завершено")
     failed: int = Field(0, description="С ошибками")
+    unique_users: int = Field(0, description="Уникальных пользователей")
 
 
 class TimelineStats(BaseModel):
@@ -320,8 +356,7 @@ class UserStatsLegacy(BaseModel):
 
 class DomainStatsLegacy(BaseModel):
     """Статистика по доменам (legacy)."""
-    construction: int = Field(0, description="Строительство")
-    hr: int = Field(0, description="HR")
+    construction: int = Field(0, description="ДПУ")
     it: int = Field(0, description="IT")
     general: int = Field(0, description="Общий")
 

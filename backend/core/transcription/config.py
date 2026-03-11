@@ -9,6 +9,8 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
+from backend.shared import config
+
 logger = logging.getLogger(__name__)
 
 # Load .env from project root
@@ -132,10 +134,10 @@ class PipelineConfig(BaseModel):
         """Create config from environment variables"""
         return cls(
             model=ModelConfig(
-                whisper_model=os.getenv("WHISPER_MODEL", "large-v3"),
+                whisper_model=config.WHISPER_MODEL,
                 compute_type=os.getenv("COMPUTE_TYPE", "float16"),
                 device=os.getenv("DEVICE", "cuda"),
-                batch_size=int(os.getenv("BATCH_SIZE", "16")),
+                batch_size=config.BATCH_SIZE,
             ),
             vad=VADConfig(
                 threshold=float(os.getenv("VAD_THRESHOLD", "0.5")),

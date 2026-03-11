@@ -74,7 +74,8 @@ slowapi>=0.1.9  # Rate limiting for FastAPI
 # =============================================================================
 # Development (optional)
 # =============================================================================
-# pytest
-# pytest-asyncio
-# httpx
+pytest
+pytest-asyncio
+httpx
+aiosqlite
 

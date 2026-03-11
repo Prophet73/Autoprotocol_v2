@@ -49,7 +49,7 @@ class DiarizationProcessor:
             from whisperx.diarize import DiarizationPipeline
             try:
                 self.diarize_model = DiarizationPipeline(
-                    use_auth_token=self.hf_token,
+                    token=self.hf_token,
                     device=self.device
                 )
             except Exception as e:

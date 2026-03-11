@@ -6,22 +6,22 @@ Each generator takes TranscriptionResult and produces a file:
 - transcript.py → transcript.docx (no LLM)
 - tasks.py → tasks.xlsx (uses BasicReport from get_basic_report)
 - report.py → report.docx (uses BasicReport from get_basic_report)
-- analysis.py → AIAnalysis object for dashboard (Gemini, no file)
 - risk_brief.py → risk_brief.pdf (Gemini, INoT approach)
+- summary.py → summary.docx (Gemini, topic-based synopsis)
 """
 
 from .basic_report import get_basic_report
 from .transcript import generate_transcript
 from .tasks import generate_tasks
 from .report import generate_report
-from .analysis import generate_analysis
 from .risk_brief import generate_risk_brief
+from .summary import generate_summary
 
 __all__ = [
     "get_basic_report",
     "generate_transcript",
     "generate_tasks",
     "generate_report",
-    "generate_analysis",
     "generate_risk_brief",
+    "generate_summary",
 ]

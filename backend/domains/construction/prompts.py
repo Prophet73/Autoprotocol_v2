@@ -23,21 +23,6 @@ BASIC_REPORT_USER = _construction_prompts.get("basic_report", {}).get(
 )
 
 # =============================================================================
-# ИИ АНАЛИЗ (analysis.docx)
-# =============================================================================
-
-AI_ANALYSIS_SYSTEM = _construction_prompts.get("ai_analysis", {}).get(
-    "system",
-    """Ты — опытный руководитель строительных проектов.
-Твой анализ должен быть взвешенным, фактологическим."""
-)
-
-AI_ANALYSIS_USER = _construction_prompts.get("ai_analysis", {}).get(
-    "user",
-    "Проанализируй стенограмму совещания для руководителя.\n\n{transcript}"
-)
-
-# =============================================================================
 # RISK BRIEF — Executive-отчёт для заказчика (INoT approach)
 # =============================================================================
 
@@ -53,6 +38,22 @@ RISK_BRIEF_USER = _construction_prompts.get("risk_brief", {}).get(
 )
 
 # =============================================================================
+# КОНСПЕКТ (summary.docx)
+# =============================================================================
+
+SUMMARY_SYSTEM = _construction_prompts.get("summary", {}).get(
+    "system",
+    """Ты — аналитик технического заказчика в строительстве.
+Специализация: тематические конспекты совещаний.
+Ты НЕ извлекаешь задачи — ты группируешь обсуждение по ТЕМАМ."""
+)
+
+SUMMARY_USER = _construction_prompts.get("summary", {}).get(
+    "user",
+    "Проанализируй стенограмму и создай тематический конспект.\n\n{transcript}"
+)
+
+# =============================================================================
 # ЭКСПОРТ (backward compatible)
 # =============================================================================
 
@@ -61,13 +62,13 @@ PROMPTS = {
         "system": BASIC_REPORT_SYSTEM,
         "user": BASIC_REPORT_USER
     },
-    "ai_analysis": {
-        "system": AI_ANALYSIS_SYSTEM,
-        "user": AI_ANALYSIS_USER
-    },
     "risk_brief": {
         "system": RISK_BRIEF_SYSTEM,
         "user": RISK_BRIEF_USER
+    },
+    "summary": {
+        "system": SUMMARY_SYSTEM,
+        "user": SUMMARY_USER
     }
 }
 
@@ -77,10 +78,40 @@ CONSTRUCTION_PROMPTS = {
     "reports": {
         "basic": BASIC_REPORT_USER,
         "tasks": BASIC_REPORT_USER,
-        "analysis": AI_ANALYSIS_USER,
         "risk_brief": RISK_BRIEF_USER,
     }
 }
+
+
+def format_participants_for_prompt(participants: list | None) -> str:
+    """
+    Format participants list into a text block for LLM prompts.
+
+    Args:
+        participants: List of dicts with keys: role, organization, people
+
+    Returns:
+        Formatted string like:
+        Заказчик: Severin Development — Гусев В.В. (директор), Майоров О.
+        Генподрядчик: Нефтересурс — Скорик Д.С., Ирина
+    """
+    if not participants:
+        return ""
+
+    lines = []
+    for p in participants:
+        role = p.get("role", "Участник")
+        org = p.get("organization", "")
+        people = p.get("people", [])
+        people_str = ", ".join(people) if people else ""
+        if org and people_str:
+            lines.append(f"{role}: {org} — {people_str}")
+        elif org:
+            lines.append(f"{role}: {org}")
+        elif people_str:
+            lines.append(f"{role}: {people_str}")
+
+    return "\n".join(lines)
 
 
 def get_basic_report_prompt(transcript: str, meeting_date: str = None) -> tuple:
@@ -100,23 +131,6 @@ def get_basic_report_prompt(transcript: str, meeting_date: str = None) -> tuple:
         meeting_date=meeting_date or "не указана"
     )
     return BASIC_REPORT_SYSTEM, user
-
-
-def get_ai_analysis_prompt(transcript: str) -> tuple:
-    """
-    Get formatted AI analysis prompts.
-
-    Args:
-        transcript: Meeting transcript text
-
-    Returns:
-        Tuple of (system_prompt, user_prompt)
-    """
-    user = get_prompt(
-        "domains.construction.ai_analysis.user",
-        transcript=transcript
-    )
-    return AI_ANALYSIS_SYSTEM, user
 
 
 def get_risk_brief_prompt(transcript: str, meeting_date: str = None) -> tuple:

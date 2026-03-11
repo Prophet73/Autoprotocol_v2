@@ -57,8 +57,10 @@ fi
 echo -e "${BLUE}[4/6] Installing NVIDIA Container Toolkit...${NC}"
 if ! command -v nvidia-container-cli &> /dev/null; then
     distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-    curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
-    curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    curl -fsSL "https://nvidia.github.io/libnvidia-container/${distribution}/libnvidia-container.list" | \
+        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+        sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
     sudo apt-get update
     sudo apt-get install -y nvidia-container-toolkit
     sudo systemctl restart docker
@@ -91,10 +93,10 @@ echo -e "     ${BLUE}git clone <your-repo-url> whisperx${NC}"
 echo -e ""
 echo -e "  2. Configure environment:"
 echo -e "     ${BLUE}cd whisperx${NC}"
-echo -e "     ${BLUE}cp docker/.env.production.example docker/.env.production${NC}"
+echo -e "     ${BLUE}cp docker/.env.example docker/.env.production${NC}"
 echo -e "     ${BLUE}nano docker/.env.production${NC}"
 echo -e ""
 echo -e "  3. Deploy:"
-echo -e "     ${BLUE}./deploy.sh${NC}"
+echo -e "     ${BLUE}./deploy/deploy-prod.sh${NC}"
 echo ""
 echo -e "${YELLOW}Note: You may need to log out and back in for Docker group changes to take effect${NC}"

@@ -8,6 +8,7 @@ Contains:
 import secrets
 import string
 from datetime import datetime
+from enum import Enum
 from typing import Optional, List
 
 from sqlalchemy import (
@@ -130,7 +131,7 @@ class ConstructionProject(Base):
 from backend.shared.models import User
 
 
-class ReportStatus(str):
+class ReportStatus(str, Enum):
     """Report processing status."""
     PENDING = "pending"
     PROCESSING = "processing"
@@ -197,13 +198,6 @@ class ConstructionReportDB(Base):
         index=True
     )
 
-    # Guest UID for anonymous users (stored in localStorage on frontend)
-    guest_uid: Mapped[Optional[str]] = mapped_column(
-        String(64),
-        nullable=True,
-        index=True
-    )
-
     # Report metadata
     title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     report_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -227,6 +221,7 @@ class ConstructionReportDB(Base):
     tasks_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     analysis_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     risk_brief_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    summary_path: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 
     # Result data
     result_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -407,7 +402,7 @@ class ReportProblem(Base):
 # УЧАСТНИКИ СОВЕЩАНИЙ
 # =============================================================================
 
-class ContractorRole(str):
+class ContractorRole(str, Enum):
     """Стандартные роли контрагентов на проекте."""
     CUSTOMER = "customer"                # Заказчик
     TECH_CUSTOMER = "tech_customer"      # Технический заказчик

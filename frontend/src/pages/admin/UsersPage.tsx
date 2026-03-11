@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { usersApi, projectsApi } from '../../api/adminApi';
+import { getApiErrorMessage } from '../../utils/errorMessage';
+import { useConfirm } from '../../hooks/useConfirm';
 import type { User, CreateUserRequest, Project } from '../../api/adminApi';
 
 interface UserModalProps {
@@ -9,10 +11,10 @@ interface UserModalProps {
   onSave: (data: CreateUserRequest | Partial<User>) => void;
 }
 
-const AVAILABLE_DOMAINS = [
-  { value: 'construction', label: 'Строительство' },
-  { value: 'dct', label: 'ДЦТ' },
-];
+import { AVAILABLE_DOMAINS } from '../../config/domains';
+
+// Cache domains per user to avoid re-fetching on every modal open
+const domainsCache = new Map<number, string[]>();
 
 function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
   const [formData, setFormData] = useState({
@@ -36,7 +38,7 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
         domains: [],
         is_superuser: user.is_superuser,
       });
-      // Load user's domains
+      // Load user's domains (with cache)
       loadUserDomains(user.id);
     } else {
       setFormData({
@@ -51,9 +53,16 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
   }, [user]);
 
   const loadUserDomains = async (userId: number) => {
+    // Use cached domains if available
+    const cached = domainsCache.get(userId);
+    if (cached) {
+      setFormData(prev => ({ ...prev, domains: cached }));
+      return;
+    }
     setLoadingDomains(true);
     try {
       const domains = await usersApi.getUserDomains(userId);
+      domainsCache.set(userId, domains);
       setFormData(prev => ({ ...prev, domains }));
     } catch (err) {
       console.error('Error loading user domains:', err);
@@ -71,9 +80,12 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
     }));
   };
 
+  const [error, setError] = useState<string | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setError(null);
     try {
       if (user) {
         // Update user data
@@ -87,6 +99,8 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
         await onSave(updateData);
         // Update domains separately
         await usersApi.updateDomains(user.id, formData.domains);
+        // Invalidate cache for this user
+        domainsCache.delete(user.id);
       } else {
         // Create - include domains
         await onSave({
@@ -95,20 +109,38 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
         });
       }
       onClose();
+    } catch (err) {
+      setError(getApiErrorMessage(err));
     } finally {
       setSaving(false);
     }
   };
 
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
       <div className="relative bg-white rounded-lg p-6 w-full max-w-md shadow-xl border border-slate-200 mx-4">
         <h2 className="text-xl font-bold text-slate-800 mb-6">
           {user ? 'Редактировать пользователя' : 'Создать пользователя'}
         </h2>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -210,7 +242,7 @@ function UserModal({ isOpen, user, onClose, onSave }: UserModalProps) {
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-slate-800 rounded-lg transition"
+              className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-white rounded-lg transition"
             >
               {saving ? 'Сохранение...' : 'Сохранить'}
             </button>
@@ -234,6 +266,7 @@ interface ProjectAccessModalProps {
 }
 
 function ProjectAccessModal({ isOpen, user, projects, onClose, onSave }: ProjectAccessModalProps) {
+  const { alert, ConfirmDialog: AccessConfirmDialog } = useConfirm();
   const [selectedProjects, setSelectedProjects] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -284,12 +317,22 @@ function ProjectAccessModal({ isOpen, user, projects, onClose, onSave }: Project
     try {
       await onSave(user.id, Array.from(selectedProjects));
       onClose();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Ошибка сохранения доступов');
+    } catch (err) {
+      await alert(getApiErrorMessage(err, 'Ошибка сохранения доступов'));
     } finally {
       setSaving(false);
     }
   };
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen || !user) return null;
 
@@ -308,7 +351,7 @@ function ProjectAccessModal({ isOpen, user, projects, onClose, onSave }: Project
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
       <div className="relative bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl border border-slate-200 mx-4 max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between mb-4">
@@ -424,11 +467,12 @@ function ProjectAccessModal({ isOpen, user, projects, onClose, onSave }: Project
           <button
             onClick={handleSave}
             disabled={saving || loading}
-            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-slate-800 rounded-lg transition"
+            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-white rounded-lg transition"
           >
             {saving ? 'Сохранение...' : 'Сохранить'}
           </button>
         </div>
+        {AccessConfirmDialog}
       </div>
     </div>
   );
@@ -439,6 +483,7 @@ function ProjectAccessModal({ isOpen, user, projects, onClose, onSave }: Project
 // ============================================================================
 
 export default function UsersPage() {
+  const { confirm, alert, ConfirmDialog } = useConfirm();
   const [users, setUsers] = useState<User[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [total, setTotal] = useState(0);
@@ -454,6 +499,7 @@ export default function UsersPage() {
   // Filters
   const [roleFilter, setRoleFilter] = useState('');
   const [domainFilter, setDomainFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     loadUsers();
@@ -471,8 +517,8 @@ export default function UsersPage() {
       setUsers(response.users);
       setTotal(response.total);
       setError('');
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Ошибка загрузки пользователей');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Ошибка загрузки пользователей'));
     } finally {
       setLoading(false);
     }
@@ -498,13 +544,13 @@ export default function UsersPage() {
   };
 
   const handleDelete = async (user: User) => {
-    if (!confirm(`Удалить пользователя ${user.email}?`)) return;
+    if (!(await confirm(`Удалить пользователя ${user.email}?`, { variant: 'danger' }))) return;
 
     try {
       await usersApi.delete(user.id);
       await loadUsers();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Ошибка удаления');
+    } catch (err) {
+      await alert(getApiErrorMessage(err, 'Ошибка удаления'));
     }
   };
 
@@ -564,6 +610,15 @@ export default function UsersPage() {
     }
   }, [users]);
 
+  const filteredUsers = users.filter((user) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      user.email.toLowerCase().includes(q) ||
+      (user.full_name?.toLowerCase().includes(q) ?? false)
+    );
+  });
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -574,7 +629,7 @@ export default function UsersPage() {
         </div>
         <button
           onClick={handleCreate}
-          className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-slate-800 rounded-lg transition flex items-center justify-center"
+          className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-white rounded-lg transition flex items-center justify-center"
         >
           <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -585,6 +640,19 @@ export default function UsersPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-4">
+        <div className="relative flex-1 min-w-[200px] max-w-md">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Поиск по имени или email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-severin-red"
+          />
+        </div>
+
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
@@ -604,10 +672,9 @@ export default function UsersPage() {
           className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
         >
           <option value="">Все домены</option>
-          <option value="construction">Строительство</option>
-          <option value="hr">HR</option>
-          <option value="dct">ДЦТ</option>
-          <option value="general">Общий</option>
+          {AVAILABLE_DOMAINS.map(d => (
+            <option key={d.value} value={d.value}>{d.label}</option>
+          ))}
         </select>
       </div>
 
@@ -624,7 +691,7 @@ export default function UsersPage() {
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
           </div>
-        ) : users.length === 0 ? (
+        ) : filteredUsers.length === 0 ? (
           <div className="text-center py-12 text-slate-500">
             <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
@@ -660,7 +727,7 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {users.map((user) => (
+                {filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-slate-50/50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
@@ -696,11 +763,13 @@ export default function UsersPage() {
                               className={`px-1.5 py-0.5 text-xs rounded ${
                                 d === 'construction' ? 'bg-orange-100 text-orange-700' :
                                 d === 'hr' ? 'bg-pink-100 text-pink-700' :
+                                d === 'it' ? 'bg-indigo-100 text-indigo-700' :
                                 d === 'dct' ? 'bg-cyan-100 text-cyan-700' :
+                                d === 'general' ? 'bg-slate-100 text-slate-600' :
                                 'bg-slate-50 text-slate-600'
                               }`}
                             >
-                              {d}
+                              {AVAILABLE_DOMAINS.find(ad => ad.value === d)?.label || d}
                             </span>
                           ))
                         ) : (
@@ -781,6 +850,7 @@ export default function UsersPage() {
         }}
         onSave={handleSaveAccess}
       />
+      {ConfirmDialog}
     </div>
   );
 }

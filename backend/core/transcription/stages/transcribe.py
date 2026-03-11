@@ -185,22 +185,38 @@ class MultilingualTranscriber:
             self.compression_threshold = 2.8
             self.min_text_length = 3
 
+    def _load_model_for_lang(self, lang: str):
+        """Load a single WhisperX model for the given language."""
+        logger.info(f"  Loading model for {lang}...")
+        model = whisperx.load_model(
+            self.model_name,
+            self.device,
+            compute_type=self.compute_type,
+            language=lang,
+            asr_options={"condition_on_previous_text": False}
+        )
+        return model
+
+    def _unload_model(self, lang: str) -> None:
+        """Unload model for the given language and free GPU memory."""
+        if lang in self.models:
+            del self.models[lang]
+            clean_cuda_cache()
+            logger.info(f"  Unloaded model for {lang}")
+
     def load_models(self) -> None:
-        """Load WhisperX models for all languages."""
+        """Load WhisperX models for all languages.
+
+        NOTE: When multiple languages are configured, models are loaded
+        one-at-a-time in transcribe_all() to avoid GPU OOM.
+        This method only preloads when there is a single language.
+        """
         if self.models:
             return
 
-        logger.info(f"Loading models for languages: {self.languages}")
-        for lang in self.languages:
-            logger.info(f"  Loading {lang}...")
-            self.models[lang] = whisperx.load_model(
-                self.model_name,
-                self.device,
-                compute_type=self.compute_type,
-                language=lang,
-                asr_options={"condition_on_previous_text": False}
-            )
-        logger.info("All models loaded")
+        if len(self.languages) == 1:
+            self.models[self.languages[0]] = self._load_model_for_lang(self.languages[0])
+            logger.info("Single-language model loaded")
 
     def transcribe_segment(
         self,
@@ -258,6 +274,9 @@ class MultilingualTranscriber:
         """
         Transcribe all VAD segments with quality filtering.
 
+        For multiple languages, processes one language at a time to avoid
+        GPU OOM: load model -> transcribe all segments -> unload -> next lang.
+
         Args:
             audio: Audio array (16kHz)
             vad_segments: List of VAD segments
@@ -267,7 +286,90 @@ class MultilingualTranscriber:
         Returns:
             List of transcribed segments
         """
-        self.load_models()
+        # For single language, use the simple path
+        if len(self.languages) == 1:
+            self.load_models()
+            return self._transcribe_all_single_lang(
+                audio, vad_segments, batch_size, progress_callback
+            )
+
+        # Multi-language: process one language at a time to avoid OOM
+        # all_results[vad_idx] = {lang: result_dict}
+        all_results: Dict[int, Dict[str, Dict]] = defaultdict(dict)
+
+        for lang in self.languages:
+            model = self._load_model_for_lang(lang)
+            self.models[lang] = model
+
+            sr = 16000
+            for vad_idx, vad_seg in enumerate(vad_segments):
+                segment_audio = audio[int(vad_seg["start"] * sr):int(vad_seg["end"] * sr)]
+                if len(segment_audio) < sr * 0.1:
+                    continue
+
+                result = model.transcribe(segment_audio, batch_size=batch_size)
+                if result["segments"]:
+                    text = " ".join(s.get("text", "") for s in result["segments"]).strip()
+                    seg = result["segments"][0]
+                    seg_data = {
+                        "text": text,
+                        "language": lang,
+                        "start": vad_seg["start"],
+                        "end": vad_seg["end"],
+                        "avg_logprob": seg.get("avg_logprob", -1.0),
+                        "no_speech_prob": seg.get("no_speech_prob", 0.5),
+                        "compression_ratio": seg.get("compression_ratio", 1.5),
+                    }
+                    seg_data["score"] = score_transcription(seg_data, lang)
+                    all_results[vad_idx][lang] = seg_data
+
+            self._unload_model(lang)
+            logger.info(f"Finished transcription pass for language: {lang}")
+
+        # Select best language per segment
+        final_segments = []
+        for vad_idx in range(len(vad_segments)):
+            if progress_callback:
+                progress_callback(vad_idx, len(vad_segments))
+
+            results = all_results.get(vad_idx)
+            if not results:
+                continue
+
+            best_lang = max(results.keys(), key=lambda l: results[l]["score"])
+            best = results[best_lang].copy()
+
+            original_text = best["text"]
+            best["text"] = clean_repetitions(best["text"])
+
+            reject_reason = self._check_quality(best, original_text)
+            if reject_reason:
+                logger.debug(f"Rejected segment {vad_idx}: {reject_reason}")
+                continue
+
+            best["alternatives"] = {
+                lang: {"text": r["text"][:50], "score": round(r["score"], 3)}
+                for lang, r in results.items() if lang != best_lang
+            }
+            final_segments.append(best)
+
+        lang_counts = defaultdict(int)
+        for seg in final_segments:
+            lang_counts[seg["language"]] += 1
+
+        logger.info(f"Transcribed: {len(final_segments)} segments")
+        logger.info(f"By language: {dict(lang_counts)}")
+
+        return final_segments
+
+    def _transcribe_all_single_lang(
+        self,
+        audio: np.ndarray,
+        vad_segments: List[Dict],
+        batch_size: int = 16,
+        progress_callback: Optional[callable] = None,
+    ) -> List[Dict]:
+        """Fast path for single-language transcription (no model reload needed)."""
         final_segments = []
 
         for vad_idx, vad_seg in enumerate(vad_segments):
@@ -281,29 +383,24 @@ class MultilingualTranscriber:
             if not results:
                 continue
 
-            # Select best by score
-            best_lang = max(results.keys(), key=lambda l: results[l]["score"])
+            best_lang = max(results.keys(), key=lambda lang: results[lang]["score"])
             best = results[best_lang].copy()
 
-            # Clean text
             original_text = best["text"]
             best["text"] = clean_repetitions(best["text"])
 
-            # Quality filtering
             reject_reason = self._check_quality(best, original_text)
             if reject_reason:
                 logger.debug(f"Rejected segment {vad_idx}: {reject_reason}")
                 continue
 
-            # Add alternatives
             best["alternatives"] = {
-                l: {"text": r["text"][:50], "score": round(r["score"], 3)}
-                for l, r in results.items() if l != best_lang
+                lang: {"text": r["text"][:50], "score": round(r["score"], 3)}
+                for lang, r in results.items() if lang != best_lang
             }
 
             final_segments.append(best)
 
-        # Statistics
         lang_counts = defaultdict(int)
         for seg in final_segments:
             lang_counts[seg["language"]] += 1

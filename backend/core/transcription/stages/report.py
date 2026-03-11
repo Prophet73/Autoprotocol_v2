@@ -163,8 +163,8 @@ class ReportGenerator:
             f.write("-" * 60 + "\n")
             for speaker, data in sorted(profiles.items(), key=lambda x: -x[1]['total_time']):
                 langs = ', '.join(
-                    self.language_flags.get(l, l)
-                    for l in data['languages']
+                    self.language_flags.get(lang, lang)
+                    for lang in data['languages']
                 )
                 f.write(
                     f"{speaker:<12} | {format_time(data['total_time']):<8} | "

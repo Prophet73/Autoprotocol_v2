@@ -1,15 +1,17 @@
-import { FileText, Table, FileSpreadsheet, Check } from 'lucide-react';
+import { FileText, Table, FileSpreadsheet, BookOpen, Check } from 'lucide-react';
 
 export interface ArtifactState {
   transcript: boolean;
   tasks: boolean;
   report: boolean;
+  summary: boolean;
   // riskBrief is always generated - not a user choice
 }
 
 interface ArtifactOptionsProps {
   value: ArtifactState;
   onChange: (value: ArtifactState) => void;
+  showSummary?: boolean;
 }
 
 const artifacts = [
@@ -31,17 +33,27 @@ const artifacts = [
     description: 'Полный текст с таймкодами',
     icon: FileText,
   },
+  {
+    id: 'summary' as const,
+    label: 'Конспект',
+    description: 'Краткое изложение встречи',
+    icon: BookOpen,
+  },
   // riskBrief is always generated automatically - removed from user selection
 ];
 
-export function ArtifactOptions({ value, onChange }: ArtifactOptionsProps) {
+export function ArtifactOptions({ value, onChange, showSummary = false }: ArtifactOptionsProps) {
   const handleToggle = (id: keyof ArtifactState) => {
     onChange({ ...value, [id]: !value[id] });
   };
 
+  const visibleArtifacts = showSummary
+    ? artifacts
+    : artifacts.filter((a) => a.id !== 'summary');
+
   return (
     <div className="grid gap-2 sm:grid-cols-2">
-      {artifacts.map((artifact) => {
+      {visibleArtifacts.map((artifact) => {
         const Icon = artifact.icon;
         const isChecked = value[artifact.id];
 
@@ -89,5 +101,6 @@ export const defaultArtifactState: ArtifactState = {
   transcript: false,
   tasks: true,
   report: true,
+  summary: false,
   // riskBrief always generated - no user choice
 };

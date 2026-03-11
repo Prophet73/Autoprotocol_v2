@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
     async_sessionmaker,
 )
+from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 
 # Database URL from environment (default: PostgreSQL)
@@ -39,6 +41,10 @@ engine: AsyncEngine = create_async_engine(
     DATABASE_URL,
     echo=os.getenv("SQL_ECHO", "false").lower() == "true",
     future=True,
+    pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
+    max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "20")),
+    pool_recycle=3600,
+    pool_pre_ping=True,
 )
 
 # Session factory (async - for FastAPI)
@@ -51,60 +57,77 @@ async_session_factory = async_sessionmaker(
 )
 
 
+_celery_session_factory = None
+
+
 def get_celery_session_factory():
     """
-    Create a new async session factory for Celery tasks.
+    Get async session factory for Celery tasks.
 
-    Each call creates a fresh engine and session factory to avoid
-    event loop conflicts when running async code from sync Celery context.
+    Uses NullPool so each asyncio.run() call gets fresh connections —
+    avoids "Future attached to a different loop" errors when Celery workers
+    call asyncio.run() multiple times (each call creates a new event loop,
+    but pooled asyncpg connections are tied to the loop that created them).
     """
-    celery_engine = create_async_engine(
-        DATABASE_URL,
-        echo=os.getenv("SQL_ECHO", "false").lower() == "true",
-        future=True,
-    )
-    return async_sessionmaker(
-        celery_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autocommit=False,
-        autoflush=False,
-    )
+    global _celery_session_factory
+    if _celery_session_factory is None:
+        celery_engine = create_async_engine(
+            DATABASE_URL,
+            echo=os.getenv("SQL_ECHO", "false").lower() == "true",
+            future=True,
+            poolclass=NullPool,
+        )
+        _celery_session_factory = async_sessionmaker(
+            celery_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autocommit=False,
+            autoflush=False,
+        )
+    return _celery_session_factory
+
+
+_celery_sync_engine = None
+_celery_sync_session_factory = None
 
 
 def get_celery_sync_session():
     """
     Create a synchronous database session for Celery tasks.
-    
-    Use this when you need synchronous database access in Celery workers
-    (e.g., in non-async code paths like email service).
-    
+
+    Uses a cached engine to avoid leaking connections on every call.
+
     Returns a context manager for use with 'with' statement.
-    
+
     Usage:
         with get_celery_sync_session() as db:
             result = db.execute(select(User))
             ...
     """
     from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker, Session
+    from sqlalchemy.orm import sessionmaker
     from contextlib import contextmanager
-    
-    # Convert async URL to sync URL
-    sync_url = DATABASE_URL.replace("+asyncpg", "").replace("postgresql://", "postgresql+psycopg2://")
-    if "psycopg2" not in sync_url:
-        sync_url = sync_url.replace("postgresql://", "postgresql+psycopg2://")
-    
-    sync_engine = create_engine(
-        sync_url,
-        echo=os.getenv("SQL_ECHO", "false").lower() == "true",
-    )
-    
-    SyncSession = sessionmaker(bind=sync_engine, expire_on_commit=False)
-    
+
+    global _celery_sync_engine, _celery_sync_session_factory
+    if _celery_sync_session_factory is None:
+        # Convert async URL to sync URL
+        sync_url = DATABASE_URL.replace("+asyncpg", "").replace("postgresql://", "postgresql+psycopg2://")
+        if "psycopg2" not in sync_url:
+            sync_url = sync_url.replace("postgresql://", "postgresql+psycopg2://")
+
+        _celery_sync_engine = create_engine(
+            sync_url,
+            echo=os.getenv("SQL_ECHO", "false").lower() == "true",
+            pool_size=5,
+            pool_pre_ping=True,
+        )
+        _celery_sync_session_factory = sessionmaker(
+            bind=_celery_sync_engine, expire_on_commit=False
+        )
+
     @contextmanager
     def session_scope():
-        session = SyncSession()
+        session = _celery_sync_session_factory()
         try:
             yield session
             session.commit()
@@ -113,9 +136,26 @@ def get_celery_sync_session():
             raise
         finally:
             session.close()
-            sync_engine.dispose()
-    
+
     return session_scope()
+
+
+async def get_db_readonly() -> AsyncGenerator[AsyncSession, None]:
+    """
+    FastAPI dependency for read-only database session.
+
+    Does NOT commit — suitable for GET-only endpoints.
+
+    Usage:
+        @app.get("/items")
+        async def list_items(db: AsyncSession = Depends(get_db_readonly)):
+            ...
+    """
+    async with async_session_factory() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -165,6 +205,37 @@ async def init_db() -> None:
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # Lightweight column migrations (create_all doesn't add columns to existing tables)
+        # NOTE: DDL identifiers (table/column names) cannot use SQL parameters —
+        # all values below are hardcoded constants, not user input.
+        add_columns = [
+            ("construction_reports", "summary_path", "VARCHAR(1000)"),
+        ]
+        for table, column, col_type in add_columns:
+            try:
+                await conn.execute(
+                    text(
+                        f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_type}"
+                    )
+                )
+            except Exception:
+                pass  # Column already exists or table doesn't exist yet
+
+        # Drop deprecated columns
+        drop_columns = [
+            ("transcription_jobs", "guest_uid"),
+            ("construction_reports", "guest_uid"),
+        ]
+        for table, column in drop_columns:
+            try:
+                await conn.execute(
+                    text(
+                        f"ALTER TABLE {table} DROP COLUMN IF EXISTS {column}"
+                    )
+                )
+            except Exception:
+                pass  # Column doesn't exist or table doesn't exist
 
 
 async def close_db() -> None:

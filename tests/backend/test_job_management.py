@@ -19,6 +19,53 @@ API_URL = os.getenv("API_URL", "http://localhost:8000")
 # Test files
 TEST_MEDIA_DIR = Path(__file__).parent.parent.parent / "_test_media"
 
+# Auth token — берётся из env или получается автоматически через mock dev login
+_AUTH_TOKEN: str | None = None
+
+
+def _get_auth_token() -> str:
+    """Получить JWT токен для тестовых запросов.
+
+    Приоритет:
+    1. Env var API_TOKEN (явный токен)
+    2. Env var API_TEST_EMAIL + API_TEST_PASSWORD (логин через /auth/login)
+    3. Авто-логин через admin@mock.dev (dev окружение с mock Hub)
+    """
+    global _AUTH_TOKEN
+    if _AUTH_TOKEN:
+        return _AUTH_TOKEN
+
+    # 1. Явный токен из env
+    token = os.getenv("API_TOKEN")
+    if token:
+        _AUTH_TOKEN = token
+        return _AUTH_TOKEN
+
+    # 2. Email/пароль из env
+    email = os.getenv("API_TEST_EMAIL", "admin@mock.dev")
+    password = os.getenv("API_TEST_PASSWORD", "")
+
+    # 3. Попытка логина (нужен пароль или работающий /auth/login)
+    if password:
+        resp = requests.post(
+            f"{API_URL}/auth/login",
+            data={"username": email, "password": password},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            _AUTH_TOKEN = resp.json()["access_token"]
+            return _AUTH_TOKEN
+
+    raise RuntimeError(
+        "Не удалось получить auth токен для тестов. "
+        "Укажите API_TOKEN или API_TEST_EMAIL + API_TEST_PASSWORD."
+    )
+
+
+def _auth_headers() -> dict:
+    return {"Authorization": f"Bearer {_get_auth_token()}"}
+
 
 def get_test_text_file():
     """Get a test text file path."""
@@ -39,17 +86,20 @@ def get_test_media_file():
     return None
 
 
-def upload_file(file_path: Path, project_code: str = "1001") -> dict:
+def upload_file(file_path: Path, project_code: str | None = None) -> dict:
     """Upload a file and return job info."""
+    # project_code берётся из env (TEST_PROJECT_CODE) или не передаётся вовсе
+    code = project_code or os.getenv("TEST_PROJECT_CODE")
+    data: dict = {"generate_transcript": "true", "generate_risk_brief": "true"}
+    if code:
+        data["project_code"] = code
+
     with open(file_path, "rb") as f:
         response = requests.post(
             f"{API_URL}/transcribe",
             files={"file": (file_path.name, f)},
-            data={
-                "project_code": project_code,
-                "generate_transcript": "true",
-                "generate_risk_brief": "true",
-            },
+            data=data,
+            headers=_auth_headers(),
             timeout=30,
         )
     response.raise_for_status()
@@ -58,14 +108,22 @@ def upload_file(file_path: Path, project_code: str = "1001") -> dict:
 
 def get_job_status(job_id: str) -> dict:
     """Get job status."""
-    response = requests.get(f"{API_URL}/transcribe/{job_id}/status", timeout=10)
+    response = requests.get(
+        f"{API_URL}/transcribe/{job_id}/status",
+        headers=_auth_headers(),
+        timeout=10,
+    )
     response.raise_for_status()
     return response.json()
 
 
 def cancel_job(job_id: str) -> dict:
     """Cancel a job."""
-    response = requests.delete(f"{API_URL}/transcribe/{job_id}", timeout=10)
+    response = requests.delete(
+        f"{API_URL}/transcribe/{job_id}",
+        headers=_auth_headers(),
+        timeout=10,
+    )
     response.raise_for_status()
     return response.json()
 
@@ -212,13 +270,13 @@ class TestQueueBehavior:
             pytest.skip("No test media file available")
 
         # Upload two jobs quickly
-        job1_info = upload_file(media_file, project_code="9901")
+        job1_info = upload_file(media_file)
         job1_id = job1_info["job_id"]
         print(f"Job 1: {job1_id}")
 
         time.sleep(0.5)
 
-        job2_info = upload_file(media_file, project_code="9902")
+        job2_info = upload_file(media_file)
         job2_id = job2_info["job_id"]
         print(f"Job 2: {job2_id}")
 

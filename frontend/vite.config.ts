@@ -23,6 +23,12 @@ export default defineConfig({
       '/auth': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        bypass(req) {
+          // /auth/callback is a frontend route (SSOCallbackPage), don't proxy it
+          if (req.url?.startsWith('/auth/callback')) {
+            return '/index.html';
+          }
+        },
       },
     },
   },

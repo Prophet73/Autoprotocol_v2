@@ -10,20 +10,24 @@ from datetime import timedelta
 from typing import Annotated
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.shared.database import get_db
-from backend.shared.models import User
+from backend.shared.models import User, Domain
 from .dependencies import (
     verify_password,
     get_password_hash,
     create_access_token,
+    create_refresh_token,
     CurrentUser,
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_MINUTES,
+    SECRET_KEY,
+    ALGORITHM,
 )
 
 
@@ -31,6 +35,29 @@ router = APIRouter(prefix="/auth", tags=["Авторизация"])
 
 # Если нужно разрешить только вход через SSO — включите переменную окружения SSO_ONLY
 SSO_ONLY = os.getenv("SSO_ONLY", "false").lower() in ("1", "true", "yes")
+# Open registration control: disabled by default for security
+REGISTRATION_ENABLED = os.getenv("REGISTRATION_ENABLED", "false").lower() in ("1", "true", "yes")
+
+# Login rate limiting — simple in-memory tracker per IP
+import time
+from collections import defaultdict
+
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
+_LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "60"))
+
+
+def _check_login_rate_limit(client_ip: str) -> None:
+    """Raise 429 if client exceeds login rate limit."""
+    now = time.monotonic()
+    attempts = _login_attempts[client_ip]
+    # Purge old entries outside the window
+    _login_attempts[client_ip] = [t for t in attempts if now - t < _LOGIN_WINDOW_SECONDS]
+    if len(_login_attempts[client_ip]) >= _LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Слишком много попыток входа. Повторите через {_LOGIN_WINDOW_SECONDS} секунд.",
+        )
 
 
 # =============================================================================
@@ -40,6 +67,7 @@ SSO_ONLY = os.getenv("SSO_ONLY", "false").lower() in ("1", "true", "yes")
 class Token(BaseModel):
     """Ответ с JWT токеном."""
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     expires_in: int
 
@@ -64,7 +92,7 @@ class UserInfo(BaseModel):
 class RegisterRequest(BaseModel):
     """Запрос на регистрацию нового пользователя."""
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=8, max_length=128)
     full_name: str | None = None
 
 
@@ -79,6 +107,7 @@ class RegisterRequest(BaseModel):
     description="Получение JWT токена по email/username и паролю."
 )
 async def login(
+    request: Request,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
@@ -90,13 +119,17 @@ async def login(
     Использование токена в заголовке Authorization:
     `Authorization: Bearer <token>`
     """
-    # Поиск пользователя по email ИЛИ username
+    # Rate limiting per IP
+    client_ip = request.client.host if request.client else "unknown"
+    _check_login_rate_limit(client_ip)
+
     # Если система настроена на работу только через SSO — запрещаем локальный вход
     if SSO_ONLY:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Local authentication is disabled. Use SSO at /auth/hub/login",
         )
+    # Поиск пользователя по email ИЛИ username
     result = await db.execute(
         select(User).where(
             or_(
@@ -108,6 +141,7 @@ async def login(
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(form_data.password, user.hashed_password):
+        _login_attempts[client_ip].append(time.monotonic())
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный логин или пароль",
@@ -120,14 +154,19 @@ async def login(
             detail="User account is deactivated"
         )
 
-    # Создание токена доступа
+    # Создание токенов доступа
     access_token = create_access_token(
         data={"sub": user.email},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     )
+    refresh_token = create_refresh_token(
+        data={"sub": user.email},
+        expires_delta=timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES),
+    )
 
     return Token(
         access_token=access_token,
+        refresh_token=refresh_token,
         expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
@@ -155,6 +194,12 @@ async def register(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Local registration is disabled. Use SSO to provision accounts.",
         )
+    # Open registration disabled by default — use admin panel or set REGISTRATION_ENABLED=true
+    if not REGISTRATION_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is disabled. Contact administrator.",
+        )
     # Проверка существования email
     result = await db.execute(
         select(User).where(User.email == data.email)
@@ -162,7 +207,7 @@ async def register(
     if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+            detail="Registration failed"  # Generic message to prevent email enumeration
         )
 
     # Создание пользователя
@@ -190,6 +235,68 @@ async def get_me(current_user: CurrentUser) -> UserInfo:
     return UserInfo.model_validate(current_user)
 
 
+class RefreshRequest(BaseModel):
+    """Запрос на обновление токена."""
+    refresh_token: str
+
+
+@router.post(
+    "/refresh",
+    response_model=Token,
+    summary="Обновить токен",
+    description="Обмен refresh токена на новую пару access + refresh токенов."
+)
+async def refresh_token(
+    data: RefreshRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Token:
+    """
+    Обменять refresh токен на новую пару токенов.
+
+    Refresh токен одноразовый — после использования выдаётся новый.
+    """
+    from jose import JWTError, jwt as jose_jwt
+
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid refresh token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = jose_jwt.decode(data.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        token_type: str = payload.get("type")
+        if email is None or token_type != "refresh":
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    # Verify user still exists and is active
+    result = await db.execute(
+        select(User).where(User.email == email, User.is_active)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise credentials_exception
+
+    # Issue new token pair
+    new_access = create_access_token(
+        data={"sub": user.email},
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    new_refresh = create_refresh_token(
+        data={"sub": user.email},
+        expires_delta=timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES),
+    )
+
+    return Token(
+        access_token=new_access,
+        refresh_token=new_refresh,
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+
 class SetDomainRequest(BaseModel):
     """Запрос на установку активного домена."""
     domain: str
@@ -214,9 +321,9 @@ async def set_active_domain(
     # Проверка доступа пользователя к домену
     allowed_domains = current_user.domains if current_user.domains else []
 
-    # Суперпользователи имеют доступ к любому домену
-    if current_user.is_superuser:
-        allowed_domains = ["construction", "dct"]
+    # Суперпользователи и админы имеют доступ к любому домену
+    if current_user.is_superuser or current_user.role == "admin":
+        allowed_domains = [d.value for d in Domain]
 
     if data.domain not in allowed_domains:
         raise HTTPException(
@@ -230,176 +337,3 @@ async def set_active_domain(
     await db.refresh(current_user)
 
     return UserInfo.model_validate(current_user)
-
-
-# =============================================================================
-# Инструменты разработчика (только в режиме разработки)
-# =============================================================================
-
-import os
-import warnings
-
-# DEV_MODE по умолчанию отключён из соображений безопасности
-# Включается только в явном окружении разработки
-_env = os.getenv("ENVIRONMENT", "production").lower()
-DEV_MODE = _env in ("development", "dev", "local")
-
-if DEV_MODE:
-    warnings.warn(
-        "DEV_MODE is enabled! /auth/dev/* endpoints are accessible. "
-        "Set ENVIRONMENT=production to disable.",
-        UserWarning
-    )
-
-
-class DevLoginRequest(BaseModel):
-    """Запрос быстрого входа - выбор роли для входа."""
-    role: str  # admin, manager, user
-
-
-class DevUsersList(BaseModel):
-    """Список доступных тестовых пользователей."""
-    users: list[dict]
-    enabled: bool
-
-
-@router.get(
-    "/dev/users",
-    response_model=DevUsersList,
-    summary="[DEV] Список тестовых пользователей",
-    description="Получение списка доступных тестовых пользователей (только в dev режиме)."
-)
-async def dev_list_users(
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> DevUsersList:
-    """Получить список доступных тестовых пользователей для быстрого входа."""
-    if not DEV_MODE:
-        return DevUsersList(users=[], enabled=False)
-
-    # В режиме SSO_ONLY dev-эндпоинты не должны позволять быстрый вход
-    if SSO_ONLY:
-        return DevUsersList(users=[], enabled=False)
-
-    # Получение существующих пользователей
-    result = await db.execute(select(User).where(User.is_active == True))
-    users = result.scalars().all()
-
-    return DevUsersList(
-        users=[
-            {
-                "email": u.email,
-                "role": u.role,
-                "is_superuser": u.is_superuser,
-                "full_name": u.full_name,
-                "domain": u.active_domain or u.domain,
-            }
-            for u in users
-        ],
-        enabled=True
-    )
-
-
-@router.post(
-    "/dev/login",
-    response_model=Token,
-    summary="[DEV] Быстрый вход для тестирования",
-    description="Вход под тестовым пользователем по роли или email (только в dev режиме)."
-)
-async def dev_login(
-    data: DevLoginRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> Token:
-    """
-    Быстрый вход под определённой ролью или существующим пользователем для тестирования.
-
-    Принимает:
-    - Название роли (admin/manager/user) - создаёт пользователя если не существует
-    - Email адрес - входит под существующим пользователем
-    """
-    if not DEV_MODE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Dev login disabled in production"
-        )
-
-    if SSO_ONLY:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Dev login disabled when SSO_ONLY is enabled",
-        )
-
-    # Маппинг роли на конфигурацию пользователя
-    role_configs = {
-        "admin": {
-            "email": "admin@dev.local",
-            "role": "admin",
-            "is_superuser": True,
-            "full_name": "Dev Admin",
-        },
-        "manager": {
-            "email": "manager@dev.local",
-            "role": "manager",
-            "is_superuser": False,
-            "full_name": "Dev Manager",
-        },
-        "user": {
-            "email": "user@dev.local",
-            "role": "user",
-            "is_superuser": False,
-            "full_name": "Dev User",
-        },
-    }
-
-    user = None
-
-    # Проверка является ли ввод email (содержит @)
-    if "@" in data.role:
-        # Вход под существующим пользователем по email
-        result = await db.execute(
-            select(User).where(User.email == data.role, User.is_active == True)
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"User with email {data.role} not found"
-            )
-    elif data.role in role_configs:
-        # Вход по роли - найти или создать
-        config = role_configs[data.role]
-
-        result = await db.execute(
-            select(User).where(User.email == config["email"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            # Создание dev пользователя
-            user = User(
-                email=config["email"],
-                hashed_password=get_password_hash("devpassword"),
-                full_name=config["full_name"],
-                role=config["role"],
-                is_superuser=config["is_superuser"],
-                is_active=True,
-            )
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid input. Use role ({list(role_configs.keys())}) or email address."
-        )
-
-    # Создание токена доступа
-    access_token = create_access_token(
-        data={"sub": user.email},
-        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
-    )
-
-    return Token(
-        access_token=access_token,
-        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-    )

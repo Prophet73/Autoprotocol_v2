@@ -3,7 +3,7 @@
 Все домены (construction, hr, developers и т.д.) наследуются от него.
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -11,6 +11,7 @@ from enum import Enum
 
 # Импорт схем транскрипции
 from backend.core.transcription import TranscriptionResult
+from backend.config import get_prompt
 
 
 class ReportType(str, Enum):
@@ -89,6 +90,9 @@ class BaseDomainService(ABC):
     # Переопределяется в наследниках
     DOMAIN_NAME: str = "base"
     REPORT_TYPES: list[str] = ["summary"]
+    # Subclasses set these to enable default generate_report/generate_report_simple
+    REPORT_CLASS: Optional[type] = None
+    MEETING_TYPE_ENUM: Optional[type] = None
 
     def __init__(self, llm_client: Optional[Any] = None):
         """
@@ -97,7 +101,6 @@ class BaseDomainService(ABC):
         """
         self.llm_client = llm_client
 
-    @abstractmethod
     async def generate_report(
         self,
         transcription: TranscriptionResult,
@@ -107,37 +110,99 @@ class BaseDomainService(ABC):
         """
         Генерирует доменный отчёт из транскрипции.
 
-        Args:
-            transcription: Результат транскрипции из пайплайна
-            report_type: Тип отчёта (зависит от домена)
-            **kwargs: Дополнительные параметры
-
-        Returns:
-            DomainReport или наследник с данными отчёта
+        Default implementation returns a placeholder report using REPORT_CLASS.
+        Construction overrides with full LLM-based generation.
         """
-        pass
+        rt = report_type or (self.REPORT_TYPES[0] if self.REPORT_TYPES else "summary")
+        if self.REPORT_CLASS and self.MEETING_TYPE_ENUM:
+            return self.REPORT_CLASS(
+                meeting_type=self.MEETING_TYPE_ENUM(rt),
+                meeting_summary=f"{self.DOMAIN_NAME} meeting analysis pending",
+                key_points=[],
+                action_items=[],
+                participants_summary={},
+            )
+        raise NotImplementedError("Subclass must set REPORT_CLASS/MEETING_TYPE_ENUM or override generate_report()")
 
-    @abstractmethod
-    def get_system_prompt(self) -> str:
+    def generate_report_simple(self, transcription, report_type: Optional[str] = None):
+        """
+        Generate simple report without LLM.
+
+        Default implementation uses REPORT_CLASS and _extract_basic_analysis_data().
+        Construction overrides with its own detailed markdown report.
+        """
+        rt = report_type or (self.REPORT_TYPES[0] if self.REPORT_TYPES else "summary")
+        if self.REPORT_CLASS and self.MEETING_TYPE_ENUM:
+            participants, key_points = self._extract_basic_analysis_data(transcription)
+            return self.REPORT_CLASS(
+                meeting_type=self.MEETING_TYPE_ENUM(rt),
+                meeting_summary=f"{self.DOMAIN_NAME.upper()} {rt} meeting transcript",
+                key_points=key_points,
+                action_items=[],
+                participants_summary=participants,
+            )
+        raise NotImplementedError("Subclass must set REPORT_CLASS/MEETING_TYPE_ENUM or override generate_report_simple()")
+
+    def get_system_prompt(self, meeting_type: Optional[str] = None) -> str:
         """
         Возвращает системный промпт для LLM.
-        Определяет "личность" и контекст для домена.
-        """
-        pass
 
-    @abstractmethod
-    def get_report_prompt(self, report_type: str, transcript_text: str) -> str:
+        Default implementation uses get_prompt() with DOMAIN_NAME and REPORT_TYPES[0].
+        Construction overrides this with its own prompt dict.
+        """
+        default_type = self.REPORT_TYPES[0] if self.REPORT_TYPES else "summary"
+        mt = meeting_type or default_type
+        try:
+            return get_prompt(f"domains.{self.DOMAIN_NAME}.{mt}.system")
+        except (KeyError, TypeError):
+            return get_prompt(f"domains.{self.DOMAIN_NAME}.{default_type}.system")
+
+    def get_report_prompt(self, report_type: str, transcript_text: str, **kwargs) -> str:
         """
         Возвращает промпт для генерации конкретного типа отчёта.
 
-        Args:
-            report_type: Тип отчёта
-            transcript_text: Текст транскрипции
+        Default implementation uses get_prompt() with DOMAIN_NAME.
+        Construction overrides this with its own prompt dict.
+        """
+        default_type = self.REPORT_TYPES[0] if self.REPORT_TYPES else "summary"
+        try:
+            return get_prompt(
+                f"domains.{self.DOMAIN_NAME}.{report_type}.user",
+                transcript=transcript_text,
+                **kwargs
+            )
+        except (KeyError, TypeError):
+            return get_prompt(
+                f"domains.{self.DOMAIN_NAME}.{default_type}.user",
+                transcript=transcript_text,
+                **kwargs
+            )
+
+    def _extract_basic_analysis_data(self, transcription) -> tuple[dict, list[str]]:
+        """
+        Extract participants summary and key points from transcription.
+
+        Shared logic for generate_report_simple() across all non-construction domains.
 
         Returns:
-            Промпт для отправки в LLM
+            Tuple of (participants_summary dict, key_points list)
         """
-        pass
+        participants: dict[str, Any] = {}
+        if hasattr(transcription, 'speakers'):
+            for speaker_id, profile in transcription.speakers.items():
+                participants[speaker_id] = {
+                    "total_time": getattr(profile, 'total_time', 0),
+                    "segment_count": getattr(profile, 'segment_count', 0),
+                    "dominant_emotion": getattr(profile, 'dominant_emotion', {}).get('label_ru', 'Неизвестно'),
+                }
+
+        key_points: list[str] = []
+        if hasattr(transcription, 'segments'):
+            for seg in transcription.segments[:5]:
+                if hasattr(seg, 'text') and len(seg.text) > 20:
+                    key_points.append(seg.text[:100] + "..." if len(seg.text) > 100 else seg.text)
+
+        return participants, key_points
 
     def get_available_report_types(self) -> list[str]:
         """Возвращает список доступных типов отчётов для домена"""
@@ -147,21 +212,17 @@ class BaseDomainService(ABC):
         """
         Вызывает LLM для генерации ответа.
         Можно переопределить для разных провайдеров.
+
+        NOTE: All domains currently use Gemini directly via domain generators.
+        This method exists for potential future use with alternative LLM providers.
         """
         if self.llm_client is None:
             raise ValueError("LLM client not configured")
 
-        # Базовая реализация для OpenAI-совместимого API
-        response = await self.llm_client.chat.completions.create(
-            model="gpt-4-turbo",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.3
+        raise NotImplementedError(
+            "call_llm() must be overridden by subclass. "
+            "All domains currently use Gemini directly via domain generators."
         )
-
-        return response.choices[0].message.content
 
     def parse_llm_response(self, response: str) -> dict[str, Any]:
         """
@@ -227,7 +288,6 @@ class BaseDomainService(ABC):
         job_id: str,
         project_id: int,
         result: DomainReport,
-        guest_uid: Optional[str] = None,
         uploader_id: Optional[int] = None,
     ) -> None:
         """
@@ -238,7 +298,6 @@ class BaseDomainService(ABC):
             job_id: ID задачи транскрипции
             project_id: ID проекта
             result: Результат генерации отчёта
-            guest_uid: UUID гостя (для анонимных загрузок)
             uploader_id: ID пользователя-загрузчика
         """
         pass  # Реализуется в конкретных доменах

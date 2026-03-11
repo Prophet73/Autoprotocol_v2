@@ -2,31 +2,32 @@
  * Domain Dashboard Router
  *
  * Automatically routes to the appropriate dashboard based on user's active domain.
- * - construction -> ManagerDashboardPage (with projects)
- * - hr -> HRDashboardPage
- * - dct -> DCTDashboardPage (Департамент Цифровой Трансформации)
+ * Dashboard components are resolved from the unified domain registry.
  */
+import { Suspense } from 'react';
 import { useAuthStore } from '../stores/authStore';
-import { ManagerDashboardPage } from '../pages/ManagerDashboardPage';
-import { HRDashboardPage } from '../pages/HRDashboardPage';
-import { DCTDashboardPage } from '../pages/DCTDashboardPage';
+import { getDomainConfig, DOMAIN_REGISTRY } from '../config/domains';
 
 export function DomainDashboardRouter() {
   const { user } = useAuthStore();
 
-  // Determine active domain
   const activeDomain = user?.active_domain || user?.domain || 'construction';
 
-  // Render appropriate dashboard
-  switch (activeDomain) {
-    case 'hr':
-      return <HRDashboardPage />;
-    case 'dct':
-      return <DCTDashboardPage />;
-    case 'construction':
-    default:
-      return <ManagerDashboardPage />;
-  }
+  const fallback = (
+    <div className="flex items-center justify-center h-64">
+      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-severin-red" />
+    </div>
+  );
+
+  // Resolve dashboard from registry, fallback to first registered domain
+  const config = getDomainConfig(activeDomain) ?? DOMAIN_REGISTRY[0];
+  const Dashboard = config.dashboard;
+
+  return (
+    <Suspense fallback={fallback}>
+      <Dashboard />
+    </Suspense>
+  );
 }
 
 export default DomainDashboardRouter;

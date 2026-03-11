@@ -5,7 +5,6 @@
 - /ready — готовность (Kubernetes)
 - /live — живость (Kubernetes)
 """
-import torch
 from fastapi import APIRouter
 
 from ..schemas import HealthResponse
@@ -29,11 +28,13 @@ async def health_check():
     - **gpu_available** — доступность GPU
     - **gpu_name** — название видеокарты
     """
-    gpu_available = torch.cuda.is_available()
-    gpu_name = None
-
-    if gpu_available:
-        gpu_name = torch.cuda.get_device_name(0)
+    try:
+        import torch
+        gpu_available = torch.cuda.is_available()
+        gpu_name = torch.cuda.get_device_name(0) if gpu_available else None
+    except ImportError:
+        gpu_available = False
+        gpu_name = None
 
     return HealthResponse(
         status="healthy",

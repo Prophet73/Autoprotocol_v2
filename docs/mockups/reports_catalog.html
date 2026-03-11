@@ -1,0 +1,1779 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Каталог отчётов — все домены</title>
+<style>
+  :root {
+    --blue: #4472C4;
+    --blue-light: #D6E4F0;
+    --green: #548235;
+    --red: #C0392B;
+    --orange: #E67E22;
+    --teal: #16A085;
+    --purple: #6c3483;
+    --gray: #6c757d;
+    --bg: #f8f9fa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: #212529; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 8px; font-size: 1.8em; }
+  .subtitle { text-align: center; color: var(--gray); margin-bottom: 30px; }
+
+  /* Domain top nav - sticky */
+  .domain-nav { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 10px; position: sticky; top: 0; background: var(--bg); padding: 12px 0; z-index: 10; border-bottom: 1px solid #dee2e6; }
+  .domain-nav a { padding: 8px 20px; border-radius: 20px; background: white; border: 2px solid #dee2e6; text-decoration: none; color: #333; font-size: 0.95em; font-weight: 600; transition: all .2s; }
+  .domain-nav a:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  .domain-nav a.nav-construction { border-color: var(--orange); color: var(--orange); }
+  .domain-nav a.nav-construction:hover { background: var(--orange); color: white; }
+  .domain-nav a.nav-dct { border-color: var(--teal); color: var(--teal); }
+  .domain-nav a.nav-dct:hover { background: var(--teal); color: white; }
+  .domain-nav a.nav-business { border-color: var(--blue); color: var(--blue); }
+  .domain-nav a.nav-business:hover { background: var(--blue); color: white; }
+  .domain-nav a.nav-fta { border-color: var(--red); color: var(--red); }
+  .domain-nav a.nav-fta:hover { background: var(--red); color: white; }
+  .domain-nav a.nav-ceo { border-color: var(--purple); color: var(--purple); }
+  .domain-nav a.nav-ceo:hover { background: var(--purple); color: white; }
+
+  /* Report sub-nav within domain */
+  .nav { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 30px; padding: 12px 0; }
+  .nav a { padding: 6px 16px; border-radius: 20px; background: white; border: 1px solid #dee2e6; text-decoration: none; color: #333; font-size: 0.9em; transition: all .2s; }
+  .nav a:hover { background: var(--blue); color: white; border-color: var(--blue); }
+  .nav.nav-orange a:hover { background: var(--orange); color: white; border-color: var(--orange); }
+  .nav.nav-teal a:hover { background: var(--teal); color: white; border-color: var(--teal); }
+  .nav.nav-red a:hover { background: var(--red); color: white; border-color: var(--red); }
+  .nav.nav-purple a:hover { background: var(--purple); color: white; border-color: var(--purple); }
+
+  /* Domain separator */
+  .domain-separator { max-width: 1100px; margin: 50px auto 20px; padding: 16px 24px; border-radius: 10px; color: white; font-size: 1.4em; font-weight: 700; display: flex; align-items: center; justify-content: space-between; }
+  .domain-separator .count { font-size: 0.6em; font-weight: 400; opacity: 0.85; background: rgba(255,255,255,0.2); padding: 4px 14px; border-radius: 12px; }
+
+  /* Report sections */
+  .report-section { max-width: 1100px; margin: 0 auto 50px; }
+  .report-section h2 { background: var(--blue); color: white; padding: 12px 20px; border-radius: 8px 8px 0 0; font-size: 1.2em; display: flex; align-items: center; gap: 10px; }
+  .report-section h2 .badge { background: rgba(255,255,255,0.25); padding: 2px 10px; border-radius: 12px; font-size: 0.75em; }
+  .domain-construction h2 { background: var(--orange); }
+  .domain-dct h2 { background: var(--teal); }
+  .domain-business h2 { background: var(--blue); }
+  .domain-fta h2 { background: var(--red); }
+  .domain-ceo h2 { background: var(--purple); }
+  .report-body { background: white; border: 1px solid #dee2e6; border-top: none; border-radius: 0 0 8px 8px; padding: 20px; }
+
+  /* Two column layout */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+  .col-docx, .col-excel { border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; }
+  .col-header { padding: 8px 14px; font-weight: 600; font-size: 0.85em; display: flex; align-items: center; gap: 6px; }
+  .col-docx .col-header { background: #e8f0fe; color: #1a73e8; }
+  .col-excel .col-header { background: #e6f4ea; color: var(--green); }
+  .col-body { padding: 14px; font-size: 0.88em; }
+
+  /* DOCX preview */
+  .docx-title { font-size: 1.1em; font-weight: 700; color: #1a237e; margin-bottom: 10px; }
+  .docx-h2 { font-size: 0.95em; font-weight: 700; color: var(--blue); margin: 12px 0 6px; border-bottom: 1px solid #e0e0e0; padding-bottom: 3px; }
+  .docx-h3 { font-size: 0.9em; font-weight: 600; color: #555; margin: 8px 0 4px; }
+  .docx-field { margin: 3px 0; }
+  .docx-field b { color: #333; }
+  .docx-field .val { color: #555; }
+  ul.docx-list { margin: 4px 0 4px 20px; }
+  ul.docx-list li { color: #555; margin: 2px 0; }
+  ol.docx-list { margin: 4px 0 4px 20px; }
+  ol.docx-list li { color: #555; margin: 2px 0; }
+
+  /* Excel preview */
+  .excel-sheets { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+  .excel-tab { background: #e0e0e0; padding: 3px 10px; border-radius: 4px 4px 0 0; font-size: 0.8em; cursor: default; }
+  .excel-tab.active { background: white; border: 1px solid #ccc; border-bottom: 1px solid white; font-weight: 600; }
+  .excel-table { width: 100%; border-collapse: collapse; font-size: 0.82em; }
+  .excel-table th { background: var(--blue); color: white; padding: 6px 8px; text-align: left; font-weight: 600; }
+  .excel-table td { padding: 5px 8px; border: 1px solid #e0e0e0; }
+  .excel-table tr:nth-child(even) td { background: #f5f7fa; }
+  .domain-construction .excel-table th { background: var(--orange); }
+  .domain-dct .excel-table th { background: var(--teal); }
+  .domain-fta .excel-table th { background: var(--red); }
+  .domain-ceo .excel-table th { background: var(--purple); }
+
+  /* Schema box */
+  .schema-box { background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px; margin-top: 12px; font-size: 0.82em; font-family: 'Cascadia Code', 'Fira Code', monospace; white-space: pre-wrap; line-height: 1.5; }
+  .schema-box .type { color: var(--blue); font-weight: 600; }
+  .schema-box .field { color: #333; }
+  .schema-box .optional { color: var(--gray); }
+  .schema-box .comment { color: var(--green); }
+  .info-note { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; font-size: 0.85em; }
+  .shared-note { background: #e8f6f3; border: 1px solid var(--teal); border-radius: 6px; padding: 12px 16px; margin: 10px 0; font-size: 0.9em; color: #1a5276; }
+
+  /* Prompts */
+  .prompts-details { margin: 14px 0; }
+  .prompts-details summary { cursor: pointer; font-weight: 600; color: #6c3483; font-size: 0.95em; padding: 8px 14px; background: #f5eef8; border-radius: 6px; border: 1px solid #d7bde2; user-select: none; }
+  .prompts-details summary:hover { background: #ebdef0; }
+  .prompts-details[open] summary { border-radius: 6px 6px 0 0; }
+  .prompts-content { border: 1px solid #d7bde2; border-top: none; border-radius: 0 0 6px 6px; padding: 14px; background: #fdfbfe; }
+  .prompt-block { margin-bottom: 14px; }
+  .prompt-block:last-child { margin-bottom: 0; }
+  .prompt-label { font-weight: 700; font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .prompt-label.system { color: #c0392b; }
+  .prompt-label.user { color: #2471a3; }
+  .prompt-text { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 10px 14px; font-size: 0.84em; line-height: 1.65; white-space: pre-wrap; font-family: 'Cascadia Code', 'Fira Code', monospace; color: #333; max-height: 400px; overflow-y: auto; }
+  .prompt-text .placeholder { color: #e67e22; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>Каталог отчётов — все домены</h1>
+<p class="subtitle">Структура DOCX, Excel и Pydantic-схемы для каждого типа встречи</p>
+
+<nav class="domain-nav">
+  <a href="#domain-construction" class="nav-construction">Construction (ДПУ) — 3</a>
+  <a href="#domain-dct" class="nav-dct">DCT (ДЦТ) — 4</a>
+  <a href="#domain-business" class="nav-business">Business (Бизнес) — 7</a>
+  <a href="#domain-fta" class="nav-fta">FTA (ДФТА) — 1</a>
+  <a href="#domain-ceo" class="nav-ceo">CEO (НОТЕХ) — 1</a>
+</nav>
+
+<!-- ################################################################## -->
+<!-- CONSTRUCTION DOMAIN -->
+<!-- ################################################################## -->
+<div id="domain-construction" class="domain-separator" style="background: var(--orange);">
+  Construction (ДПУ) <span class="count">3 типа отчётов</span>
+</div>
+
+<nav class="nav nav-orange">
+  <a href="#con_basic_report">Базовый отчёт</a>
+  <a href="#con_risk_brief">Executive Risk Brief</a>
+  <a href="#con_summary">Конспект совещания</a>
+</nav>
+
+<!-- ====================================================================== -->
+<!-- CONSTRUCTION 1. BASIC REPORT -->
+<!-- ====================================================================== -->
+<section class="report-section domain-construction" id="con_basic_report">
+<h2>1. Базовый отчёт (извлечение задач) <span class="badge">basic_report</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">BasicReport</span>
+  <span class="field">meeting_type</span>: <span class="type">MeetingType</span>          <span class="comment">— Enum: production/quality/finance/design/coordination</span>
+  <span class="field">meeting_summary</span>: str               <span class="comment">— Краткое саммари совещания (2-3 предложения)</span>
+  <span class="field">expert_analysis</span>: str               <span class="comment">— Неформальная экспертная оценка (2-3 предложения)</span>
+  <span class="field">tasks</span>: List[<span class="type">Task</span>]
+    └ <span class="field">category</span>: str                  <span class="comment">— Одна из 8 категорий: ИРД, Проектирование и РД, СМР, Инженерные системы, ОТ и ТБ, Финансы, Взаимодействие, Организация</span>
+    └ <span class="field">description</span>: str               <span class="comment">— Формулировка задачи, готовая для таск-трекера</span>
+    └ <span class="field">responsible</span>: str<span class="optional">?</span>              <span class="comment">— ФИО или организация. null если не назначен.</span>
+    └ <span class="field">deadline</span>: str<span class="optional">?</span>                 <span class="comment">— Срок. null если не озвучен.</span>
+    └ <span class="field">notes</span>: str<span class="optional">?</span>                    <span class="comment">— Примечания, контекст</span>
+    └ <span class="field">priority</span>: str                  <span class="comment">— high / medium / low</span>
+    └ <span class="field">confidence</span>: str                <span class="comment">— high (явная задача) / medium (выведено из контекста)</span>
+    └ <span class="field">time_codes</span>: List[str]          <span class="comment">— Тайм-коды упоминания ["00:15:30"]</span>
+    └ <span class="field">evidence</span>: str                  <span class="comment">— Цитата из стенограммы</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user)</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">Ты — элитный ассистент технического заказчика в строительстве.
+Специализация — анализ стенограмм еженедельных совещаний.
+Задача — максимально полно извлечь задачи и проблемы для валидации менеджером.
+
+Философия: лучше извлечь больше задач для ручной фильтрации, чем упустить важное.
+Каждая проблема = потенциальная задача.
+
+Правила:
+- Группируй задачи по 8 категориям
+- Указывай confidence: high (явные) / medium (выведенные из контекста)
+- Формулируй задачи готовыми для таск-трекера
+- Мультиязычность: извлекай суть, пиши НА РУССКОМ</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата совещания: <span class="placeholder">{meeting_date}</span>
+<span class="placeholder">{participants_info}</span>
+Проанализируй стенограмму совещания. Создай JSON-отчет.
+
+1. Определи тип совещания (production/quality/finance/design/coordination)
+2. Напиши саммари (2-3 предложения)
+3. Дай экспертный анализ (2-3 предложения)
+4. Извлеки задачи по 8 категориям с priority и confidence
+
+Стенограмма:
+---
+<span class="placeholder">{transcript}</span>
+---</div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Протокол совещания</div>
+    <div class="col-body">
+      <div class="docx-title">Протокол совещания от 18.02.2026</div>
+      <div class="docx-field"><b>Тип:</b> <span class="val">Производственное совещание</span></div>
+      <div class="docx-h2">Саммари</div>
+      <p style="color:#555; font-size:0.9em;">Обсудили ход работ по монолитному каркасу корпуса Б. Основная проблема — задержка поставки арматуры на 10 дней. Решили привлечь альтернативного поставщика.</p>
+      <div class="docx-h2">Экспертная оценка</div>
+      <p style="color:#555; font-size:0.9em;">Совещание продуктивное, но ситуация с арматурой требует внимания руководства. Подрядчик демонстрирует системные проблемы с логистикой.</p>
+      <div class="docx-h2">Задачи</div>
+      <ol class="docx-list">
+        <li>[СМР] Запросить альтернативное КП на арматуру А500С — <i>Ответственный: Петров</i>, <i>Срок: 20.02.2026</i> [high]</li>
+        <li>[Финансы] Подготовить акт КС-2 за январь — <i>Ответственный: Козлова</i>, <i>Срок: 25.02.2026</i> [high]</li>
+        <li>[ОТ и ТБ] Провести инструктаж по работе на высоте — <i>Ответственный: не назначен</i> [medium]</li>
+      </ol>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Задачи</span>
+        <span class="excel-tab">По категориям</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Категория</th><th>Задача</th><th>Ответственный</th><th>Срок</th><th>Приоритет</th><th>Уверенность</th></tr>
+        <tr><td>СМР</td><td>Запросить альтернативное КП на арматуру</td><td>Петров</td><td>20.02.2026</td><td>high</td><td>high</td></tr>
+        <tr><td>Финансы</td><td>Подготовить акт КС-2 за январь</td><td>Козлова</td><td>25.02.2026</td><td>high</td><td>high</td></tr>
+        <tr><td>ОТ и ТБ</td><td>Провести инструктаж по работе на высоте</td><td>—</td><td>—</td><td>medium</td><td>medium</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- CONSTRUCTION 2. RISK BRIEF -->
+<!-- ====================================================================== -->
+<section class="report-section domain-construction" id="con_risk_brief">
+<h2>2. Executive Risk Brief <span class="badge">risk_brief</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">RiskBrief</span>
+  <span class="field">project_name</span>: str<span class="optional">?</span>                 <span class="comment">— Название проекта. null если не упомянуто.</span>
+  <span class="field">project_code</span>: str<span class="optional">?</span>                 <span class="comment">— Код/номер проекта. null если нет.</span>
+  <span class="field">location</span>: str<span class="optional">?</span>                     <span class="comment">— Локация/город. null если не упомянуто.</span>
+  <span class="field">overall_status</span>: <span class="type">OverallStatus</span>      <span class="comment">— Enum: stable / attention / critical</span>
+  <span class="field">executive_summary</span>: str             <span class="comment">— Executive summary (2-4 предложения)</span>
+  <span class="field">atmosphere</span>: <span class="type">Atmosphere</span>             <span class="comment">— Enum: calm / working / tense / conflict</span>
+  <span class="field">atmosphere_comment</span>: str            <span class="comment">— Пояснение атмосферы</span>
+  <span class="field">risks</span>: List[<span class="type">ProjectRisk</span>]           <span class="comment">— Верифицированные риски (2-6 шт), score desc</span>
+    └ <span class="field">id</span>: str                        <span class="comment">— R1, R2, R3... по убыванию score</span>
+    └ <span class="field">title</span>: str                     <span class="comment">— Краткий заголовок (3-7 слов)</span>
+    └ <span class="field">category</span>: <span class="type">RiskCategory</span>         <span class="comment">— external/preinvest/design/production/management/operational/safety</span>
+    └ <span class="field">description</span>: str               <span class="comment">— Что происходит, почему это риск</span>
+    └ <span class="field">evidence</span>: str<span class="optional">?</span>                 <span class="comment">— Цитата из стенограммы</span>
+    └ <span class="field">consequences</span>: str              <span class="comment">— Что будет если не решить</span>
+    └ <span class="field">decision</span>: str<span class="optional">?</span>                 <span class="comment">— Что решили на совещании (факт). null если не решали.</span>
+    └ <span class="field">mitigation</span>: str<span class="optional">?</span>               <span class="comment">— Рекомендация ИИ (только если decision=null). [КТО] [ЧТО] [КОГДА]</span>
+    └ <span class="field">probability</span>: int               <span class="comment">— 1-5</span>
+    └ <span class="field">impact</span>: int                    <span class="comment">— 1-5</span>
+    └ <span class="field">confidence</span>: str                <span class="comment">— high / medium / low</span>
+    └ <span class="field">responsible</span>: str<span class="optional">?</span>              <span class="comment">— Назначенный ответственный</span>
+    └ <span class="field">is_blocker</span>: bool               <span class="comment">— Блокирует работы?</span>
+    └ <span class="field">drivers</span>: List[<span class="type">RiskDriver</span>]      <span class="comment">— Только для score ≥ 9</span>
+      └ <span class="field">type</span>: str                    <span class="comment">— root_cause / aggravator / blocker</span>
+      └ <span class="field">title</span>: str
+      └ <span class="field">description</span>: str
+      └ <span class="field">evidence</span>: str
+  <span class="field">concerns</span>: List[<span class="type">Concern</span>]           <span class="comment">— Незакрытые вопросы модератора</span>
+    └ <span class="field">id</span>: str                        <span class="comment">— Q1, Q2...</span>
+    └ <span class="field">category</span>: <span class="type">ConcernCategory</span>      <span class="comment">— permits/safety/schedule/living/finance/coordination/quality/other</span>
+    └ <span class="field">title</span>: str                     <span class="comment">— Что не закрыто</span>
+    └ <span class="field">description</span>: str               <span class="comment">— Контекст</span>
+    └ <span class="field">recommendation</span>: str            <span class="comment">— Кому и что сделать</span>
+    └ <span class="field">related_risk_ids</span>: List[str]    <span class="comment">— Связанные риски</span>
+  <span class="field">hypotheses</span>: List[<span class="type">ProjectRisk</span>]      <span class="comment">— Риски с low confidence (гипотезы)</span>
+  <span class="field">abbreviations</span>: List[<span class="type">Abbreviation</span>]  <span class="comment">— Сокращения из текста</span>
+  <span class="field">participants</span>: List[<span class="type">ParticipantGroup</span>] <span class="comment">— Участники по группам</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user)</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">Ты — система анализа рисков строительных проектов.
+Создаёшь executive-отчёт для заказчика/инвестора.
+
+Метод: внутренний дебат Agent_Risk vs Agent_Skeptic (INoT подход).
+Agent_Risk находит потенциальные риски.
+Agent_Skeptic верифицирует: факт или домысел? Отсеивает необоснованные.
+
+Принципы: ФАКТЫ &gt; домыслы, БАЛАНС, КОНКРЕТИКА, ЧЕСТНОСТЬ.
+Critical только для реальных угроз срыва.</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата совещания: <span class="placeholder">{meeting_date}</span>
+Фазы анализа:
+1. Извлечение базовой информации (проект, локация, атмосфера)
+2. Идентификация рисков по 7 категориям
+3. Верификация: факт или домысел? probability × impact
+4. Оценка и декомпозиция (драйверы для score ≥ 9)
+5. Незакрытые вопросы модератора (concerns)
+6. Финальный JSON по схеме RiskBrief
+
+<span class="placeholder">{transcript}</span></div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Risk Brief</div>
+    <div class="col-body">
+      <div class="docx-title">Risk Brief — ЖК «Приморский» от 18.02.2026</div>
+      <div class="docx-field"><b>Общий статус:</b> <span class="val">⚠️ ATTENTION</span></div>
+      <div class="docx-field"><b>Атмосфера:</b> <span class="val">рабочая, но напряжённая — подрядчик уклоняется от ответов по срокам</span></div>
+      <div class="docx-h2">Executive Summary</div>
+      <p style="color:#555; font-size:0.9em;">На совещании обсуждали отставание по монолитным работам корпуса Б на 14 дней. Ключевой риск — задолженность перед субподрядчиком. Принято решение об эскалации в финотдел.</p>
+      <div class="docx-h2">Риски</div>
+      <div class="docx-h3">R1 [score: 20] Срыв сроков монолитных работ</div>
+      <div class="docx-field"><b>Категория:</b> <span class="val">production</span></div>
+      <div class="docx-field"><b>Описание:</b> <span class="val">Отставание 14 дней, рабочие ушли из-за неоплаты</span></div>
+      <div class="docx-field"><b>Решение:</b> <span class="val">Иванов эскалирует в финотдел до 20.02</span></div>
+      <div class="docx-field"><b>Драйверы:</b></div>
+      <ul class="docx-list">
+        <li>R1.1 [root_cause] Задолженность 2 мес перед субподрядчиком</li>
+        <li>R1.2 [aggravator] Заморозки на следующей неделе</li>
+      </ul>
+      <div class="docx-h2">Concerns</div>
+      <div class="docx-h3">Q1 Срок оплаты субподрядчику не определён</div>
+      <div class="docx-field"><b>Рекомендация:</b> <span class="val">Финотдел должен назвать дату оплаты до 19.02</span></div>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Матрица рисков</span>
+        <span class="excel-tab">Concerns</span>
+        <span class="excel-tab">Участники</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>ID</th><th>Риск</th><th>Категория</th><th>P</th><th>I</th><th>Score</th><th>Решение/Митигация</th><th>Ответственный</th></tr>
+        <tr><td>R1</td><td>Срыв сроков монолитных работ</td><td>production</td><td>4</td><td>5</td><td>20</td><td>Эскалация в финотдел</td><td>Иванов</td></tr>
+        <tr><td>R2</td><td>Отсутствие проекта вентиляции</td><td>design</td><td>3</td><td>4</td><td>12</td><td>—</td><td>—</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- CONSTRUCTION 3. SUMMARY -->
+<!-- ====================================================================== -->
+<section class="report-section domain-construction" id="con_summary">
+<h2>3. Конспект совещания <span class="badge">summary</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">SummaryReport</span>
+  <span class="field">meeting_summary</span>: str               <span class="comment">— Краткое саммари (2-4 предложения)</span>
+  <span class="field">topics</span>: List[<span class="type">SummaryTopic</span>]         <span class="comment">— Темы обсуждения (3-8 тем, по важности)</span>
+    └ <span class="field">title</span>: str                     <span class="comment">— Предметная область (не задача!)</span>
+    └ <span class="field">time_codes</span>: List[str]          <span class="comment">— Тайм-коды обсуждения</span>
+    └ <span class="field">context</span>: str                   <span class="comment">— Контекст/предыстория</span>
+    └ <span class="field">discussion</span>: str                <span class="comment">— ПОДРОБНОЕ обсуждение: кто что сказал, аргументы, цифры</span>
+    └ <span class="field">decisions</span>: List[str]           <span class="comment">— Принятые решения (только факты)</span>
+    └ <span class="field">unresolved</span>: List[str]          <span class="comment">— Нерешённые вопросы</span>
+    └ <span class="field">disagreements</span>: List[<span class="type">TopicDisagreement</span>] <span class="comment">— Разногласия (только реальные)</span>
+      └ <span class="field">parties</span>: str                 <span class="comment">— Стороны конфликта</span>
+      └ <span class="field">essence</span>: str                 <span class="comment">— Суть разногласия</span>
+      └ <span class="field">outcome</span>: str                 <span class="comment">— Чем закончилось</span>
+    └ <span class="field">responsible</span>: List[str]         <span class="comment">— Явно названные ответственные</span>
+  <span class="field">key_takeaways</span>: List[str]           <span class="comment">— Ключевые выводы (3-5)</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user)</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">Ты — аналитик технического заказчика в строительстве.
+Специализация: тематические конспекты совещаний.
+Ты НЕ извлекаешь задачи — ты группируешь обсуждение по ТЕМАМ.
+
+Метод: сканирование → кластеризация по предметным областям → консолидация → глубокое раскрытие discussion.
+Тема = "Кабеленесущие системы", НЕ "Обсуждение в 04:09".</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата совещания: <span class="placeholder">{meeting_date}</span>
+Создай тематический конспект.
+
+Группировка по предметным областям, не хронологии.
+3-8 тем, сортировка по важности.
+discussion — самое важное: позиции, аргументы, цифры.
+
+<span class="placeholder">{transcript}</span></div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Конспект совещания</div>
+    <div class="col-body">
+      <div class="docx-title">Конспект совещания от 18.02.2026</div>
+      <div class="docx-h2">Саммари</div>
+      <p style="color:#555; font-size:0.9em;">Совещание по корпусу Б. Обсудили 5 тем: монолит, арматура, электрика, ОТ, финансы.</p>
+      <div class="docx-h2">Тема 1: Монолитные работы корпуса Б</div>
+      <div class="docx-field"><i>Тайм-код: 00:02:15 — 00:18:40</i></div>
+      <div class="docx-field"><b>Контекст:</b> <span class="val">Отставание от графика на 14 дней, критический путь</span></div>
+      <div class="docx-field"><b>Обсуждение:</b> <span class="val">Генподрядчик (Скворцов) сообщил об уходе бригады из-за неоплаты. Заказчик (Гусев) потребовал план восстановления к пятнице. Субподрядчик (Нефтересурс) подтвердил долг 2 мес.</span></div>
+      <div class="docx-field"><b>Решения:</b> <span class="val">Эскалировать оплату в финотдел</span></div>
+      <div class="docx-field"><b>Нерешённые:</b> <span class="val">Дата возвращения бригады</span></div>
+      <div class="docx-h2">Ключевые выводы</div>
+      <ul class="docx-list">
+        <li>Критическая ситуация с монолитом — нужна оплата субподрядчику</li>
+        <li>Электрика идёт по графику</li>
+      </ul>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Темы</span>
+        <span class="excel-tab">Выводы</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Тема</th><th>Тайм-код</th><th>Решения</th><th>Нерешённые</th><th>Ответственные</th></tr>
+        <tr><td>Монолитные работы</td><td>00:02:15</td><td>Эскалация в финотдел</td><td>Дата возврата бригады</td><td>Иванов</td></tr>
+        <tr><td>Поставка арматуры</td><td>00:18:40</td><td>Запросить альтернативное КП</td><td>—</td><td>Петров</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ################################################################## -->
+<!-- DCT DOMAIN -->
+<!-- ################################################################## -->
+<div id="domain-dct" class="domain-separator" style="background: var(--teal);">
+  DCT (ДЦТ) <span class="count">4 типа отчётов</span>
+</div>
+
+<nav class="nav nav-teal">
+  <a href="#dct_production">Производственное совещание</a>
+  <a href="#dct_brainstorm">Мозговой штурм</a>
+  <a href="#dct_negotiation">Переговоры</a>
+  <a href="#dct_lecture">Лекция / Вебинар</a>
+</nav>
+
+<!-- ====================================================================== -->
+<!-- DCT 1. PRODUCTION -->
+<!-- ====================================================================== -->
+<section class="report-section domain-dct" id="dct_production">
+<h2>1. Производственное совещание <span class="badge">production</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">ProductionMeetingResult</span>
+  <span class="field">object_name</span>: str<span class="optional">?</span>                  <span class="comment">— Название объекта/проекта</span>
+  <span class="field">summary</span>: str<span class="optional">?</span>                      <span class="comment">— Краткое саммари (2-4 предложения)</span>
+  <span class="field">attendees</span>: List[str]               <span class="comment">— Участники</span>
+  <span class="field">past_tasks_control</span>: List[<span class="type">ProductionPastTask</span>]
+    └ <span class="field">task_description</span>: str          <span class="comment">— Описание задачи</span>
+    └ <span class="field">status</span>: str                    <span class="comment">— Выполнено / Просрочено / В работе</span>
+    └ <span class="field">comment</span>: str<span class="optional">?</span>                  <span class="comment">— Комментарий</span>
+  <span class="field">work_progress_analysis</span>: List[<span class="type">ProductionWorkProgress</span>]
+    └ <span class="field">work_block_name</span>: str           <span class="comment">— Название блока работ</span>
+    └ <span class="field">status_summary</span>: str            <span class="comment">— Статус с % выполнения, проблемами</span>
+  <span class="field">resources_and_supply</span>: <span class="type">ProductionResources</span><span class="optional">?</span>
+    └ <span class="field">manpower</span>: str<span class="optional">?</span>                 <span class="comment">— Людские ресурсы</span>
+    └ <span class="field">machinery</span>: str<span class="optional">?</span>                <span class="comment">— Техника</span>
+    └ <span class="field">materials</span>: str<span class="optional">?</span>                <span class="comment">— Материалы и поставки</span>
+  <span class="field">safety_and_labor_protection</span>: List[str] <span class="comment">— Вопросы ОТ и ТБ</span>
+  <span class="field">new_tasks</span>: List[<span class="type">ProductionNewTask</span>]
+    └ <span class="field">task_description</span>: str          <span class="comment">— Описание задачи</span>
+    └ <span class="field">responsible</span>: str               <span class="comment">— Ответственный</span>
+    └ <span class="field">deadline</span>: str<span class="optional">?</span>                 <span class="comment">— Срок</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user)</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">Ты — опытный инженер ПТО, составляющий протокол штаба.
+Внимателен к деталям, цифрам и отклонениям от графика.</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата совещания: <span class="placeholder">{meeting_date}</span>
+Проанализируй стенограмму производственного совещания.
+
+Структура: object_name, summary, attendees, past_tasks_control, work_progress_analysis, resources_and_supply, safety_and_labor_protection, new_tasks.
+
+<span class="placeholder">{transcript}</span></div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Протокол производственного совещания</div>
+    <div class="col-body">
+      <div class="docx-title">Протокол производственного совещания от 17.02.2026</div>
+      <div class="docx-field"><b>Объект:</b> <span class="val">Склад «Логистик-Центр»</span></div>
+      <div class="docx-h2">Саммари</div>
+      <p style="color:#555; font-size:0.9em;">Обсудили ход работ по 4 блокам. Отставание по фасадным работам на 5 дней. Проблема с поставкой стеклопакетов решена — поставщик подтвердил отгрузку 20.02.</p>
+      <div class="docx-h2">Контроль прошлых задач</div>
+      <ol class="docx-list">
+        <li>Согласовать проект вентиляции — <i>Выполнено</i></li>
+        <li>Заказать стеклопакеты — <i>Просрочено, отгрузка 20.02</i></li>
+        <li>Устранить замечания по электрике — <i>В работе, 80% готово</i></li>
+      </ol>
+      <div class="docx-h2">Ход работ</div>
+      <ul class="docx-list">
+        <li><b>Фасад:</b> отставание 5 дней, причина — ожидание стеклопакетов</li>
+        <li><b>Внутренняя отделка:</b> по графику, 45% выполнено</li>
+      </ul>
+      <div class="docx-h2">Ресурсы</div>
+      <ul class="docx-list">
+        <li><b>Люди:</b> укомплектовано, 48 человек на объекте</li>
+        <li><b>Техника:</b> требуется автокран 25т на 3 дня (25-27.02)</li>
+        <li><b>Материалы:</b> стеклопакеты — отгрузка 20.02</li>
+      </ul>
+      <div class="docx-h2">Новые задачи</div>
+      <ol class="docx-list">
+        <li>Подготовить площадку для крана — <i>Ответственный: Сидоров</i>, <i>Срок: 24.02.2026</i></li>
+      </ol>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Контроль задач</span>
+        <span class="excel-tab">Ход работ</span>
+        <span class="excel-tab">Ресурсы</span>
+        <span class="excel-tab">Новые задачи</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Задача</th><th>Статус</th><th>Комментарий</th></tr>
+        <tr><td>Согласовать проект вентиляции</td><td>Выполнено</td><td>—</td></tr>
+        <tr><td>Заказать стеклопакеты</td><td>Просрочено</td><td>отгрузка 20.02</td></tr>
+        <tr><td>Устранить замечания по электрике</td><td>В работе</td><td>80% готово</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- DCT 2. BRAINSTORM (shared with Business) -->
+<!-- ====================================================================== -->
+<section class="report-section domain-dct" id="dct_brainstorm">
+<h2>2. Мозговой штурм <span class="badge">brainstorm</span></h2>
+<div class="report-body">
+<div class="shared-note">
+  <b>Общая схема с Business доменом</b> — используется <code>BrainstormResult</code> из <code>shared.schemas</code>.
+  Полную схему, промпты и примеры см. в разделе <a href="#biz_brainstorm">Business → Мозговой штурм</a>.
+  Системный промпт адаптирован под контекст ДЦТ (цифровая трансформация).
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- DCT 3. NEGOTIATION (shared with Business) -->
+<!-- ====================================================================== -->
+<section class="report-section domain-dct" id="dct_negotiation">
+<h2>3. Переговоры с контрагентом <span class="badge">negotiation</span></h2>
+<div class="report-body">
+<div class="shared-note">
+  <b>Общая схема с Business доменом</b> — используется <code>NegotiationResult</code> из <code>shared.schemas</code>.
+  Полную схему, промпты и примеры см. в разделе <a href="#biz_negotiation">Business → Переговоры</a>.
+  Системный промпт адаптирован под контекст ДЦТ (цифровая трансформация).
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- DCT 4. LECTURE (shared with Business) -->
+<!-- ====================================================================== -->
+<section class="report-section domain-dct" id="dct_lecture">
+<h2>4. Лекция / Вебинар <span class="badge">lecture</span></h2>
+<div class="report-body">
+<div class="shared-note">
+  <b>Общая схема с Business доменом</b> — используется <code>LectureResult</code> из <code>shared.schemas</code>.
+  Полную схему, промпты и примеры см. в разделе <a href="#biz_lecture">Business → Лекция / Вебинар</a>.
+  Системный промпт адаптирован под контекст ДЦТ (цифровая трансформация).
+</div>
+</div>
+</section>
+
+<!-- ################################################################## -->
+<!-- BUSINESS DOMAIN -->
+<!-- ################################################################## -->
+<div id="domain-business" class="domain-separator" style="background: var(--blue);">
+  Business (Бизнес) <span class="count">7 типов отчётов</span>
+</div>
+
+<nav class="nav">
+  <a href="#biz_negotiation">Переговоры</a>
+  <a href="#biz_client_meeting">Встреча с клиентом</a>
+  <a href="#biz_strategic_planning">Стратпланирование</a>
+  <a href="#biz_presentation">Презентация</a>
+  <a href="#biz_work_meeting">Рабочее совещание</a>
+  <a href="#biz_brainstorm">Мозговой штурм</a>
+  <a href="#biz_lecture">Лекция / Вебинар</a>
+</nav>
+
+<!-- ====================================================================== -->
+<!-- 1. NEGOTIATION -->
+<!-- ====================================================================== -->
+<section class="report-section domain-business" id="biz_negotiation">
+<h2>1. Переговоры с контрагентом <span class="badge">negotiation</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">NegotiationResult</span>
+  <span class="field">meeting_goal</span>: str              <span class="comment">— Основная цель переговоров: что хотели решить/согласовать. Формулировка от результата.</span>
+  <span class="field">parties</span>: List[<span class="type">NegotiationParty</span>]  <span class="comment">— Стороны переговоров</span>
+    └ <span class="field">party_name</span>: str            <span class="comment">— Официальное название компании/стороны из стенограммы</span>
+    └ <span class="field">representatives</span>: List[str] <span class="comment">— ФИО представителей, только упомянутые в тексте</span>
+  <span class="field">key_topics</span>: List[<span class="type">NegotiationTopic</span>]
+    └ <span class="field">topic</span>: str                 <span class="comment">— Предмет обсуждения (цена, сроки, гарантии и т.д.)</span>
+    └ <span class="field">positions</span>: str             <span class="comment">— Позиции ОБЕИХ сторон через противопоставление: «Мы: ..., Контрагент: ...». Конкретные цифры, условия.</span>
+    └ <span class="field">result</span>: str                <span class="comment">— Enum: Согласовано / Отложено / Отклонено. Только факт из стенограммы.</span>
+  <span class="field">agreements</span>: List[str]          <span class="comment">— Конкретные договорённости с цифрами/условиями. Только подтверждённые обеими сторонами.</span>
+  <span class="field">open_questions</span>: List[str]      <span class="comment">— Вопросы без финального решения. Не домысливать — только явно отложенные.</span>
+  <span class="field">next_steps</span>: List[<span class="type">ActionStep</span>]
+    └ <span class="field">action</span>: str               <span class="comment">— Конкретное действие в формате «[Глагол] + [что] + [кому/куда]»</span>
+    └ <span class="field">responsible</span>: str<span class="optional">?</span>          <span class="comment">— ФИО или организация. null если не назначен в стенограмме.</span>
+    └ <span class="field">deadline</span>: str<span class="optional">?</span>             <span class="comment">— Срок ДД.ММ.ГГГГ от даты встречи. null если не озвучен.</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user) — v2 improved</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">&lt;Role&gt;
+Ты — бизнес-аналитик и эксперт по деловым переговорам.
+Задача: составить протокол переговоров для внутреннего использования — позиции сторон, итоги по каждой теме, конкретные договорённости.
+&lt;/Role&gt;
+
+&lt;Language&gt;
+Весь вывод строго на русском языке.
+Если переговоры велись на иностранном языке — резюмируй позиции НА РУССКОМ.
+Названия компаний оставляй в оригинале: "Siemens", "CSCEC".
+Имена транслитерируй: "Hans Müller" → "Ганс Мюллер".
+Ключевые условия из иностранной части → пометка [из англ./кит. части переговоров].
+&lt;/Language&gt;
+
+&lt;Method&gt;
+1. СКАНИРОВАНИЕ: прочитай стенограмму целиком, выдели стороны и темы
+2. РАЗДЕЛЕНИЕ ПОЗИЦИЙ: по каждой теме зафиксируй «наша позиция» vs «их позиция»
+3. ВЕРИФИКАЦИЯ: проверь — итог (согласовано/отложено/отклонено) ЯВНО следует из текста?
+4. ЗАПОЛНЕНИЕ: только подтверждённые факты → в поля JSON
+&lt;/Method&gt;
+
+&lt;Rules&gt;
+- ПОЗИЦИИ &gt; ХРОНОЛОГИЯ: резюмируй по темам, а не по порядку обсуждения
+- КОНКРЕТИКА: "скидка 12% при объёме от 500 шт." вместо "обсудили ценовые условия"
+- NULL-FIRST: responsible/deadline = null, пока нет явного факта из стенограммы
+- EVIDENCE-GATING: нет упоминания в тексте = не включать в протокол
+&lt;/Rules&gt;
+
+&lt;AntiHallucination&gt;
+ЗАПРЕЩЕНО:
+- Придумывать договорённости, которых не было ("стороны, вероятно, согласились")
+- Генерировать ФИО, компании, цифры, которых нет в тексте
+- Заполнять open_questions домыслами ("возможно, стоит обсудить...")
+- Выдавать рекомендации ИИ за решения участников
+ВМЕСТО ЭТОГО:
+- Если тема обсуждалась, но решение не принято → result = "Отложено"
+- Если ответственный не назначен → null (не "вероятно, Иванов")
+&lt;/AntiHallucination&gt;
+
+&lt;Calibration&gt;
+Хорошая тема:
+{"topic": "Цена на контроллеры S7-1500",
+ "positions": "Мы запросили скидку 15% от прайса, Siemens предложил 8%. Компромисс — 12% при объёме от 500 шт.",
+ "result": "Согласовано"}
+
+Плохая тема (НЕ ДЕЛАЙ ТАК):
+{"topic": "Ценовые условия",
+ "positions": "Стороны обсудили финансовые аспекты сотрудничества",
+ "result": "Согласовано"}
+Почему плохо: размытая формулировка, нет цифр, нет позиций каждой стороны.
+&lt;/Calibration&gt;</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата встречи: <span class="placeholder">{meeting_date}</span>
+
+Проанализируй запись переговоров. Составь протокол.
+
+# КАК АНАЛИЗИРОВАТЬ:
+- Определи стороны и их представителей
+- По каждой обсуждённой теме зафиксируй позиции ОБЕИХ сторон с конкретикой (цифры, условия, сроки)
+- Чётко раздели: что СОГЛАСОВАНО (обе стороны подтвердили) vs ОТЛОЖЕНО (обсудили, не решили) vs ОТКЛОНЕНО (одна сторона отказала)
+- Договорённости — только подтверждённые факты с конкретными условиями
+- Следующие шаги — разделяй: что делаем МЫ и что делает КОНТРАГЕНТ
+- Относительные сроки ("на следующей неделе") → конкретная дата от <span class="placeholder">{meeting_date}</span>
+
+Стенограмма:
+---
+<span class="placeholder">{transcript}</span>
+---</div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Протокол переговоров</div>
+    <div class="col-body">
+      <div class="docx-title">Протокол переговоров от 15.02.2026</div>
+      <div class="docx-field"><b>Цель встречи:</b> <span class="val">Обсуждение условий поставки оборудования на 2026 год</span></div>
+      <div class="docx-h2">Стороны переговоров</div>
+      <div class="docx-field"><b>ООО «Северин Девелопмент»</b></div>
+      <ul class="docx-list"><li>Иванов А.А., Петрова М.С.</li></ul>
+      <div class="docx-field"><b>Siemens GmbH</b></div>
+      <ul class="docx-list"><li>Hans Müller, Клаус Шмидт</li></ul>
+      <div class="docx-h2">Ключевые темы обсуждения</div>
+      <div class="docx-h3">1. Цена на контроллеры серии S7</div>
+      <div class="docx-field"><b>Позиции:</b> <span class="val">Мы запросили скидку 15%, Siemens предложил 8%</span></div>
+      <div class="docx-field"><b>Итог:</b> <span class="val">Согласовано — скидка 12% при объёме от 500 шт.</span></div>
+      <div class="docx-h2">Достигнутые договорённости</div>
+      <ul class="docx-list">
+        <li>Скидка 12% при объёме от 500 единиц</li>
+        <li>Отсрочка платежа — 60 дней</li>
+      </ul>
+      <div class="docx-h2">Нерешённые вопросы</div>
+      <ul class="docx-list"><li>Условия гарантийного обслуживания</li></ul>
+      <div class="docx-h2">Следующие шаги</div>
+      <ol class="docx-list">
+        <li>Подготовить спецификацию — <i>Ответственный: Петрова</i>, <i>Срок: 20.02.2026</i></li>
+      </ol>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Стороны</span>
+        <span class="excel-tab">Темы</span>
+        <span class="excel-tab">Договорённости</span>
+        <span class="excel-tab">Открытые вопросы</span>
+        <span class="excel-tab">Следующие шаги</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Тема</th><th>Позиции сторон</th><th>Итог</th></tr>
+        <tr><td>Цена на контроллеры S7</td><td>Мы: -15%, Siemens: -8%</td><td>Согласовано (12%)</td></tr>
+        <tr><td>Сроки поставки</td><td>Мы: 30 дней, Siemens: 45 дней</td><td>Отложено</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- 2. CLIENT MEETING -->
+<!-- ====================================================================== -->
+<section class="report-section domain-business" id="biz_client_meeting">
+<h2>2. Встреча с клиентом <span class="badge">client_meeting</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">ClientMeetingResult</span>
+  <span class="field">meeting_goal</span>: str              <span class="comment">— Цель встречи: что хотели обсудить/решить с клиентом</span>
+  <span class="field">client_info</span>: <span class="type">ClientInfo</span><span class="optional">?</span>
+    └ <span class="field">company</span>: str<span class="optional">?</span>              <span class="comment">— Официальное название компании клиента. null если не упомянуто.</span>
+    └ <span class="field">representatives</span>: List[str] <span class="comment">— ФИО представителей клиента, только из стенограммы</span>
+  <span class="field">client_needs</span>: List[str]        <span class="comment">— Потребности клиента своими словами. Каждая потребность — отдельная строка.</span>
+  <span class="field">proposed_solutions</span>: List[str]  <span class="comment">— Решения, предложенные НАШЕЙ стороной. Только озвученные на встрече.</span>
+  <span class="field">client_feedback</span>: List[str]     <span class="comment">— Реакции клиента: возражения, вопросы, одобрения. Формат: «[Тип]: текст».</span>
+  <span class="field">agreements</span>: List[str]          <span class="comment">— Подтверждённые обеими сторонами договорённости с конкретикой.</span>
+  <span class="field">next_steps</span>: List[<span class="type">ActionStep</span>]
+    └ <span class="field">action</span>: str               <span class="comment">— Конкретное действие: «[Глагол] + [что] + [кому/куда]»</span>
+    └ <span class="field">responsible</span>: str<span class="optional">?</span>          <span class="comment">— ФИО или роль. null если не назначен.</span>
+    └ <span class="field">deadline</span>: str<span class="optional">?</span>             <span class="comment">— ДД.ММ.ГГГГ от даты встречи. null если не озвучен.</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user) — v2 improved</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">&lt;Role&gt;
+Ты — бизнес-консультант, фиксирующий итоги встречи с клиентом.
+Задача: зафиксировать потребности клиента, предложенные решения, обратную связь и договорённости.
+&lt;/Role&gt;
+
+&lt;Language&gt;
+Весь вывод строго на русском языке.
+Названия компаний — в оригинале. Имена иностранцев — транслитерация.
+&lt;/Language&gt;
+
+&lt;Method&gt;
+1. СКАНИРОВАНИЕ: прочитай стенограмму, определи клиента и нашу сторону
+2. РАЗДЕЛЕНИЕ: чётко отдели потребности клиента → наши предложения → реакция клиента
+3. ВЕРИФИКАЦИЯ: договорённости — только подтверждённые обеими сторонами
+4. ЗАПОЛНЕНИЕ: факты из текста → в поля JSON
+&lt;/Method&gt;
+
+&lt;Rules&gt;
+- КЛИЕНТ &gt; МЫ: приоритет — зафиксировать потребности и обратную связь клиента
+- КОНКРЕТИКА: "нужна интеграция с SAP для 500 пользователей" вместо "обсудили интеграцию"
+- NULL-FIRST: responsible/deadline = null, пока нет явного факта
+- Следующие шаги — разделяй: что делаем МЫ и что делает КЛИЕНТ
+&lt;/Rules&gt;
+
+&lt;AntiHallucination&gt;
+ЗАПРЕЩЕНО:
+- Придумывать потребности, которые клиент не озвучивал
+- Генерировать одобрения ("клиент был доволен"), если это не сказано явно
+- Выдавать наши предложения за договорённости (если клиент не подтвердил)
+- Заполнять company домыслом — null если не названо
+&lt;/AntiHallucination&gt;
+
+&lt;Calibration&gt;
+Хорошая потребность: "Автоматизация протоколов на 12 стройплощадках с поддержкой турецкого языка"
+Плохая потребность: "Клиент заинтересован в автоматизации" (размыто, нет конкретики)
+&lt;/Calibration&gt;</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата встречи: <span class="placeholder">{meeting_date}</span>
+
+Проанализируй запись встречи с клиентом. Составь протокол.
+
+# КАК АНАЛИЗИРОВАТЬ:
+- Определи компанию и представителей клиента
+- Выдели потребности клиента — что ОН хочет, какие проблемы озвучивает
+- Зафиксируй наши предложения — что МЫ предложили в ответ
+- Обратная связь: возражения ("дорого"), вопросы ("а работает ли с SAP?"), одобрения ("это нам подходит")
+- Договорённости — только то, что клиент ПОДТВЕРДИЛ
+- Следующие шаги — кто что делает, с разделением "мы" / "клиент"
+- Относительные сроки → конкретная дата от <span class="placeholder">{meeting_date}</span>
+
+Стенограмма:
+---
+<span class="placeholder">{transcript}</span>
+---</div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Протокол встречи с клиентом</div>
+    <div class="col-body">
+      <div class="docx-title">Протокол встречи с клиентом от 14.02.2026</div>
+      <div class="docx-field"><b>Цель встречи:</b> <span class="val">Презентация платформы автопротоколирования</span></div>
+      <div class="docx-h2">Информация о клиенте</div>
+      <div class="docx-field"><b>Компания:</b> <span class="val">ПАО «Газпром Нефть»</span></div>
+      <div class="docx-field"><b>Представители:</b> <span class="val">Сидоров И.П., Козлова Н.А.</span></div>
+      <div class="docx-h2">Потребности клиента</div>
+      <ul class="docx-list">
+        <li>Автоматизация протоколов стройплощадки</li>
+        <li>Интеграция с SAP</li>
+      </ul>
+      <div class="docx-h2">Предложенные решения</div>
+      <ul class="docx-list">
+        <li>Пилот на 2 объектах — construction домен</li>
+        <li>API-интеграция с SAP через промежуточный слой</li>
+      </ul>
+      <div class="docx-h2">Обратная связь клиента</div>
+      <ul class="docx-list">
+        <li>Вопрос: работает ли с турецким языком?</li>
+        <li>Возражение: цена выше бюджета на 20%</li>
+      </ul>
+      <div class="docx-h2">Договорённости</div>
+      <ul class="docx-list"><li>Запуск пилота на объекте «Приразломная» к 01.04.2026</li></ul>
+      <div class="docx-h2">Следующие шаги</div>
+      <ol class="docx-list">
+        <li>Отправить КП — <i>Ответственный: Иванов</i>, <i>Срок: 18.02.2026</i></li>
+        <li>Согласовать NDA — <i>Ответственный: Юр.отдел</i></li>
+      </ol>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Потребности</span>
+        <span class="excel-tab">Решения</span>
+        <span class="excel-tab">Обратная связь</span>
+        <span class="excel-tab">Договорённости</span>
+        <span class="excel-tab">Следующие шаги</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Потребность клиента</th></tr>
+        <tr><td>Автоматизация протоколов стройплощадки</td></tr>
+        <tr><td>Интеграция с SAP</td></tr>
+        <tr><td>Поддержка мультиязычности (турецкий)</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- 3. STRATEGIC PLANNING -->
+<!-- ====================================================================== -->
+<section class="report-section domain-business" id="biz_strategic_planning">
+<h2>3. Стратегическое планирование <span class="badge">strategic_planning</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">StrategicPlanningResult</span>
+  <span class="field">session_topic</span>: str             <span class="comment">— Тема стратегической сессии: горизонт планирования + область</span>
+  <span class="field">current_situation</span>: str         <span class="comment">— Анализ текущего положения: факты, цифры, контекст. 1-3 абзаца.</span>
+  <span class="field">strategic_goals</span>: List[str]     <span class="comment">— Стратегические цели с измеримыми показателями где возможно</span>
+  <span class="field">initiatives</span>: List[<span class="type">Initiative</span>]
+    └ <span class="field">name</span>: str                  <span class="comment">— Название инициативы/проекта — конкретное, не размытое</span>
+    └ <span class="field">priority</span>: str              <span class="comment">— Enum: Высокий / Средний / Низкий. На основании обсуждения.</span>
+    └ <span class="field">responsible</span>: str<span class="optional">?</span>          <span class="comment">— ФИО или роль. null если не назначен в стенограмме.</span>
+    └ <span class="field">timeline</span>: str<span class="optional">?</span>             <span class="comment">— Срок или период (Q3 2026, H2 2026). null если не озвучен.</span>
+  <span class="field">risks</span>: List[str]               <span class="comment">— Стратегические риски и ограничения. Только озвученные участниками.</span>
+  <span class="field">kpis</span>: List[<span class="type">KPI</span>]
+    └ <span class="field">metric</span>: str                <span class="comment">— Название показателя (ARR, NPS, конверсия и т.д.)</span>
+    └ <span class="field">target</span>: str<span class="optional">?</span>               <span class="comment">— Целевое значение с единицей измерения. null если не определено.</span>
+  <span class="field">next_steps</span>: List[<span class="type">ActionStep</span>]
+    └ <span class="field">action</span>: str               <span class="comment">— Конкретное действие</span>
+    └ <span class="field">responsible</span>: str<span class="optional">?</span>          <span class="comment">— null если не назначен</span>
+    └ <span class="field">deadline</span>: str<span class="optional">?</span>             <span class="comment">— null если не озвучен</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user) — v2 improved</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">&lt;Role&gt;
+Ты — бизнес-стратег, фиксирующий итоги стратегической сессии.
+Задача: структурировать цели, инициативы, риски и KPI из обсуждения.
+&lt;/Role&gt;
+
+&lt;Language&gt;
+Весь вывод строго на русском языке.
+&lt;/Language&gt;
+
+&lt;Method&gt;
+1. СКАНИРОВАНИЕ: прочитай стенограмму, выдели темы и решения
+2. КОНКРЕТИЗАЦИЯ: размытые формулировки ("нужно расти") → конкретные инициативы с ответственным
+3. ВЕРИФИКАЦИЯ: KPI целевые значения — только озвученные, не придуманные
+4. ЗАПОЛНЕНИЕ: факты → JSON
+&lt;/Method&gt;
+
+&lt;Rules&gt;
+- КОНКРЕТИЗАЦИЯ: "Запуск SaaS к Q3 2026, Кузнецов" вместо "развивать продукт"
+- ЦЕЛИ vs ИНИЦИАТИВЫ: цель = ЧТО хотим, инициатива = КАК достигнем
+- NULL-FIRST: responsible/timeline/target = null если не озвучены
+- Риски — только стратегические, не операционные мелочи
+&lt;/Rules&gt;
+
+&lt;AntiHallucination&gt;
+ЗАПРЕЩЕНО:
+- Придумывать KPI целевые значения ("вероятно, цель 50M")
+- Генерировать инициативы, которые не обсуждались
+- Выдумывать риски из общих знаний — только из стенограммы
+- Назначать приоритеты без обоснования из текста
+&lt;/AntiHallucination&gt;</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата сессии: <span class="placeholder">{meeting_date}</span>
+
+Проанализируй запись стратегической сессии. Составь протокол.
+
+# КАК АНАЛИЗИРОВАТЬ:
+- Определи тему и горизонт планирования
+- Зафиксируй текущую ситуацию (цифры, факты, контекст из обсуждения)
+- Выдели стратегические цели — измеримые где возможно
+- Инициативы: название + приоритет + ответственный + сроки (всё из стенограммы)
+- Риски — стратегические угрозы, озвученные участниками
+- KPI — только с конкретными целевыми значениями из обсуждения
+- Следующие шаги — конкретные действия с ответственными
+
+Стенограмма:
+---
+<span class="placeholder">{transcript}</span>
+---</div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Протокол стратегической сессии</div>
+    <div class="col-body">
+      <div class="docx-title">Протокол стратегической сессии от 10.02.2026</div>
+      <div class="docx-field"><b>Тема:</b> <span class="val">Стратегия развития продукта на 2026-2027</span></div>
+      <div class="docx-h2">Текущая ситуация</div>
+      <p style="color:#555; font-size:0.9em;">Продукт внедрён в 3 компаниях, ARR 12M руб. Основные барьеры: отсутствие интеграции с SAP и 1С...</p>
+      <div class="docx-h2">Стратегические цели</div>
+      <ul class="docx-list">
+        <li>Выход на ARR 50M к концу 2027</li>
+        <li>Запуск SaaS-версии к Q3 2026</li>
+      </ul>
+      <div class="docx-h2">Инициативы и проекты</div>
+      <ol class="docx-list">
+        <li>SaaS-платформа — <i>Приоритет: Высокий</i>, <i>Ответственный: Кузнецов</i>, <i>Сроки: Q3 2026</i></li>
+        <li>Интеграция с 1С — <i>Приоритет: Средний</i>, <i>Ответственный: Смирнов</i></li>
+      </ol>
+      <div class="docx-h2">Риски</div>
+      <ul class="docx-list"><li>Нехватка ML-инженеров на рынке</li></ul>
+      <div class="docx-h2">KPI</div>
+      <div class="docx-field"><b>ARR</b> — целевое: 50M руб.</div>
+      <div class="docx-field"><b>NPS</b> — целевое: > 60</div>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Цели</span>
+        <span class="excel-tab">Инициативы</span>
+        <span class="excel-tab">Риски</span>
+        <span class="excel-tab">KPI</span>
+        <span class="excel-tab">Следующие шаги</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Инициатива</th><th>Приоритет</th><th>Ответственный</th><th>Сроки</th></tr>
+        <tr><td>SaaS-платформа</td><td>Высокий</td><td>Кузнецов</td><td>Q3 2026</td></tr>
+        <tr><td>Интеграция с 1С</td><td>Средний</td><td>Смирнов</td><td>Q4 2026</td></tr>
+        <tr><td>HR-домен</td><td>Низкий</td><td>—</td><td>2027</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- 4. PRESENTATION -->
+<!-- ====================================================================== -->
+<section class="report-section domain-business" id="biz_presentation">
+<h2>4. Презентация <span class="badge">presentation</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">PresentationResult</span>
+  <span class="field">title</span>: str                     <span class="comment">— Полное название презентации/доклада из стенограммы</span>
+  <span class="field">presenter</span>: str<span class="optional">?</span>                 <span class="comment">— ФИО докладчика. null если не удалось определить.</span>
+  <span class="field">key_messages</span>: List[str]        <span class="comment">— Ключевые тезисы доклада (5-10). Суть идеи, не пересказ слов.</span>
+  <span class="field">audience_questions</span>: List[<span class="type">QA</span>]
+    └ <span class="field">question</span>: str               <span class="comment">— Суть вопроса (не дословно, а по смыслу)</span>
+    └ <span class="field">answer</span>: str<span class="optional">?</span>                <span class="comment">— Ключевая мысль ответа. null если ответ не прозвучал.</span>
+  <span class="field">decisions</span>: List[str]            <span class="comment">— Решения, принятые ПО ИТОГАМ презентации. Только факты.</span>
+  <span class="field">next_steps</span>: List[<span class="type">ActionStep</span>]
+    └ <span class="field">action</span>: str               <span class="comment">— Конкретное действие</span>
+    └ <span class="field">responsible</span>: str<span class="optional">?</span>          <span class="comment">— null если не назначен</span>
+    └ <span class="field">deadline</span>: str<span class="optional">?</span>             <span class="comment">— null если не озвучен</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user) — v2 improved</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">&lt;Role&gt;
+Ты — аналитик, фиксирующий итоги деловой презентации.
+Задача: выделить ключевые тезисы, вопросы аудитории, принятые решения.
+&lt;/Role&gt;
+
+&lt;Language&gt;
+Весь вывод строго на русском языке.
+Если доклад на иностранном языке — конспектируй по-русски, ключевые термины с оригиналом в скобках.
+&lt;/Language&gt;
+
+&lt;Method&gt;
+1. СКАНИРОВАНИЕ: определи тему, докладчика, структуру доклада
+2. ИЗВЛЕЧЕНИЕ ТЕЗИСОВ: суть каждого тезиса (не пересказ слов, а ключевая мысль)
+3. Q&amp;A: вопрос + суть ответа
+4. РЕШЕНИЯ: только фактически принятые, не предложения
+&lt;/Method&gt;
+
+&lt;Rules&gt;
+- ТЕЗИСЫ &gt; ПЕРЕСКАЗ: извлекай суть, а не цитируй дословно
+- key_messages: 5-10 самых важных мыслей доклада
+- decisions: ТОЛЬКО решения, принятые аудиторией/руководством по итогам
+- NULL-FIRST: presenter = null если не удалось определить
+&lt;/Rules&gt;
+
+&lt;AntiHallucination&gt;
+ЗАПРЕЩЕНО:
+- Придумывать вопросы аудитории, которых не было
+- Генерировать ответы, если докладчик не ответил (answer = null)
+- Выдавать тезисы докладчика за решения аудитории
+&lt;/AntiHallucination&gt;</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата проведения: <span class="placeholder">{meeting_date}</span>
+
+Проанализируй запись презентации. Составь протокол.
+
+# КАК АНАЛИЗИРОВАТЬ:
+- Определи название доклада и докладчика
+- Выдели 5-10 ключевых тезисов — суть каждой мысли, а не дословная цитата
+- Зафиксируй вопросы аудитории и ответы
+- Решения — только те, что реально приняли (утвердили, одобрили), не предложения
+- Следующие шаги с ответственными и сроками
+
+Стенограмма:
+---
+<span class="placeholder">{transcript}</span>
+---</div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Итоги презентации</div>
+    <div class="col-body">
+      <div class="docx-title">Итоги презентации от 12.02.2026</div>
+      <div class="docx-field"><b>Название:</b> <span class="val">Результаты Q4 2025 и планы на H1 2026</span></div>
+      <div class="docx-field"><b>Докладчик:</b> <span class="val">Иванов А.А.</span></div>
+      <div class="docx-h2">Ключевые тезисы</div>
+      <ul class="docx-list">
+        <li>Выручка выросла на 35% к Q3</li>
+        <li>3 новых клиента в сегменте enterprise</li>
+        <li>Фокус H1 2026 — SaaS и масштабирование</li>
+      </ul>
+      <div class="docx-h2">Вопросы аудитории</div>
+      <div class="docx-h3">В: Когда будет SaaS-версия?</div>
+      <p style="color:#555; margin-left:10px;">О: Планируем бета-версию к июлю 2026</p>
+      <div class="docx-h2">Принятые решения</div>
+      <ul class="docx-list"><li>Утвердить бюджет на SaaS-разработку</li></ul>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Ключевые тезисы</span>
+        <span class="excel-tab">Вопросы</span>
+        <span class="excel-tab">Решения</span>
+        <span class="excel-tab">Следующие шаги</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Вопрос</th><th>Ответ</th></tr>
+        <tr><td>Когда будет SaaS-версия?</td><td>Бета к июлю 2026</td></tr>
+        <tr><td>Будет ли интеграция с 1С?</td><td>В плане на Q4 2026</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- 5. WORK MEETING -->
+<!-- ====================================================================== -->
+<section class="report-section domain-business" id="biz_work_meeting">
+<h2>5. Рабочее совещание <span class="badge">work_meeting</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">WorkMeetingResult</span>
+  <span class="field">meeting_topic</span>: str             <span class="comment">— Тема совещания: о чём собрались</span>
+  <span class="field">summary</span>: str                   <span class="comment">— Краткое саммари: ключевые итоги в 2-4 предложениях. Только факты.</span>
+  <span class="field">task_statuses</span>: List[<span class="type">TaskStatus</span>]
+    └ <span class="field">task</span>: str                  <span class="comment">— Название/описание задачи из обсуждения</span>
+    └ <span class="field">responsible</span>: str<span class="optional">?</span>          <span class="comment">— ФИО или роль. null если не назван.</span>
+    └ <span class="field">status</span>: str                <span class="comment">— Enum: Выполнено / В работе / Задержка / Заблокировано. Факт из текста.</span>
+    └ <span class="field">comment</span>: str<span class="optional">?</span>              <span class="comment">— Доп. контекст (% готовности, причина блокировки). null если нечего добавить.</span>
+  <span class="field">blockers</span>: List[str]            <span class="comment">— Проблемы, блокирующие работу. Конкретика: что заблокировано и почему.</span>
+  <span class="field">decisions</span>: List[str]            <span class="comment">— Решения, ПРИНЯТЫЕ на совещании. Не предложения, а утверждённые действия.</span>
+  <span class="field">new_tasks</span>: List[<span class="type">ActionStep</span>]     <span class="comment">— Новые задачи, поставленные на совещании</span>
+  <span class="field">next_steps</span>: List[<span class="type">ActionStep</span>]    <span class="comment">— Следующие шаги (общие, не привязанные к конкретной задаче)</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user) — v2 improved</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">&lt;Role&gt;
+Ты — опытный проектный менеджер, составляющий протокол рабочего совещания.
+Задача: зафиксировать статусы задач, блокеры, решения и новые поручения.
+&lt;/Role&gt;
+
+&lt;Language&gt;
+Весь вывод строго на русском языке.
+&lt;/Language&gt;
+
+&lt;Method&gt;
+1. СКАНИРОВАНИЕ: определи тему и участников
+2. СТАТУСЫ: по каждой обсуждённой задаче — итоговый статус (не процесс обсуждения)
+3. БЛОКЕРЫ: что мешает и почему
+4. РЕШЕНИЯ vs ПРЕДЛОЖЕНИЯ: решения — только утверждённые
+5. НОВЫЕ ЗАДАЧИ: поручения, данные на совещании
+&lt;/Method&gt;
+
+&lt;Rules&gt;
+- СТАТУС &gt; ОБСУЖДЕНИЕ: фиксируй конечный статус, не процесс
+- "Обсудили задачу X" — бесполезно. "Задача X: в работе, 70% готово, дедлайн сдвинут на 20.02" — полезно.
+- NULL-FIRST: responsible/comment = null если не озвучены
+- Блокеры — с конкретикой: ЧТО заблокировано + ПОЧЕМУ
+&lt;/Rules&gt;
+
+&lt;AntiHallucination&gt;
+ЗАПРЕЩЕНО:
+- Придумывать статусы ("вероятно, выполнено")
+- Генерировать процент готовности, если не озвучен
+- Выдавать предложения за решения
+- Заполнять comment общими фразами ("всё в порядке")
+&lt;/AntiHallucination&gt;
+
+&lt;Calibration&gt;
+Хороший статус:
+{"task": "CI/CD pipeline", "responsible": "Петров", "status": "Заблокировано", "comment": "нет доступа к staging-серверу, тикет #1234"}
+
+Плохой статус:
+{"task": "Инфраструктура", "responsible": null, "status": "В работе", "comment": "работают над этим"}
+Почему плохо: размытая задача, нет ответственного, пустой комментарий.
+&lt;/Calibration&gt;</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата совещания: <span class="placeholder">{meeting_date}</span>
+
+Проанализируй запись рабочего совещания. Составь протокол.
+
+# КАК АНАЛИЗИРОВАТЬ:
+- Определи тему и напиши краткое саммари (2-4 предложения, ключевые итоги)
+- По каждой обсуждённой задаче: итоговый статус + ответственный + комментарий
+- Блокеры — что мешает и почему (конкретно)
+- Решения — только утверждённые на совещании, не предложения
+- Новые задачи — поручения с ответственными и сроками
+- Относительные сроки → конкретная дата от <span class="placeholder">{meeting_date}</span>
+
+Стенограмма:
+---
+<span class="placeholder">{transcript}</span>
+---</div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Протокол рабочего совещания</div>
+    <div class="col-body">
+      <div class="docx-title">Протокол рабочего совещания от 13.02.2026</div>
+      <div class="docx-field"><b>Тема:</b> <span class="val">Еженедельный статус команды разработки</span></div>
+      <div class="docx-h2">Краткое саммари</div>
+      <p style="color:#555; font-size:0.9em;">Обсудили прогресс по SaaS и блокер с деплоем на staging. Приняли решение привлечь DevOps на полставки.</p>
+      <div class="docx-h2">Статусы задач</div>
+      <ol class="docx-list">
+        <li>API авторизации — <i>Статус: Выполнено</i>, <i>Ответственный: Кузнецов</i></li>
+        <li>Миграция БД — <i>Статус: В работе</i>, <i>Ответственный: Смирнов</i>, <i>Комментарий: 70% готово</i></li>
+        <li>CI/CD pipeline — <i>Статус: Заблокировано</i>, <i>Ответственный: Петров</i>, <i>Комментарий: нет доступа к staging</i></li>
+      </ol>
+      <div class="docx-h2">Блокеры</div>
+      <ul class="docx-list"><li>Нет доступа к staging-серверу (тикет #1234)</li></ul>
+      <div class="docx-h2">Принятые решения</div>
+      <ul class="docx-list"><li>Привлечь DevOps на полставки до конца спринта</li></ul>
+      <div class="docx-h2">Новые задачи</div>
+      <ol class="docx-list">
+        <li>Настроить staging — <i>Ответственный: DevOps</i>, <i>Срок: 15.02.2026</i></li>
+      </ol>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Статусы задач</span>
+        <span class="excel-tab">Блокеры</span>
+        <span class="excel-tab">Решения</span>
+        <span class="excel-tab">Новые задачи</span>
+        <span class="excel-tab">Следующие шаги</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Задача</th><th>Ответственный</th><th>Статус</th><th>Комментарий</th></tr>
+        <tr><td>API авторизации</td><td>Кузнецов</td><td>Выполнено</td><td>—</td></tr>
+        <tr><td>Миграция БД</td><td>Смирнов</td><td>В работе</td><td>70% готово</td></tr>
+        <tr><td>CI/CD pipeline</td><td>Петров</td><td>Заблокировано</td><td>нет доступа к staging</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- 6. BRAINSTORM -->
+<!-- ====================================================================== -->
+<section class="report-section domain-business" id="biz_brainstorm">
+<h2>6. Мозговой штурм <span class="badge">brainstorm</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">BrainstormResult</span>
+  <span class="field">session_topic</span>: str<span class="optional">?</span>            <span class="comment">— Тема сессии. null если не озвучена явно.</span>
+  <span class="field">main_problem</span>: str<span class="optional">?</span>             <span class="comment">— Проблема/задача, которую решали. Конкретная формулировка.</span>
+  <span class="field">idea_clusters</span>: List[<span class="type">BrainstormIdeaCluster</span>]
+    └ <span class="field">cluster_name</span>: str          <span class="comment">— Направление/тема кластера (маркетинг, продукт, процессы). По смыслу, не по хронологии.</span>
+    └ <span class="field">ideas</span>: List[str]           <span class="comment">— ВСЕ идеи кластера без фильтрации. Каждая — отдельная строка.</span>
+  <span class="field">top_ideas</span>: List[<span class="type">BrainstormTopIdea</span>]
+    └ <span class="field">idea_description</span>: str      <span class="comment">— Описание перспективной идеи (конкретно, не размыто)</span>
+    └ <span class="field">potential_impact</span>: str      <span class="comment">— Enum: Высокий / Средний / Низкий. На основании обсуждения команды.</span>
+    └ <span class="field">implementation_complexity</span>: str <span class="comment">— Enum: Высокая / Средняя / Низкая. Оценка трудозатрат.</span>
+  <span class="field">parked_ideas</span>: List[str]        <span class="comment">— Идеи, явно отложенные ("потом", "не сейчас"). Не ваша оценка.</span>
+  <span class="field">next_steps</span>: List[<span class="type">BrainstormNextStep</span>]
+    └ <span class="field">action_item</span>: str           <span class="comment">— Конкретное действие по итогам штурма</span>
+    └ <span class="field">responsible</span>: str<span class="optional">?</span>          <span class="comment">— null если не назначен</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user) — v2 improved</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">&lt;Role&gt;
+Ты — креативный фасилитатор мозгового штурма.
+Задача: зафиксировать ВСЕ идеи, сгруппировать по направлениям, выделить перспективные.
+&lt;/Role&gt;
+
+&lt;Language&gt;
+Весь вывод строго на русском. Идеи на иностранном языке — формулируй суть по-русски,
+оригинальное название в скобках если важно.
+&lt;/Language&gt;
+
+&lt;Method&gt;
+1. СБОР: выпиши все озвученные идеи (даже "безумные")
+2. ГРУППИРОВКА: объедини по направлениям (маркетинг, продукт, процессы...), НЕ по хронологии
+3. ПРИОРИТИЗАЦИЯ: выбери 3-5 перспективных — оцени impact и сложность
+4. ПАРКОВКА: идеи с "потом", "не сейчас" → в parked_ideas
+&lt;/Method&gt;
+
+&lt;Rules&gt;
+- ФИКСАЦИЯ &gt; ОЦЕНКА: не критикуй и не фильтруй идеи, фиксируй всё
+- NULL-FIRST: responsible = null если не назначен
+- Группируй по СМЫСЛУ, не по порядку обсуждения
+- parked_ideas — только идеи, которые участники ЯВНО отложили
+&lt;/Rules&gt;
+
+&lt;AntiHallucination&gt;
+ЗАПРЕЩЕНО:
+- Фильтровать "нереалистичные" идеи — фиксируй все
+- Придумывать идеи, которых не было в обсуждении
+- Оценивать impact/complexity на основании своих знаний — только по обсуждению команды
+- Переносить идеи в parked_ideas по своему усмотрению
+&lt;/AntiHallucination&gt;
+
+&lt;Calibration&gt;
+Хороший кластер: "Маркетинг" → ["Запустить рассылку по базе", "Таргет в Telegram", "Партнёрская программа"]
+Плохой кластер: "Идеи с начала встречи" → [...] (хронология вместо смысла)
+&lt;/Calibration&gt;</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата проведения: <span class="placeholder">{meeting_date}</span>
+
+Проанализируй сессию мозгового штурма. Составь протокол.
+
+# КАК АНАЛИЗИРОВАТЬ:
+- Определи тему и основную проблему/задачу
+- Зафиксируй ВСЕ идеи — даже "безумные", потом команда отфильтрует
+- Сгруппируй по направлениям (маркетинг, продукт, процессы), НЕ по хронологии
+- Выбери 3-5 самых перспективных с оценкой impact и сложности
+- Отложенные идеи — только те, что участники явно "запарковали"
+- Следующие шаги с ответственными
+
+Стенограмма:
+---
+<span class="placeholder">{transcript}</span>
+---</div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Итоги мозгового штурма</div>
+    <div class="col-body">
+      <div class="docx-title">Итоги сессии мозгового штурма от 11.02.2026</div>
+      <div class="docx-field"><b>Тема:</b> <span class="val">Как увеличить конверсию лидов в 2 раза</span></div>
+      <div class="docx-field"><b>Проблема:</b> <span class="val">Конверсия из лида в сделку — 8%, цель — 16%</span></div>
+      <div class="docx-h2">Кластер: Маркетинг</div>
+      <ul class="docx-list">
+        <li>Запустить ретаргетинг в Telegram</li>
+        <li>Вебинар-серия для прогрева</li>
+      </ul>
+      <div class="docx-h2">Кластер: Продукт</div>
+      <ul class="docx-list">
+        <li>Бесплатный trial на 14 дней</li>
+        <li>Онбординг-визард</li>
+      </ul>
+      <div class="docx-h2">Топ идеи</div>
+      <ol class="docx-list">
+        <li>Бесплатный trial — <i>Влияние: Высокий, Сложность: Средняя</i></li>
+        <li>Ретаргетинг в Telegram — <i>Влияние: Средний, Сложность: Низкая</i></li>
+      </ol>
+      <div class="docx-h2">Отложенные идеи</div>
+      <ul class="docx-list"><li>Партнёрская программа с интеграторами</li></ul>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Идеи по кластерам</span>
+        <span class="excel-tab">Топ идеи</span>
+        <span class="excel-tab">Парковка</span>
+        <span class="excel-tab">Следующие шаги</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Идея</th><th>Влияние</th><th>Сложность</th></tr>
+        <tr><td>Бесплатный trial 14 дней</td><td>Высокий</td><td>Средняя</td></tr>
+        <tr><td>Ретаргетинг в Telegram</td><td>Средний</td><td>Низкая</td></tr>
+        <tr><td>Вебинар-серия для прогрева</td><td>Средний</td><td>Средняя</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ====================================================================== -->
+<!-- 7. LECTURE -->
+<!-- ====================================================================== -->
+<section class="report-section domain-business" id="biz_lecture">
+<h2>7. Лекция / Вебинар <span class="badge">lecture</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">LectureResult</span>
+  <span class="field">webinar_title</span>: str<span class="optional">?</span>            <span class="comment">— Полное название лекции/вебинара. null если не озвучено.</span>
+  <span class="field">presentation_part</span>: List[<span class="type">LectureBlock</span>]
+    └ <span class="field">block_title</span>: str           <span class="comment">— Заголовок смыслового блока лекции</span>
+    └ <span class="field">time_code</span>: str<span class="optional">?</span>            <span class="comment">— Тайм-код начала блока (ЧЧ:ММ:СС). null если нет.</span>
+    └ <span class="field">key_idea</span>: str<span class="optional">?</span>             <span class="comment">— Главная мысль блока в 1 предложении. null если не выделяется.</span>
+    └ <span class="field">theses</span>: List[str]          <span class="comment">— Тезисы: суть идей, а не пересказ слов лектора</span>
+  <span class="field">qa_part</span>: List[<span class="type">LectureQA</span>]
+    └ <span class="field">question_title</span>: str        <span class="comment">— Суть вопроса (не дословно)</span>
+    └ <span class="field">time_code</span>: str<span class="optional">?</span>            <span class="comment">— null если нет</span>
+    └ <span class="field">key_answer_idea</span>: str<span class="optional">?</span>      <span class="comment">— Главная мысль ответа. null если ответ не прозвучал.</span>
+    └ <span class="field">answer_theses</span>: List[str]   <span class="comment">— Развёрнутые тезисы ответа</span>
+  <span class="field">final_summary</span>: List[str]       <span class="comment">— Ключевые выводы и takeaways. Что слушатель должен запомнить.</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user) — v2 improved</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">&lt;Role&gt;
+Ты — научный журналист и методист.
+Задача: создать структурированный конспект лекции/вебинара, который легко читать и усваивать.
+&lt;/Role&gt;
+
+&lt;Language&gt;
+Весь вывод строго на русском.
+Если лектор на иностранном языке — конспектируй по-русски, не переводи дословно.
+Ключевые термины: русский вариант + оригинал в скобках ("машинное обучение (machine learning)").
+&lt;/Language&gt;
+
+&lt;Method&gt;
+1. СТРУКТУРА: раздели лекцию на смысловые блоки (не по хронологии, а по темам)
+2. ТЕЗИСЫ: извлекай суть идей, не пересказывай слова
+3. Q&amp;A: вопрос + ключевая мысль ответа
+4. ВЫВОДЫ: что слушатель должен запомнить
+&lt;/Method&gt;
+
+&lt;Rules&gt;
+- КОНСПЕКТ &gt; СТЕНОГРАММА: извлекай структуру знаний, не пересказывай
+- Каждый блок = заголовок + ключевая мысль + тезисы
+- time_code — если есть в стенограмме, null если нет
+- final_summary — ключевые takeaways для слушателя
+&lt;/Rules&gt;
+
+&lt;AntiHallucination&gt;
+ЗАПРЕЩЕНО:
+- Придумывать выводы, которые лектор не делал
+- Генерировать вопросы аудитории, которых не было
+- Приписывать лектору мнения, не высказанные в тексте
+- Заполнять key_idea общими фразами ("рассмотрели важную тему")
+&lt;/AntiHallucination&gt;</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата проведения: <span class="placeholder">{meeting_date}</span>
+
+Проанализируй запись лекции/вебинара. Создай конспект.
+
+# КАК АНАЛИЗИРОВАТЬ:
+- Определи название и разбей на смысловые блоки
+- Для каждого блока: заголовок + ключевая мысль (1 предложение) + тезисы
+- Q&amp;A секция: вопрос + суть ответа (не дословно)
+- Итоговые выводы: 3-5 ключевых takeaways для слушателя
+- Тайм-коды где возможно
+
+Стенограмма:
+---
+<span class="placeholder">{transcript}</span>
+---</div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Конспект лекции</div>
+    <div class="col-body">
+      <div class="docx-title">Конспект лекции/вебинара от 09.02.2026</div>
+      <div class="docx-field"><b>Название:</b> <span class="val">AI в строительстве: от транскрипции к автоматизации</span></div>
+      <div class="docx-h2">Основная часть</div>
+      <div class="docx-h3">Блок: Введение в AI-транскрипцию</div>
+      <div class="docx-field"><i>Тайм-код: 00:02:15</i></div>
+      <div class="docx-field"><b>Ключевая мысль:</b> <span class="val">WhisperX даёт WER &lt; 5% на русском языке</span></div>
+      <p style="color:#555; font-size:0.85em; margin-left:10px;">Тезисы:</p>
+      <ul class="docx-list">
+        <li>Точность зависит от качества микрофона</li>
+        <li>Диаризация работает до 15 спикеров</li>
+      </ul>
+      <div class="docx-h2">Сессия Q&A</div>
+      <div class="docx-h3">Вопрос: Работает ли офлайн?</div>
+      <div class="docx-field"><b>Ответ:</b> <span class="val">Да, WhisperX работает полностью офлайн</span></div>
+      <div class="docx-h2">Итоговые выводы</div>
+      <ul class="docx-list">
+        <li>AI-транскрипция экономит 70% времени на протоколирование</li>
+        <li>Ключевой барьер — шум на стройплощадке</li>
+      </ul>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Основная часть</span>
+        <span class="excel-tab">Q&A</span>
+        <span class="excel-tab">Выводы</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Блок</th><th>Тайм-код</th><th>Ключевая мысль</th><th>Тезисы</th></tr>
+        <tr><td>Введение в AI-транскрипцию</td><td>00:02:15</td><td>WER &lt; 5% на русском</td><td>Точность от микрофона; До 15 спикеров</td></tr>
+        <tr><td>Кейс: стройплощадка</td><td>00:18:40</td><td>80% задач автоматизировано</td><td>Шум — главный враг; VAD помогает</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+
+<!-- ################################################################## -->
+<!-- FTA DOMAIN -->
+<!-- ################################################################## -->
+<div id="domain-fta" class="domain-separator" style="background: var(--red);">
+  FTA (ДФТА) <span class="count">1 тип отчётов</span>
+</div>
+
+<nav class="nav nav-red">
+  <a href="#fta_audit">Аудиторская проверка</a>
+</nav>
+
+<!-- ====================================================================== -->
+<!-- FTA 1. AUDIT -->
+<!-- ====================================================================== -->
+<section class="report-section domain-fta" id="fta_audit">
+<h2>1. Аудиторская проверка <span class="badge">audit</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">AuditResult</span>
+  <span class="field">audit_subject</span>: str                 <span class="comment">— Предмет аудита</span>
+  <span class="field">audit_scope</span>: str<span class="optional">?</span>                  <span class="comment">— Охват / периметр проверки</span>
+  <span class="field">overall_rating</span>: str<span class="optional">?</span>               <span class="comment">— Удовлетворительно / Требует улучшения / Неудовлетворительно</span>
+  <span class="field">participants</span>: List[str]            <span class="comment">— Участники аудита</span>
+  <span class="field">findings</span>: List[<span class="type">AuditFinding</span>]       <span class="comment">— Выявленные замечания</span>
+    └ <span class="field">finding</span>: str                   <span class="comment">— Описание замечания</span>
+    └ <span class="field">severity</span>: str                  <span class="comment">— Критическое / Существенное / Незначительное</span>
+    └ <span class="field">area</span>: str<span class="optional">?</span>                     <span class="comment">— Область / процесс</span>
+    └ <span class="field">recommendation</span>: str<span class="optional">?</span>           <span class="comment">— Рекомендация по устранению</span>
+  <span class="field">positive_observations</span>: List[str]   <span class="comment">— Положительные наблюдения</span>
+  <span class="field">risks</span>: List[str]                   <span class="comment">— Выявленные риски</span>
+  <span class="field">corrective_actions</span>: List[<span class="type">AuditActionItem</span>]
+    └ <span class="field">action</span>: str                    <span class="comment">— Мероприятие</span>
+    └ <span class="field">responsible</span>: str<span class="optional">?</span>              <span class="comment">— Ответственный</span>
+    └ <span class="field">deadline</span>: str<span class="optional">?</span>                 <span class="comment">— Срок</span>
+  <span class="field">conclusions</span>: List[str]             <span class="comment">— Выводы и заключение</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user)</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">Ты — опытный аудитор и эксперт по внутренним проверкам.
+Задача — зафиксировать предмет и охват проверки, замечания с критичностью, положительные наблюдения, риски и корректирующие мероприятия.</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата проведения аудита: <span class="placeholder">{meeting_date}</span>
+Проанализируй запись аудиторской встречи.
+
+Структура: audit_subject, audit_scope, overall_rating, participants, findings (с severity), positive_observations, risks, corrective_actions, conclusions.
+
+<span class="placeholder">{transcript}</span></div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Отчёт по результатам аудита</div>
+    <div class="col-body">
+      <div class="docx-title">Отчёт по результатам аудита от 20.02.2026</div>
+      <div class="docx-field"><b>Предмет:</b> <span class="val">Проверка процесса закупок IT-оборудования</span></div>
+      <div class="docx-field"><b>Охват:</b> <span class="val">Отдел закупок, период Q3-Q4 2025</span></div>
+      <div class="docx-field"><b>Общая оценка:</b> <span class="val">Требует улучшения</span></div>
+      <div class="docx-h2">Замечания</div>
+      <div class="docx-h3">1. [Критическое] Отсутствие тендерной документации для закупок &gt; 500 тыс.</div>
+      <div class="docx-field"><b>Область:</b> <span class="val">Тендерные процедуры</span></div>
+      <div class="docx-field"><b>Рекомендация:</b> <span class="val">Внедрить обязательное оформление тендерной документации</span></div>
+      <div class="docx-h3">2. [Существенное] Несоблюдение сроков согласования договоров</div>
+      <div class="docx-field"><b>Область:</b> <span class="val">Договорная работа</span></div>
+      <div class="docx-field"><b>Рекомендация:</b> <span class="val">Автоматизировать маршрут согласования</span></div>
+      <div class="docx-h2">Положительные наблюдения</div>
+      <ul class="docx-list">
+        <li>Хорошо организован учёт основных средств</li>
+        <li>Внедрена система электронных заявок</li>
+      </ul>
+      <div class="docx-h2">Корректирующие мероприятия</div>
+      <ol class="docx-list">
+        <li>Разработать регламент тендерных процедур — <i>Ответственный: Козлов</i>, <i>Срок: 15.03.2026</i></li>
+        <li>Внедрить автоматическое согласование — <i>Ответственный: IT-отдел</i>, <i>Срок: 01.04.2026</i></li>
+      </ol>
+      <div class="docx-h2">Выводы</div>
+      <ul class="docx-list">
+        <li>Процесс закупок требует усиления контроля</li>
+        <li>Рекомендуется повторный аудит через 6 месяцев</li>
+      </ul>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Замечания</span>
+        <span class="excel-tab">Положительное</span>
+        <span class="excel-tab">Риски</span>
+        <span class="excel-tab">Мероприятия</span>
+        <span class="excel-tab">Выводы</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Замечание</th><th>Критичность</th><th>Область</th><th>Рекомендация</th></tr>
+        <tr><td>Нет тендерной документации &gt; 500 тыс.</td><td>Критическое</td><td>Тендерные процедуры</td><td>Внедрить оформление документации</td></tr>
+        <tr><td>Несоблюдение сроков согласования</td><td>Существенное</td><td>Договорная работа</td><td>Автоматизировать маршрут</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+<!-- ################################################################## -->
+<!-- CEO DOMAIN -->
+<!-- ################################################################## -->
+<div id="domain-ceo" class="domain-separator" style="background: var(--purple);">
+  CEO (НОТЕХ) <span class="count">1 тип отчётов</span>
+</div>
+
+<nav class="nav nav-purple">
+  <a href="#ceo_notech">Протокол НОТЕХ</a>
+</nav>
+
+<!-- ====================================================================== -->
+<!-- CEO 1. NOTECH -->
+<!-- ====================================================================== -->
+<section class="report-section domain-ceo" id="ceo_notech">
+<h2>1. Протокол НОТЕХ <span class="badge">notech</span></h2>
+<div class="report-body">
+
+<div class="schema-box"><span class="type">NotechResult</span>
+  <span class="field">meeting_topic</span>: str                 <span class="comment">— Общая тема совещания</span>
+  <span class="field">summary</span>: str                       <span class="comment">— Краткое саммари (2-4 предложения)</span>
+  <span class="field">attendees</span>: List[str]               <span class="comment">— Участники</span>
+  <span class="field">questions</span>: List[<span class="type">NotechQuestion</span>]    <span class="comment">— Вопросы повестки (основное содержание)</span>
+    └ <span class="field">title</span>: str                     <span class="comment">— Заголовок вопроса</span>
+    └ <span class="field">description</span>: str               <span class="comment">— Описание ключевой проблемы (1-3 абзаца)</span>
+    └ <span class="field">value_points</span>: List[str]        <span class="comment">— Почему это важно (буллеты)</span>
+    └ <span class="field">decision</span>: str<span class="optional">?</span>                 <span class="comment">— Решение. null если не принято.</span>
+    └ <span class="field">discussion_details</span>: List[str]  <span class="comment">— Детали обсуждения (аргументы, факты)</span>
+    └ <span class="field">risks</span>: List[str]               <span class="comment">— Риски и возражения</span>
+  <span class="field">action_items</span>: List[str]            <span class="comment">— Задачи/поручения по итогам</span></div>
+
+<details class="prompts-details">
+  <summary>Промпты LLM (system + user)</summary>
+  <div class="prompts-content">
+    <div class="prompt-block">
+      <div class="prompt-label system">System prompt</div>
+      <div class="prompt-text">Ты — опытный секретарь ассоциации НОТЕХ, составляющий протокол совещания.
+Группируй по вопросам повестки: суть проблемы, ценность, решение, детали обсуждения, риски.</div>
+    </div>
+    <div class="prompt-block">
+      <div class="prompt-label user">User prompt</div>
+      <div class="prompt-text">Дата совещания: <span class="placeholder">{meeting_date}</span>
+Проанализируй запись совещания НОТЕХ.
+
+Структура: meeting_topic, summary, attendees, questions (основное содержание), action_items.
+Каждый вопрос: title, description, value_points, decision, discussion_details, risks.
+
+<span class="placeholder">{transcript}</span></div>
+    </div>
+  </div>
+</details>
+
+<div class="two-col">
+  <div class="col-docx">
+    <div class="col-header">DOCX — Протокол НОТЕХ</div>
+    <div class="col-body">
+      <div class="docx-title">Протокол совещания НОТЕХ от 19.02.2026</div>
+      <div class="docx-field"><b>Тема:</b> <span class="val">Правовой статус технического заказчика и стандартизация</span></div>
+      <div class="docx-h2">Саммари</div>
+      <p style="color:#555; font-size:0.9em;">Обсудили 3 вопроса повестки. Ключевое решение — направить предложения по изменению ГрК в Минстрой. Создана рабочая группа по стандартизации.</p>
+      <div class="docx-field"><b>Участники:</b> <span class="val">Смирнов А.В., Козлова Н.И., Гусев П.Р.</span></div>
+      <div class="docx-h2">Вопрос 1: Правовой статус технического заказчика</div>
+      <div class="docx-field"><b>Суть:</b> <span class="val">Действующий ГрК не разделяет функции техзаказчика и застройщика, что создаёт юридические риски.</span></div>
+      <div class="docx-field"><b>Ценность:</b></div>
+      <ul class="docx-list">
+        <li>Чёткий статус позволит заключать прямые договоры с подрядчиками</li>
+        <li>Снизит риски двойной ответственности</li>
+      </ul>
+      <div class="docx-field"><b>Решение:</b> <span class="val">Подготовить предложения по изменению ГрК ст.52 до 01.03.2026</span></div>
+      <div class="docx-field"><b>Детали обсуждения:</b></div>
+      <ul class="docx-list">
+        <li>Смирнов: в текущей практике техзаказчик несёт ответственность без полномочий</li>
+        <li>Козлова: необходимо разграничить ответственность по аналогии с 44-ФЗ</li>
+      </ul>
+      <div class="docx-field"><b>Риски:</b></div>
+      <ul class="docx-list">
+        <li>Минстрой может отклонить предложения без поддержки профсообщества</li>
+      </ul>
+      <div class="docx-h2">Задачи</div>
+      <ol class="docx-list">
+        <li>Подготовить предложения по ГрК ст.52 — <i>Смирнов</i>, <i>до 01.03.2026</i></li>
+        <li>Собрать рабочую группу по стандартизации — <i>Козлова</i>, <i>до 25.02.2026</i></li>
+      </ol>
+    </div>
+  </div>
+  <div class="col-excel">
+    <div class="col-header">Excel — Листы</div>
+    <div class="col-body">
+      <div class="excel-sheets">
+        <span class="excel-tab active">Инфо</span>
+        <span class="excel-tab">Вопросы повестки</span>
+        <span class="excel-tab">Задачи</span>
+      </div>
+      <table class="excel-table">
+        <tr><th>Вопрос</th><th>Решение</th><th>Ценность</th><th>Риски</th></tr>
+        <tr><td>Правовой статус техзаказчика</td><td>Предложения по ГрК ст.52</td><td>Прямые договоры; Снижение рисков</td><td>Отклонение Минстроем</td></tr>
+        <tr><td>Стандартизация услуг</td><td>Создать рабочую группу</td><td>Единый стандарт для отрасли</td><td>Разногласия участников рынка</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</section>
+
+</body>
+</html>

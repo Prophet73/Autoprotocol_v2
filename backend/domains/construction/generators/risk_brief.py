@@ -6,26 +6,22 @@ Output: A4 portrait PDF.
 """
 
 import os
-import json
-import time
 import re
 import logging
 from pathlib import Path
-from datetime import datetime
-
-from google import genai
+from datetime import datetime, timezone
 
 from backend.core.transcription.models import TranscriptionResult
 from backend.domains.construction.schemas import (
-    RiskBrief, RiskGroup,
-    OverallStatus, Atmosphere, ConcernCategory
+    RiskBrief, RiskGroup, ParticipantGroup,
+    OverallStatus, Atmosphere,
 )
-from backend.domains.construction.prompts import RISK_BRIEF_SYSTEM, RISK_BRIEF_USER
-from backend.domains.construction.generators.llm_utils import run_llm_call
+from backend.domains.construction.prompts import RISK_BRIEF_SYSTEM, RISK_BRIEF_USER, format_participants_for_prompt
+from backend.core.llm.llm_utils import run_llm_call
+from backend.core.llm.client import get_llm_client
 
 
-# Model for risk analysis (pro for quality)
-REPORT_MODEL = os.getenv("GEMINI_REPORT_MODEL", "gemini-2.5-pro")
+from backend.shared.config import REPORT_MODEL as _DEFAULT_REPORT_MODEL
 logger = logging.getLogger(__name__)
 
 # Cached logo base64
@@ -93,12 +89,13 @@ def generate_risk_brief(
     """
     logger.info(f"[RISK BRIEF] Received participants: {participants}")
     logger.info(f"[RISK BRIEF] project_name: {project_name}, project_code: {project_code}")
-    # Get transcript text
-    transcript_text = result.to_plain_text()
+    # Get transcript text (sanitize to prevent prompt injection)
+    from backend.core.llm.llm_utils import sanitize_transcript_for_llm
+    transcript_text = sanitize_transcript_for_llm(result.to_plain_text())
 
     # Call LLM for risk analysis
     if os.getenv("GOOGLE_API_KEY"):
-        risk_brief = _get_risk_brief(transcript_text, meeting_date)
+        risk_brief = _get_risk_brief(transcript_text, meeting_date, participants)
     else:
         # Fallback: empty report
         risk_brief = RiskBrief(
@@ -113,10 +110,13 @@ def generate_risk_brief(
 
     # Store participants in RiskBrief for JSON serialization (dashboard display)
     if participants:
-        risk_brief.participants = participants
+        risk_brief.participants = [
+            ParticipantGroup(**p) if isinstance(p, dict) else p
+            for p in participants
+        ]
 
     # Override project_name and project_code from DB if provided (LLM may not know it)
-    effective_project_name = project_name or risk_brief.project_name
+    risk_brief.project_name = project_name or risk_brief.project_name
 
     # Generate HTML
     html_content = _render_html(
@@ -124,7 +124,7 @@ def generate_risk_brief(
         source_file=result.metadata.source_file,
         duration=result.metadata.duration_formatted,
         speakers_count=result.speaker_count,
-        meeting_date=meeting_date or datetime.now().strftime("%Y-%m-%d"),
+        meeting_date=meeting_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         project_name=project_name,
         project_code=project_code,
         participants=participants,
@@ -134,13 +134,14 @@ def generate_risk_brief(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if filename is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"risk_brief_{timestamp}.pdf"
 
-    # DEBUG: Save HTML for inspection
-    html_debug_path = output_dir / f"risk_brief_{timestamp}_DEBUG.html"
-    with open(html_debug_path, "w", encoding="utf-8") as f:
-        f.write(html_content)
+    # Debug HTML only in development mode
+    if os.getenv("ENVIRONMENT", "production") == "development":
+        html_debug_path = output_dir / f"risk_brief_{timestamp}_DEBUG.html"
+        with open(html_debug_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
 
     output_path = output_dir / filename
     _render_pdf(html_content, output_path)
@@ -148,152 +149,49 @@ def generate_risk_brief(
     return output_path, risk_brief
 
 
-def _get_risk_brief(transcript_text: str, meeting_date: str = None) -> RiskBrief:
-    """Get risk brief from LLM using INoT approach."""
-    client = genai.Client()
+def _get_risk_brief(transcript_text: str, meeting_date: str = None, participants: list = None) -> RiskBrief:
+    """Get risk brief from LLM using INoT approach with structured output."""
 
-    # Format user prompt with transcript and meeting date
-    user_prompt = RISK_BRIEF_USER.format(
-        transcript=transcript_text,
-        meeting_date=meeting_date or "не указана"
+    # Format participants for prompt
+    participants_text = format_participants_for_prompt(participants)
+    participants_block = (
+        f"<participants>\nУчастники совещания:\n{participants_text}\nИспользуй эти данные для полей responsible / suggested_responsible.\n</participants>"
+        if participants_text else ""
     )
 
-    def _is_retryable_llm_error(exc: Exception) -> bool:
-        message = str(exc).upper()
-        return (
-            isinstance(exc, TimeoutError)
-            or "503" in message
-            or "UNAVAILABLE" in message
-            or "OVERLOADED" in message
-            or "429" in message
-            or "RESOURCE_EXHAUSTED" in message
+    # Format user prompt with transcript, meeting date, and participants
+    user_prompt = RISK_BRIEF_USER.format(
+        transcript=transcript_text,
+        meeting_date=meeting_date or "не указана",
+        participants_info=participants_block,
+    )
+
+    def _make_call(model: str):
+        return lambda: get_llm_client().generate_content(
+            model=model,
+            contents=user_prompt,
+            system_instruction=RISK_BRIEF_SYSTEM,
+            temperature=0.3,
+            response_mime_type="application/json",
+            response_schema=RiskBrief,
         )
 
-    def _extract_retry_delay_seconds(exc: Exception) -> float:
-        message = str(exc)
-        match = re.search(r"retryDelay'\s*:\s*'(\d+)s'", message)
-        if match:
-            return float(match.group(1))
-        return 0.0
+    from backend.admin.settings.service import get_setting_value
+    report_model = get_setting_value("gemini_report_model", _DEFAULT_REPORT_MODEL)
 
     try:
-        response = None
-        last_exc = None
-        max_attempts = 5
-        for attempt in range(1, max_attempts + 1):
-            try:
-                response = run_llm_call(
-                    lambda: client.models.generate_content(
-                        model=REPORT_MODEL,
-                        contents=[RISK_BRIEF_SYSTEM, user_prompt],
-                        config={
-                            "response_mime_type": "application/json",
-                            "temperature": 0.3,  # Low temp for stable risk extraction
-                        },
-                    )
-                )
-                break
-            except Exception as e:
-                last_exc = e
-                if attempt < max_attempts and _is_retryable_llm_error(e):
-                    retry_delay = _extract_retry_delay_seconds(e)
-                    if retry_delay <= 0:
-                        retry_delay = 2 ** (attempt - 1)
-                    logger.warning(
-                        "LLM risk brief attempt %s/%s failed (%s). Retrying in %.1fs.",
-                        attempt,
-                        max_attempts,
-                        e,
-                        retry_delay,
-                    )
-                    time.sleep(retry_delay)
-                    continue
-                raise
+        response = run_llm_call(
+            _make_call(report_model),
+            model_name=report_model,
+            make_call=_make_call,
+        )
 
-        if response is None:
-            raise last_exc or RuntimeError("LLM response is empty")
-
-        brief_data = json.loads(response.text)
-
-        # Map English categories to Russian (Gemini sometimes returns English)
-        concern_category_map = {
-            "Schedule": "Срыв сроков",
-            "Engineering": "Качество",
-            "Инженерные сети": "Качество",
-            "Budget": "Бюджет",
-            "Safety": "Безопасность",
-            "Coordination": "Координация",
-            "Quality": "Качество",
-            "Permits": "Разрешения на землю",
-            "Workers": "Быт рабочих",
-            "Other": "Прочее",
-        }
-
-        # Fix concern categories
-        if "concerns" in brief_data and brief_data["concerns"]:
-            valid_concern_values = {item.value for item in ConcernCategory}
-            for concern in brief_data["concerns"]:
-                if isinstance(concern, dict) and "category" in concern:
-                    cat = concern["category"]
-                    if cat in concern_category_map:
-                        concern["category"] = concern_category_map[cat]
-                    elif cat not in valid_concern_values:
-                        concern["category"] = ConcernCategory.OTHER.value
-
-        # Fix responsible field if LLM returned list instead of string
-        if "risks" in brief_data and brief_data["risks"]:
-            for risk in brief_data["risks"]:
-                if isinstance(risk, dict):
-                    # responsible: convert list to comma-separated string
-                    if "responsible" in risk and isinstance(risk["responsible"], list):
-                        risk["responsible"] = ", ".join(str(r) for r in risk["responsible"]) if risk["responsible"] else None
-                    # suggested_responsible: same fix
-                    if "suggested_responsible" in risk and isinstance(risk["suggested_responsible"], list):
-                        risk["suggested_responsible"] = ", ".join(str(r) for r in risk["suggested_responsible"]) if risk["suggested_responsible"] else None
-
-        # Fix abbreviations if LLM returned strings instead of objects
-        if "abbreviations" in brief_data and brief_data["abbreviations"]:
-            fixed_abbrs = []
-            for abbr in brief_data["abbreviations"]:
-                try:
-                    if isinstance(abbr, str):
-                        # Parse string like "abbr, definition" or "abbr - definition"
-                        if "," in abbr:
-                            parts = abbr.split(",", 1)
-                        elif " - " in abbr:
-                            parts = abbr.split(" - ", 1)
-                        elif " — " in abbr:
-                            parts = abbr.split(" — ", 1)
-                        else:
-                            continue  # Skip malformed
-                        if len(parts) == 2:
-                            fixed_abbrs.append({
-                                "abbr": parts[0].strip(),
-                                "definition": parts[1].strip()
-                            })
-                    elif isinstance(abbr, dict):
-                        # Validate dict has required keys
-                        if "abbr" in abbr and "definition" in abbr:
-                            fixed_abbrs.append(abbr)
-                except Exception:
-                    continue
-            brief_data["abbreviations"] = fixed_abbrs
-
-        brief = RiskBrief.model_validate(brief_data)
+        brief = RiskBrief.model_validate_json(response.text)
         return _normalize_risk_brief(brief, meeting_date)
 
     except Exception as e:
-        print(f"LLM risk brief generation failed: {e}")
-        brief = RiskBrief(
-            overall_status=OverallStatus.ATTENTION,
-            executive_summary=f"Ошибка генерации анализа рисков: {e}",
-            atmosphere=Atmosphere.WORKING,
-            atmosphere_comment="",
-            risks=[],
-            concerns=[],
-            abbreviations=[],
-        )
-        return _normalize_risk_brief(brief, meeting_date)
+        logger.error(f"LLM risk brief generation failed: {e}")
+        raise
 
 
 def _render_html(
@@ -338,9 +236,6 @@ def _render_html(
     critical_risks = risk_brief.critical_risks
     critical_cards = _build_critical_cards_v2(critical_risks)
     low_risk_rows = _build_compact_risk_rows(risk_brief.risks)
-
-    # Build concern rows
-    concern_rows = _build_concern_rows(risk_brief.concerns)
 
     # Hypothesis items (low confidence)
     hypothesis_items = _build_hypothesis_items(risk_brief.hypotheses)
@@ -1327,7 +1222,7 @@ def _render_html(
 
     <!-- FOOTER -->
     <div class="footer">
-        SEVERIN DEVELOPMENT · Сгенерировано: {datetime.now().strftime("%d.%m.%Y")}
+        SEVERIN DEVELOPMENT · Сгенерировано: {datetime.now(timezone.utc).strftime("%d.%m.%Y")}
     </div>
 
 </div>
@@ -1779,15 +1674,15 @@ def _normalize_risk_brief(brief: RiskBrief, meeting_date: str = None) -> RiskBri
         if hasattr(risk, "suggested_responsible"):
             risk.suggested_responsible = _validate_responsible(risk.suggested_responsible)
 
-        evidence = (risk.evidence or "").strip() if hasattr(risk, "evidence") else ""
         confidence = getattr(risk, "confidence", "medium")
-        if confidence == "low" or not evidence:
-            if not evidence and hasattr(risk, "evidence"):
-                risk.evidence = risk.evidence or ""
-            if confidence != "low" and hasattr(risk, "confidence"):
-                risk.confidence = "low"
+
+        # Demote to hypothesis only if explicitly low confidence.
+        # Missing evidence alone is NOT enough to demote — LLM may omit
+        # evidence for text-only inputs (no timecodes available).
+        if confidence == "low":
             hypotheses.append(risk)
         else:
+            # Keep as verified risk (medium or high confidence)
             verified.append(risk)
 
     verified.sort(key=lambda r: r.score if hasattr(r, "score") else 0, reverse=True)
@@ -2292,14 +2187,15 @@ def _build_hypothesis_items(hypotheses: list) -> str:
 
 
 def _build_question_items(concerns: list) -> str:
-    """Build question items from concerns for two-column layout with related risk IDs."""
+    """Build question items from concerns for two-column layout with related risk IDs and description."""
     if not concerns:
         return '<div class="column-item" style="color:#888;">Открытых вопросов нет</div>'
 
     items = []
-    for idx, c in enumerate(concerns[:5], 1):  # Limit to 5
+    for idx, c in enumerate(concerns[:8], 1):  # Limit to 8
         try:
             title = c.title if hasattr(c, 'title') else c.get('title', '')
+            description = c.description if hasattr(c, 'description') else c.get('description', '')
 
             # Get related risk IDs
             if hasattr(c, 'related_risk_ids'):
@@ -2312,11 +2208,17 @@ def _build_question_items(concerns: list) -> str:
             # Build risk link if there are related risks
             risk_link = ""
             if risk_ids:
-                risk_link = f' <span style="color:#666;">→ {", ".join(risk_ids)}</span>'
+                risk_link = f' <span style="color:#666;">\u2192 {", ".join(risk_ids)}</span>'
 
-            items.append(f"""<div class="column-item">
+            # Build description block if present
+            desc_html = ""
+            if description:
+                desc_html = f'<div style="font-size:8.5pt; color:#555; margin-top:2px; line-height:1.3;">{description}</div>'
+
+            items.append(f"""<div class="column-item" style="margin-bottom:6px;">
                 <span class="column-item-id">Q{idx}.</span>
-                {title}{risk_link}
+                <b>{title}</b>{risk_link}
+                {desc_html}
             </div>""")
         except Exception:
             continue
@@ -2360,7 +2262,7 @@ def regenerate_risk_brief_pdf(
         source_file=source_file,
         duration=duration,
         speakers_count=speakers_count,
-        meeting_date=meeting_date or datetime.now().strftime("%Y-%m-%d"),
+        meeting_date=meeting_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         participants=participants,
         project_name=project_name,
         project_code=project_code,

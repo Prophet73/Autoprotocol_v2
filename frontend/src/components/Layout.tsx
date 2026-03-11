@@ -3,18 +3,18 @@ import { Upload, History, Activity, LogIn, LogOut, LayoutDashboard, Wrench, Help
 import clsx from 'clsx';
 import { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '../stores/authStore';
+import { markExplicitLogout } from '../utils/tokenExpiry';
 import { authApi } from '../api/adminApi';
+import { getDomains, type DomainInfo } from '../api/client';
+import { getDomainConfig } from '../config/domains';
+import { useTourStore } from '../stores/tourStore';
+import { TourOverlay } from './tour/TourOverlay';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
-// Domain configuration
-const DOMAIN_CONFIG: Record<string, { label: string; shortLabel: string; color: string }> = {
-  construction: { label: 'Строительство', shortLabel: 'Стройка', color: 'bg-amber-500' },
-  dct: { label: 'ДЦТ', shortLabel: 'ДЦТ', color: 'bg-blue-500' },
-  general: { label: 'Общий', shortLabel: 'Общий', color: 'bg-slate-500' },
-};
+const DEFAULT_DOMAIN_COLOR = 'bg-slate-500';
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
@@ -22,7 +22,17 @@ export function Layout({ children }: LayoutProps) {
   const { isAuthenticated, user, logout, setUser } = useAuthStore();
   const [domainOpen, setDomainOpen] = useState(false);
   const [domainLoading, setDomainLoading] = useState(false);
+  const [allDomains, setAllDomains] = useState<DomainInfo[]>([]);
   const domainRef = useRef<HTMLDivElement>(null);
+
+  // Fetch available domains from backend
+  useEffect(() => {
+    if (isAuthenticated) {
+      getDomains()
+        .then(setAllDomains)
+        .catch(() => setAllDomains([]));
+    }
+  }, [isAuthenticated]);
 
   // Close domain dropdown on outside click
   useEffect(() => {
@@ -43,8 +53,9 @@ export function Layout({ children }: LayoutProps) {
   const isJobPage = location.pathname.startsWith('/job/');
 
   const handleLogout = () => {
+    markExplicitLogout();
     logout();
-    navigate('/');
+    navigate('/login?manual=true');
   };
 
   const getUserInitials = () => {
@@ -55,9 +66,14 @@ export function Layout({ children }: LayoutProps) {
   };
 
   // Domain switching
-  const availableDomains = user?.is_superuser ? ['construction', 'dct'] : (user?.domains || []);
+  const isAdmin = user?.is_superuser || user?.role === 'admin';
+  const domainNameMap = Object.fromEntries(allDomains.map(d => [d.id, d.name]));
+  const availableDomains = isAdmin
+    ? allDomains.map(d => d.id)
+    : (user?.domains || []);
   const activeDomain = user?.active_domain || user?.domain || availableDomains[0] || 'construction';
-  const currentDomainConfig = DOMAIN_CONFIG[activeDomain] || DOMAIN_CONFIG.general;
+  const getDomainColor = (id: string) => getDomainConfig(id)?.dotColor || DEFAULT_DOMAIN_COLOR;
+  const getDomainName = (id: string) => domainNameMap[id] || id;
   const canSwitchDomain = availableDomains.length > 1;
 
   const handleDomainChange = async (domain: string) => {
@@ -100,15 +116,18 @@ export function Layout({ children }: LayoutProps) {
       {/* Top bar - Logo + Service name */}
       <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 flex-shrink-0 z-50">
         {/* Left: Logo + Name */}
-        <Link to="/" className="flex items-center gap-2.5">
+        <Link to="/" className="flex items-center gap-2.5" data-tour="logo">
           <img src="/severin-logo.png" alt="Severin" className="w-8 h-8" />
-          <span className="text-lg font-bold text-slate-800">Autoprotocol</span>
+          <div className="flex flex-col leading-tight">
+            <span className="text-lg font-bold text-slate-800">Autoprotocol</span>
+            <span className="text-[10px] text-slate-400 -mt-0.5">Severin Development</span>
+          </div>
         </Link>
 
         {/* Right: External links */}
         <div className="flex items-center gap-3 text-sm">
           <a
-            href="https://portal.svrd.ru"
+            href="https://cp.svrd.ru/"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-all"
@@ -144,8 +163,8 @@ export function Layout({ children }: LayoutProps) {
                     domainLoading && 'opacity-50'
                   )}
                 >
-                  <div className={clsx('w-2.5 h-2.5 rounded-full', currentDomainConfig.color)} />
-                  <span className="flex-1 text-sm font-medium text-slate-700">{currentDomainConfig.label}</span>
+                  <div className={clsx('w-2.5 h-2.5 rounded-full', getDomainColor(activeDomain))} />
+                  <span className="flex-1 text-sm font-medium text-slate-700">{getDomainName(activeDomain)}</span>
                   <ChevronDown className={clsx('w-4 h-4 text-slate-400 transition-transform', domainOpen && 'rotate-180')} />
                 </button>
 
@@ -153,7 +172,6 @@ export function Layout({ children }: LayoutProps) {
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
                     <div className="py-1">
                       {availableDomains.map((domain) => {
-                        const config = DOMAIN_CONFIG[domain] || DOMAIN_CONFIG.general;
                         const isActiveDomain = domain === activeDomain;
                         return (
                           <button
@@ -164,8 +182,8 @@ export function Layout({ children }: LayoutProps) {
                               isActiveDomain ? 'bg-slate-50 text-slate-900' : 'text-slate-600 hover:bg-slate-50'
                             )}
                           >
-                            <div className={clsx('w-2.5 h-2.5 rounded-full', config.color)} />
-                            <span className="flex-1 text-left">{config.label}</span>
+                            <div className={clsx('w-2.5 h-2.5 rounded-full', getDomainColor(domain))} />
+                            <span className="flex-1 text-left">{getDomainName(domain)}</span>
                             {isActiveDomain && <Check className="w-4 h-4 text-green-500" />}
                           </button>
                         );
@@ -181,8 +199,8 @@ export function Layout({ children }: LayoutProps) {
           {isAuthenticated && !canSwitchDomain && availableDomains.length === 1 && (
             <div className="p-3 border-b border-slate-100">
               <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 text-sm">
-                <div className={clsx('w-2.5 h-2.5 rounded-full', currentDomainConfig.color)} />
-                <span className="font-medium text-slate-600">{currentDomainConfig.label}</span>
+                <div className={clsx('w-2.5 h-2.5 rounded-full', getDomainColor(activeDomain))} />
+                <span className="font-medium text-slate-600">{getDomainName(activeDomain)}</span>
               </div>
             </div>
           )}
@@ -191,6 +209,7 @@ export function Layout({ children }: LayoutProps) {
           <nav className="flex-1 p-3 space-y-1 overflow-auto">
             <Link
               to="/"
+              data-tour="nav-upload"
               className={clsx(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all',
                 isActive('/') && !isJobPage ? 'bg-red-50 text-severin-red' : 'text-slate-600 hover:bg-slate-100'
@@ -201,6 +220,7 @@ export function Layout({ children }: LayoutProps) {
             </Link>
             <Link
               to="/history"
+              data-tour="nav-history"
               className={clsx(
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all',
                 isActive('/history') ? 'bg-red-50 text-severin-red' : 'text-slate-600 hover:bg-slate-100'
@@ -225,6 +245,7 @@ export function Layout({ children }: LayoutProps) {
                 </div>
                 <Link
                   to="/dashboard"
+                  data-tour="nav-dashboard"
                   className={clsx(
                     'flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all',
                     isActive('/dashboard') ? 'bg-red-50 text-severin-red' : 'text-slate-600 hover:bg-slate-100'
@@ -244,6 +265,7 @@ export function Layout({ children }: LayoutProps) {
                 </div>
                 <Link
                   to="/admin"
+                  data-tour="nav-admin"
                   className={clsx(
                     'flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all',
                     isActive('/admin') ? 'bg-red-50 text-severin-red' : 'text-slate-600 hover:bg-slate-100'
@@ -258,21 +280,24 @@ export function Layout({ children }: LayoutProps) {
 
           {/* Bottom section */}
           <div className="border-t border-slate-100">
-            {/* Support - disabled */}
+            {/* Tour guide */}
             <div className="px-3 py-2">
               <button
-                disabled
-                className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-400 cursor-not-allowed w-full text-sm"
-                title="Скоро"
+                onClick={() => {
+                  const hasAnalytics = !!(user?.role === 'manager' || user?.role === 'admin' || user?.is_superuser || user?.role === 'viewer');
+                  const isAdminUser = !!(user?.role === 'admin' || user?.is_superuser);
+                  useTourStore.getState().start(isAdminUser, hasAnalytics);
+                }}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-all w-full text-sm"
+                title="Обзор интерфейса"
               >
                 <HelpCircle className="w-5 h-5" />
-                Поддержка
-                <span className="ml-auto text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">скоро</span>
+                Обзор интерфейса
               </button>
             </div>
 
             {/* User section */}
-            <div className="p-3 border-t border-slate-100 bg-slate-50">
+            <div className="p-3 border-t border-slate-100 bg-slate-50" data-tour="user-profile">
               {isAuthenticated ? (
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 bg-slate-200 rounded-full flex items-center justify-center text-sm font-medium text-slate-600">
@@ -282,7 +307,14 @@ export function Layout({ children }: LayoutProps) {
                     <div className="text-sm font-medium text-slate-800 truncate">
                       {user?.full_name || user?.email}
                     </div>
-                    <div className="text-xs text-slate-400">{user?.role}</div>
+                    <div className="text-xs text-slate-400">{
+                      user?.is_superuser ? 'Суперадмин'
+                        : user?.role === 'admin' ? 'Администратор'
+                        : user?.role === 'manager' ? 'Менеджер'
+                        : user?.role === 'viewer' ? 'Наблюдатель'
+                        : user?.role === 'user' ? 'Пользователь'
+                        : user?.role
+                    }</div>
                   </div>
                   <button
                     onClick={handleLogout}
@@ -305,7 +337,7 @@ export function Layout({ children }: LayoutProps) {
 
             {/* Footer */}
             <div className="px-4 py-2 text-[10px] text-slate-400 text-center border-t border-slate-100">
-              <div>v2.0 · Design by N. Khromenok & V. Vasin</div>
+              <div>v2.0 · Design by <span className="text-red-400">N. Khromenok</span> & <span className="text-red-400">V. Vasin</span></div>
             </div>
           </div>
         </aside>
@@ -317,6 +349,9 @@ export function Layout({ children }: LayoutProps) {
           </div>
         </main>
       </div>
+
+      {/* Tour overlay */}
+      <TourOverlay navigate={navigate} />
     </div>
   );
 }

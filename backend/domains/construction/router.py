@@ -26,7 +26,7 @@ from .project_schemas import (
 )
 
 
-router = APIRouter(prefix="/construction", tags=["Домен - Строительство"])
+router = APIRouter(prefix="/construction", tags=["Домен - ДПУ"])
 
 
 # =============================================================================

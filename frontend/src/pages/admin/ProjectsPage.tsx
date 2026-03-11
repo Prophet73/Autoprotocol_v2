@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { projectsApi, usersApi } from '../../api/adminApi';
+import { getApiErrorMessage } from '../../utils/errorMessage';
+import { useConfirm } from '../../hooks/useConfirm';
 import type { Project, CreateProjectRequest, User } from '../../api/adminApi';
 
 interface ProjectModalProps {
@@ -56,18 +58,27 @@ function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalP
     try {
       await onSave(payload);
       onClose();
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || err.message || 'Ошибка сохранения';
-      setError(errorMessage);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Ошибка сохранения'));
     } finally {
       setSaving(false);
     }
   };
 
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
       <div className="relative bg-white rounded-lg p-6 w-full max-w-md shadow-xl border border-slate-200 mx-4">
         <h2 className="text-xl font-bold text-slate-800 mb-6">
@@ -153,7 +164,7 @@ function ProjectModal({ isOpen, project, users, onClose, onSave }: ProjectModalP
             <button
               type="submit"
               disabled={saving}
-              className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-slate-800 rounded-lg transition"
+              className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-white rounded-lg transition"
             >
               {saving ? 'Сохранение...' : 'Сохранить'}
             </button>
@@ -177,6 +188,7 @@ interface UserAccessModalProps {
 }
 
 function UserAccessModal({ isOpen, project, allUsers, onClose, onSave }: UserAccessModalProps) {
+  const { alert, ConfirmDialog: AccessConfirmDialog } = useConfirm();
   const [selectedUsers, setSelectedUsers] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -227,12 +239,22 @@ function UserAccessModal({ isOpen, project, allUsers, onClose, onSave }: UserAcc
     try {
       await onSave(project.id, Array.from(selectedUsers));
       onClose();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Ошибка сохранения доступов');
+    } catch (err) {
+      await alert(getApiErrorMessage(err, 'Ошибка сохранения доступов'));
     } finally {
       setSaving(false);
     }
   };
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen || !project) return null;
 
@@ -251,7 +273,7 @@ function UserAccessModal({ isOpen, project, allUsers, onClose, onSave }: UserAcc
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
       <div className="relative bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl border border-slate-200 mx-4 max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between mb-4">
@@ -361,11 +383,12 @@ function UserAccessModal({ isOpen, project, allUsers, onClose, onSave }: UserAcc
           <button
             onClick={handleSave}
             disabled={saving || loading}
-            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-slate-800 rounded-lg transition"
+            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-white rounded-lg transition"
           >
             {saving ? 'Сохранение...' : 'Сохранить'}
           </button>
         </div>
+        {AccessConfirmDialog}
       </div>
     </div>
   );
@@ -376,6 +399,7 @@ function UserAccessModal({ isOpen, project, allUsers, onClose, onSave }: UserAcc
 // ============================================================================
 
 export default function ProjectsPage() {
+  const { confirm, alert, ConfirmDialog } = useConfirm();
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [total, setTotal] = useState(0);
@@ -384,6 +408,8 @@ export default function ProjectsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   // User access modal
   const [accessModalOpen, setAccessModalOpen] = useState(false);
@@ -417,8 +443,8 @@ export default function ProjectsPage() {
       setProjects(response.projects);
       setTotal(response.total);
       setError('');
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Ошибка загрузки проектов');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Ошибка загрузки проектов'));
     } finally {
       setLoading(false);
     }
@@ -455,24 +481,24 @@ export default function ProjectsPage() {
   };
 
   const handleArchive = async (project: Project) => {
-    if (!confirm(`Архивировать проект "${project.name}"?`)) return;
+    if (!(await confirm(`Архивировать проект "${project.name}"?`))) return;
 
     try {
       await projectsApi.archive(project.id);
       await loadProjects();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Ошибка архивирования');
+    } catch (err) {
+      await alert(getApiErrorMessage(err, 'Ошибка архивирования'));
     }
   };
 
   const handleDelete = async (project: Project) => {
-    if (!confirm(`Удалить проект "${project.name}"? Это действие необратимо.`)) return;
+    if (!(await confirm(`Удалить проект "${project.name}"? Это действие необратимо.`, { variant: 'danger' }))) return;
 
     try {
       await projectsApi.delete(project.id);
       await loadProjects();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Ошибка удаления');
+    } catch (err) {
+      await alert(getApiErrorMessage(err, 'Ошибка удаления'));
     }
   };
 
@@ -521,6 +547,17 @@ export default function ProjectsPage() {
     navigator.clipboard.writeText(code);
   };
 
+  const filteredProjects = projects.filter((project) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      project.name.toLowerCase().includes(q) ||
+      project.project_code.includes(q) ||
+      (project.description?.toLowerCase().includes(q) ?? false) ||
+      (project.manager_name?.toLowerCase().includes(q) ?? false)
+    );
+  });
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -531,7 +568,7 @@ export default function ProjectsPage() {
         </div>
         <button
           onClick={handleCreate}
-          className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-slate-800 rounded-lg transition flex items-center justify-center"
+          className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-white rounded-lg transition flex items-center justify-center"
         >
           <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -541,7 +578,20 @@ export default function ProjectsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center">
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="relative flex-1 min-w-[200px] max-w-md">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Поиск по названию или коду..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-severin-red"
+          />
+        </div>
+
         <label className="flex items-center">
           <input
             type="checkbox"
@@ -549,8 +599,30 @@ export default function ProjectsPage() {
             onChange={(e) => setShowArchived(e.target.checked)}
             className="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 rounded focus:ring-severin-red"
           />
-          <span className="ml-2 text-slate-600">Показать архивные</span>
+          <span className="ml-2 text-slate-600">Архивные</span>
         </label>
+
+        {/* View toggle */}
+        <div className="flex bg-slate-100 rounded-lg p-0.5 ml-auto">
+          <button
+            onClick={() => setViewMode('grid')}
+            className={`p-1.5 rounded-md transition ${viewMode === 'grid' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+            title="Сетка"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setViewMode('list')}
+            className={`p-1.5 rounded-md transition ${viewMode === 'list' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400 hover:text-slate-600'}`}
+            title="Список"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Error */}
@@ -560,27 +632,30 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Projects Grid */}
+      {/* Projects */}
       {loading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
         </div>
-      ) : projects.length === 0 ? (
+      ) : filteredProjects.length === 0 ? (
         <div className="bg-white rounded-lg p-12 text-center shadow-sm border border-slate-200">
           <svg className="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
           </svg>
-          <p className="text-slate-500 mb-4">Проекты не найдены</p>
-          <button
-            onClick={handleCreate}
-            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-slate-800 rounded-lg transition"
-          >
-            Создать первый проект
-          </button>
+          <p className="text-slate-500 mb-4">{searchQuery ? 'Ничего не найдено' : 'Проекты не найдены'}</p>
+          {!searchQuery && (
+            <button
+              onClick={handleCreate}
+              className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-white rounded-lg transition"
+            >
+              Создать первый проект
+            </button>
+          )}
         </div>
-      ) : (
+      ) : viewMode === 'grid' ? (
+        /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {projects.map((project) => (
+          {filteredProjects.map((project) => (
             <div
               key={project.id}
               className={`bg-white rounded-lg p-6 shadow-sm border border-slate-200 ${
@@ -676,6 +751,114 @@ export default function ProjectsPage() {
             </div>
           ))}
         </div>
+      ) : (
+        /* List View */
+        <div className="bg-white rounded-lg overflow-hidden shadow-sm border border-slate-200">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">Код</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">Название</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">РПУ</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">Отчётов</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">Пользователи</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">Статус</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">Создан</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-600 uppercase tracking-wider">Действия</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {filteredProjects.map((project) => (
+                  <tr key={project.id} className={`hover:bg-slate-50/50 ${!project.is_active ? 'opacity-60' : ''}`}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <code className="text-sm font-mono text-blue-400 bg-slate-100 px-2 py-0.5 rounded">
+                          {project.project_code}
+                        </code>
+                        <button
+                          onClick={() => copyCode(project.project_code)}
+                          className="text-slate-400 hover:text-slate-600 transition"
+                          title="Копировать код"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-slate-800">{project.name}</div>
+                      {project.description && (
+                        <div className="text-xs text-slate-500 truncate max-w-xs">{project.description}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                      {project.manager_name || <span className="text-slate-400">-</span>}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                      {project.report_count}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <button
+                        onClick={() => handleOpenAccessModal(project)}
+                        className="flex items-center gap-1.5 px-2 py-1 text-xs font-medium rounded bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                        {projectUserCounts[project.id] !== undefined ? (
+                          <span>{projectUserCounts[project.id]}</span>
+                        ) : (
+                          <span className="w-4 h-3 bg-slate-200 rounded animate-pulse"></span>
+                        )}
+                      </button>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-medium rounded ${
+                        project.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {project.is_active ? 'Активен' : 'Архив'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                      {new Date(project.created_at).toLocaleDateString('ru-RU')}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button
+                        onClick={() => handleOpenAccessModal(project)}
+                        className="text-green-400 hover:text-green-300 mr-3"
+                      >
+                        Доступы
+                      </button>
+                      <button
+                        onClick={() => handleEdit(project)}
+                        className="text-blue-400 hover:text-blue-300 mr-3"
+                      >
+                        Изменить
+                      </button>
+                      {project.is_active ? (
+                        <button
+                          onClick={() => handleArchive(project)}
+                          className="text-yellow-500 hover:text-yellow-400"
+                        >
+                          Архив
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleDelete(project)}
+                          className="text-red-600 hover:text-red-400"
+                        >
+                          Удалить
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {/* Project Modal */}
@@ -698,6 +881,7 @@ export default function ProjectsPage() {
         }}
         onSave={handleSaveUserAccess}
       />
+      {ConfirmDialog}
     </div>
   );
 }

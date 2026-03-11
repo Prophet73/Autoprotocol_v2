@@ -10,15 +10,13 @@ Authentication methods (in order of preference):
 3. Manual - Admin copies their JWT token temporarily
 """
 import os
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.shared.models import User
-from backend.shared.database import get_db
 
 
 # Hub Configuration
@@ -137,8 +135,6 @@ class HubSyncService:
         domain = None
         if "строит" in department or "констр" in department or "construction" in department:
             domain = "construction"
-        elif "hr" in department or "кадр" in department or "персонал" in department:
-            domain = "hr"
         elif "it" in department or "ит" in department or "разработ" in department:
             domain = "it"
 
@@ -180,7 +176,7 @@ class HubSyncService:
             user = User(
                 email=mapped["email"],
                 full_name=mapped["full_name"],
-                hashed_password="",  # No password for SSO users
+                hashed_password="!SSO_ONLY_NO_PASSWORD_LOGIN",  # Sentinel — SSO users cannot log in with password
                 is_active=mapped["is_active"],
                 is_superuser=mapped["is_superuser"],
                 role=mapped["role"],
@@ -220,7 +216,7 @@ class HubSyncService:
             "created": 0,
             "updated": 0,
             "errors": [],
-            "synced_at": datetime.utcnow().isoformat(),
+            "synced_at": datetime.now(timezone.utc).isoformat(),
         }
 
         for hub_user in hub_users:

@@ -2,6 +2,7 @@
 import os
 import logging
 from celery import Celery
+from celery.schedules import crontab
 from celery.signals import worker_ready
 
 logger = logging.getLogger(__name__)
@@ -31,14 +32,21 @@ celery_app.conf.update(
 
     # Task routing - separate queues for GPU and LLM tasks
     task_routes={
-        "transcription.process": {"queue": "transcription_gpu"},      # GPU: WhisperX + pyannote
-        "transcription.process_text": {"queue": "transcription_llm"}, # LLM: Gemini API only
-        "transcription.cleanup": {"queue": "transcription_gpu"},      # Cleanup runs on GPU worker
-        "cleanup.*": {"queue": "cleanup"},
+        "transcription.process": {"queue": "transcription_gpu"},       # GPU: WhisperX + pyannote
+        "transcription.generate_reports": {"queue": "transcription_llm"},  # LLM: report generators
+        "transcription.save_reports": {"queue": "transcription_llm"},  # DB save after LLM
+        "transcription.send_email": {"queue": "transcription_llm"},    # Email notifications
+        "transcription.process_text": {"queue": "transcription_llm"},  # LLM: Gemini API only
+        "transcription.cleanup": {"queue": "transcription_gpu"},       # Cleanup runs on GPU worker
+        "cleanup.*": {"queue": "transcription_llm"},  # Cleanup runs on LLM worker (CPU-only)
     },
 
     # Worker settings (concurrency configured per-worker in docker-compose)
     worker_prefetch_multiplier=1,  # One task at a time
+
+    # Crash recovery: ACK after completion so unfinished tasks are requeued on worker death
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
 
     # Task time limits
     task_soft_time_limit=3600,  # 1 hour soft limit
@@ -55,23 +63,28 @@ celery_app.conf.update(
     beat_schedule={
         "cleanup-audio-files-daily": {
             "task": "cleanup.cleanup_old_audio_files",
-            "schedule": 86400.0,  # Every 24 hours
+            "schedule": crontab(hour=3, minute=0),  # Daily at 3:00 AM
             "args": (),
         },
         "cleanup-error-logs-weekly": {
             "task": "cleanup.cleanup_old_error_logs",
-            "schedule": 604800.0,  # Every 7 days
+            "schedule": crontab(hour=4, minute=0, day_of_week=0),  # Sunday 4:00 AM
             "args": (30,),  # Keep 30 days
         },
         "cleanup-expired-jobs-hourly": {
             "task": "cleanup.cleanup_expired_jobs",
-            "schedule": 3600.0,  # Every hour
+            "schedule": crontab(minute=0),  # Every hour at :00
             "args": (),
         },
         "recover-stuck-jobs-every-5min": {
             "task": "cleanup.recover_stuck_jobs",
-            "schedule": 300.0,  # Every 5 minutes
+            "schedule": 300.0,  # Every 5 minutes (crontab min resolution is 1 min)
             "args": (10,),  # 10 minute threshold
+        },
+        "system-health-watchdog-15min": {
+            "task": "cleanup.check_system_health",
+            "schedule": 900.0,  # Every 15 minutes
+            "args": (),
         },
     },
 )

@@ -6,13 +6,13 @@
 
 ```
 deploy/
-├── deploy.sh           # Основной скрипт деплоя (Docker)
+├── deploy-prod.sh      # Production deployment (GPU, полный стек)
+├── deploy-test.sh      # Test/staging deployment (без GPU)
 ├── seed_all.sh         # Запуск всех seed скриптов
 ├── seed_projects.sh    # Импорт проектов из Excel
-├── scripts/            # Python скрипты для наполнения БД
-│   └── seed_projects.py
+├── scripts/            # (перенесены в корневой scripts/db_seed/)
 ├── data/               # Данные для импорта
-│   └── projects.xls    # Список проектов (скопировать сюда)
+│   └── .gitkeep
 └── README.md
 ```
 
@@ -21,24 +21,35 @@ deploy/
 ### 1. Деплой с нуля
 
 ```bash
-# Полный деплой с пересборкой и сидированием
-./deploy/deploy.sh --rebuild --seed
+# Production (GPU)
+./deploy/deploy-prod.sh --rebuild --seed
+
+# Test (без GPU)
+./deploy/deploy-test.sh
 ```
 
 ### 2. Только обновление кода
 
 ```bash
-# Быстрый редеплой без пересборки
-./deploy/deploy.sh
+./deploy/deploy-prod.sh
 ```
 
-### 3. Только seed данных
+### 3. Опции deploy-prod.sh
+
+```bash
+./deploy/deploy-prod.sh --rebuild     # Пересборка образов (no cache)
+./deploy/deploy-prod.sh --logs        # Показать логи после деплоя
+./deploy/deploy-prod.sh --seed        # Запустить seed скрипты
+./deploy/deploy-prod.sh --monitoring  # Включить Flower мониторинг
+```
+
+### 4. Только seed данных
 
 ```bash
 # Предпросмотр (без записи)
 ./deploy/seed_all.sh --dry-run
 
-# Применить изменения
+# Применить
 ./deploy/seed_all.sh
 ```
 
@@ -77,18 +88,19 @@ deploy/
 ## Docker команды
 
 ```bash
-# Перейти в папку docker (ОБЯЗАТЕЛЬНО!)
 cd docker
 
-# Логи
-docker-compose logs -f worker
-docker-compose logs -f api
+# Prod
+docker compose -f docker-compose.prod.yml logs -f worker-gpu
+docker compose -f docker-compose.prod.yml ps
 
-# Перезапуск воркера
-docker-compose restart worker
+# Dev
+docker compose -f docker-compose.dev.yml logs -f api
+docker compose -f docker-compose.dev.yml ps
 
-# Статус
-docker-compose ps
+# Test (без GPU)
+docker compose -f docker-compose.test.yml logs -f worker
+docker compose -f docker-compose.test.yml ps
 ```
 
 ## Важно
@@ -102,5 +114,5 @@ docker-compose ps
 docker-compose down && docker volume prune -f
 
 # НЕПРАВИЛЬНО:
-docker-compose down -v  # ❌ Удалит БД!
+docker-compose down -v  # Удалит БД!
 ```

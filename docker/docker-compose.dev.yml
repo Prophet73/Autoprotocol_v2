@@ -1,0 +1,232 @@
+# Docker Compose for local development (v2.1.1 testing)
+# Usage: docker compose -f docker-compose.dev.yml up -d
+# Frontend: http://localhost:3000  |  API: http://localhost:8000/docs
+
+services:
+  # Frontend (Nginx + React build, SSO via mock-hub)
+  frontend:
+    container_name: whisperx-frontend-dev
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        VITE_API_URL: ""
+        VITE_SSO_HUB_ENABLED: "true"
+        VITE_SSO_ONLY: "true"
+    ports:
+      - "3000:80"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:80/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # API Server
+  api:
+    container_name: whisperx-api-dev
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    env_file:
+      - .env.dev
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://whisperx:whisperx@postgres:5432/whisperx
+      - WHISPER_MODEL=large-v3
+      - COMPUTE_TYPE=float16
+      - DEVICE=cuda
+    volumes:
+      - ../backend:/opt/whisperx/backend:ro
+      - uploads:/data/uploads
+      - output:/data/output
+      - models:/data/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Celery Worker (GPU) - WhisperX transcription + pyannote diarization
+  worker-gpu:
+    container_name: whisperx-worker-gpu-dev
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: celery -A backend.tasks.celery_app worker -Q transcription_gpu -c 1 --loglevel=info -n gpu@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A backend.tasks.celery_app inspect ping -d gpu@$$HOSTNAME || exit 1"]
+      interval: 60s
+      timeout: 30s
+      start_period: 120s
+      retries: 3
+    env_file:
+      - .env.dev
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://whisperx:whisperx@postgres:5432/whisperx
+      - WHISPER_MODEL=large-v3
+      - COMPUTE_TYPE=float16
+      - DEVICE=cuda
+    volumes:
+      - ../backend:/opt/whisperx/backend:ro
+      - uploads:/data/uploads
+      - output:/data/output
+      - models:/data/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Celery Worker (LLM) - Gemini API text processing (no GPU needed)
+  worker-llm:
+    container_name: whisperx-worker-llm-dev
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: celery -A backend.tasks.celery_app worker -Q transcription_llm -c 3 --loglevel=info -n llm@%h
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A backend.tasks.celery_app inspect ping -d llm@$$HOSTNAME || exit 1"]
+      interval: 60s
+      timeout: 30s
+      start_period: 60s
+      retries: 3
+    env_file:
+      - .env.dev
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://whisperx:whisperx@postgres:5432/whisperx
+    volumes:
+      - ../backend:/opt/whisperx/backend:ro
+      - uploads:/data/uploads
+      - output:/data/output
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Redis (Task Queue + Job Storage)
+  redis:
+    container_name: whisperx-redis-dev
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # Postgres (Primary Database)
+  postgres:
+    container_name: whisperx-postgres-dev
+    image: postgres:15-alpine
+    ports:
+      - "127.0.0.1:5437:5432"
+    environment:
+      - POSTGRES_USER=whisperx
+      - POSTGRES_PASSWORD=whisperx
+      - POSTGRES_DB=whisperx
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whisperx -d whisperx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Mock Hub SSO (dev only — fake OAuth2 server, NOT для прода)
+  mock-hub:
+    container_name: whisperx-mock-hub-dev
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: /venv/bin/python -m uvicorn backend.dev_tools.mock_hub:app --host 0.0.0.0 --port 8100
+    ports:
+      - "127.0.0.1:8100:8100"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://whisperx:whisperx@postgres:5432/whisperx
+    volumes:
+      - ../backend:/opt/whisperx/backend:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Flower (Celery Monitoring) - Optional
+  flower:
+    container_name: whisperx-flower-dev
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: celery -A backend.tasks.celery_app flower --port=5555
+    ports:
+      - "127.0.0.1:5555:5555"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5555/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    env_file:
+      - .env.dev
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      - redis
+      - worker-gpu
+      - worker-llm
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  uploads:
+  output:
+  models:
+  redis_data:
+  postgres_data:

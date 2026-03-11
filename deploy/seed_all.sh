@@ -56,16 +56,12 @@ fi
 
 log_info "Using Python: $PYTHON"
 
-# 1. Seed SVRD tenant and users (if not exists)
-log_info "Step 1: Seeding SVRD tenant and users..."
-$PYTHON scripts/seed_svrd_data.py $DRY_RUN || log_warn "seed_svrd_data.py failed (may already exist)"
-
-# 2. Seed projects from Excel
+# 1. Seed projects from Excel
 if [[ -f "$PROJECT_ROOT/deploy/data/projects.xls" ]] || [[ -f "$PROJECT_ROOT/список проектов.xls" ]]; then
-    log_info "Step 2: Seeding projects from Excel..."
-    $PYTHON deploy/scripts/seed_projects.py $DRY_RUN
+    log_info "Step 1: Seeding projects from Excel..."
+    $PYTHON scripts/db_seed/seed_projects.py $DRY_RUN
 else
-    log_warn "Step 2: Skipped - No projects Excel file found"
+    log_warn "Step 1: Skipped - No projects Excel file found"
     log_warn "       Expected: deploy/data/projects.xls"
 fi
 

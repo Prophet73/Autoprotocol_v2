@@ -7,6 +7,7 @@ Provides:
 - get_optional_user: Get user if authenticated, None otherwise
 """
 import os
+import uuid
 from typing import Optional, Annotated
 from datetime import datetime, timedelta, timezone
 
@@ -45,6 +46,7 @@ if not SECRET_KEY:
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24 hours
+REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", "10080"))  # 7 days
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -75,10 +77,37 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         Encoded JWT token string
     """
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    to_encode.update({"exp": expire})
+    now = datetime.now(timezone.utc)
+    expire = now + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({
+        "exp": expire,
+        "iat": now,
+        "jti": str(uuid.uuid4()),
+        "type": "access",
+    })
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """
+    Create JWT refresh token.
+
+    Args:
+        data: Payload data (should contain 'sub' with user email)
+        expires_delta: Token expiration time (default: 7 days)
+
+    Returns:
+        Encoded JWT refresh token string
+    """
+    to_encode = data.copy()
+    now = datetime.now(timezone.utc)
+    expire = now + (expires_delta or timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({
+        "exp": expire,
+        "iat": now,
+        "jti": str(uuid.uuid4()),
+        "type": "refresh",
+    })
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -111,7 +140,11 @@ async def get_current_user(
         token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
+        token_type: str = payload.get("type", "access")
         if email is None:
+            raise credentials_exception
+        # Reject refresh tokens used as access tokens
+        if token_type != "access":
             raise credentials_exception
     except JWTError:
         raise credentials_exception
@@ -157,13 +190,17 @@ async def get_optional_user(
         token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
+        token_type: str = payload.get("type", "access")
         if email is None:
+            return None
+        # Reject refresh tokens used as access tokens
+        if token_type != "access":
             return None
     except JWTError:
         return None
 
     result = await db.execute(
-        select(User).where(User.email == email, User.is_active == True)
+        select(User).where(User.email == email, User.is_active)
     )
     return result.scalar_one_or_none()
 

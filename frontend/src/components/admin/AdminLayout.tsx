@@ -2,22 +2,25 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { ArrowLeft, LogOut, LayoutDashboard, ListTodo, BarChart3, Users, Building2, Settings, AlertTriangle, Menu, X, Sparkles } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
+import { markExplicitLogout } from '../../utils/tokenExpiry';
+import { TourOverlay } from '../tour/TourOverlay';
 import clsx from 'clsx';
 
 interface NavItem {
   name: string;
   path: string;
   icon: React.ReactNode;
+  dataTour?: string;
 }
 
 const navItems: NavItem[] = [
-  { name: 'Дашборд', path: '/admin', icon: <LayoutDashboard className="w-5 h-5" /> },
-  { name: 'Очередь задач', path: '/admin/jobs', icon: <ListTodo className="w-5 h-5" /> },
-  { name: 'Статистика', path: '/admin/stats', icon: <BarChart3 className="w-5 h-5" /> },
-  { name: 'Пользователи', path: '/admin/users', icon: <Users className="w-5 h-5" /> },
-  { name: 'Проекты', path: '/admin/projects', icon: <Building2 className="w-5 h-5" /> },
-  { name: 'Настройки', path: '/admin/settings', icon: <Settings className="w-5 h-5" /> },
-  { name: 'Логи ошибок', path: '/admin/logs', icon: <AlertTriangle className="w-5 h-5" /> },
+  { name: 'Дашборд', path: '/admin', icon: <LayoutDashboard className="w-5 h-5" />, dataTour: 'admin-dashboard' },
+  { name: 'Очередь задач', path: '/admin/jobs', icon: <ListTodo className="w-5 h-5" />, dataTour: 'admin-jobs' },
+  { name: 'Статистика', path: '/admin/stats', icon: <BarChart3 className="w-5 h-5" />, dataTour: 'admin-stats' },
+  { name: 'Пользователи', path: '/admin/users', icon: <Users className="w-5 h-5" />, dataTour: 'admin-users' },
+  { name: 'Проекты', path: '/admin/projects', icon: <Building2 className="w-5 h-5" />, dataTour: 'admin-projects' },
+  { name: 'Настройки', path: '/admin/settings', icon: <Settings className="w-5 h-5" />, dataTour: 'admin-settings' },
+  { name: 'Логи ошибок', path: '/admin/logs', icon: <AlertTriangle className="w-5 h-5" />, dataTour: 'admin-logs' },
 ];
 
 export default function AdminLayout() {
@@ -27,8 +30,9 @@ export default function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = () => {
+    markExplicitLogout();
     logout();
-    navigate('/login');
+    navigate('/login?manual=true');
   };
 
   const isActive = (path: string) => {
@@ -69,7 +73,10 @@ export default function AdminLayout() {
           <div className="w-px h-6 bg-slate-200" />
           <div className="flex items-center gap-2.5">
             <img src="/severin-logo.png" alt="Autoprotocol" className="w-7 h-7" />
-            <span className="text-lg font-bold text-slate-800">Autoprotocol</span>
+            <div className="flex flex-col leading-tight">
+              <span className="text-lg font-bold text-slate-800">Autoprotocol</span>
+              <span className="text-[10px] text-slate-400 -mt-0.5">Severin Development</span>
+            </div>
           </div>
           <div className="w-px h-5 bg-slate-200 hidden sm:block" />
           <span className="text-sm text-slate-500 hidden sm:inline">Админ-панель</span>
@@ -78,7 +85,7 @@ export default function AdminLayout() {
         {/* Right: External links */}
         <div className="flex items-center gap-3 text-sm">
           <a
-            href="https://portal.svrd.ru"
+            href="https://cp.svrd.ru/"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-all"
@@ -132,6 +139,7 @@ export default function AdminLayout() {
                 key={item.path}
                 to={item.path}
                 onClick={() => setSidebarOpen(false)}
+                data-tour={item.dataTour}
                 className={clsx(
                   'flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all',
                   isActive(item.path)
@@ -156,7 +164,12 @@ export default function AdminLayout() {
                   {user?.full_name || user?.email}
                 </div>
                 <div className="text-xs text-slate-400">
-                  {user?.is_superuser ? 'Суперадмин' : user?.role}
+                  {user?.is_superuser ? 'Суперадмин'
+                    : user?.role === 'admin' ? 'Администратор'
+                    : user?.role === 'manager' ? 'Менеджер'
+                    : user?.role === 'viewer' ? 'Наблюдатель'
+                    : user?.role === 'user' ? 'Пользователь'
+                    : user?.role}
                 </div>
               </div>
               <button
@@ -171,7 +184,7 @@ export default function AdminLayout() {
 
           {/* Footer */}
           <div className="px-4 py-2 text-[10px] text-slate-400 text-center border-t border-slate-100">
-            <div>v2.0 · Design by N. Khromenok & V. Vasin</div>
+            <div>v2.0 · Design by <span className="text-red-400">N. Khromenok</span> & <span className="text-red-400">V. Vasin</span></div>
           </div>
         </aside>
 
@@ -180,6 +193,8 @@ export default function AdminLayout() {
           <Outlet />
         </main>
       </div>
+
+      <TourOverlay navigate={navigate} />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { verifyState, handleSSOCallback, type SSOProvider } from '../utils/ssoAuth';
 import { useAuthStore, type User } from '../stores/authStore';
+import { clearExplicitLogout } from '../utils/tokenExpiry';
 
 export default function SSOCallbackPage() {
   const navigate = useNavigate();
@@ -15,12 +16,15 @@ export default function SSOCallbackPage() {
       const code = searchParams.get('code');
       const state = searchParams.get('state');
       const token = searchParams.get('token');  // Hub SSO direct token
-      const redirect = searchParams.get('redirect') || '/admin';
+      const rawRedirect = searchParams.get('redirect') || '/admin';
+      // Prevent open redirect: only allow relative paths starting with /
+      const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/admin';
       const errorParam = searchParams.get('error');
       const errorDescription = searchParams.get('error_description');
 
       // Handle OAuth error response
       if (errorParam) {
+        sessionStorage.removeItem('sso_reauth_ts');
         setError(errorDescription || errorParam);
         return;
       }
@@ -28,6 +32,8 @@ export default function SSOCallbackPage() {
       // Hub SSO: token is passed directly from backend
       if (token) {
         try {
+          const refreshToken = searchParams.get('refresh');
+
           // Store token first
           const { setToken } = useAuthStore.getState();
           setToken(token);
@@ -42,7 +48,11 @@ export default function SSOCallbackPage() {
           }
 
           const user = await response.json() as User;
-          login(token, user);
+          login(token, user, refreshToken ?? undefined);
+
+          // Clear SSO re-auth guards so future token expirations can retry
+          sessionStorage.removeItem('sso_reauth_ts');
+          clearExplicitLogout();
 
           // Redirect to specified page
           navigate(redirect);

@@ -26,10 +26,22 @@ def load_prompts() -> Dict[str, Any]:
 
     try:
         with open(prompts_file, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+            data = yaml.safe_load(f)
     except Exception as e:
         logger.error(f"Failed to load prompts: {e}")
         return {}
+
+    # Soft validation: warn about missing expected top-level keys
+    expected_keys = {"domains", "translation", "language_names"}
+    if data and isinstance(data, dict):
+        missing = expected_keys - data.keys()
+        if missing:
+            logger.warning(f"Prompts YAML missing expected top-level keys: {missing}")
+    else:
+        logger.warning("Prompts YAML is empty or invalid (expected dict)")
+        return {}
+
+    return data
 
 
 def get_prompt(path: str, **kwargs) -> str:

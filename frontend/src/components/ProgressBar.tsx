@@ -5,6 +5,8 @@ interface ProgressBarProps {
   stage?: string;
   message?: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
+  updatedAt?: string;
+  createdAt?: string;
 }
 
 const stageLabels: Record<string, string> = {
@@ -25,8 +27,12 @@ const stageLabels: Record<string, string> = {
   artifacts: 'Создание документов',
   domain_artifacts: 'Создание документов',
   domain_generators: 'Создание документов',
+  domain_report: 'Сохранение в базу',
   text_extraction: 'Извлечение текста',
   llm_generation: 'Генерация отчётов',
+  llm_generators: 'Генерация отчётов',
+  retry_reports: 'Повторная генерация',
+  email_notification: 'Отправка уведомления',
   initializing: 'Инициализация',
 };
 
@@ -40,16 +46,35 @@ const stageIcons: Record<string, string> = {
   report_generation: '📄',
   domain_artifacts: '📑',
   domain_generators: '📑',
+  domain_report: '💾',
   text_extraction: '🧾',
   llm_generation: '✨',
+  llm_generators: '✨',
+  retry_reports: '🔄',
+  email_notification: '📧',
 };
 
-export function ProgressBar({ percent, stage, message, status }: ProgressBarProps) {
+export function ProgressBar({ percent, stage, message, status, updatedAt, createdAt }: ProgressBarProps) {
   const stageLabel = stage ? stageLabels[stage] || stage : '';
   const stageIcon = stage ? stageIcons[stage] || '⚙️' : '';
   const showStage = !!stage && (status === 'processing' || status === 'pending');
   const stageBadgeClass = status === 'pending' ? 'bg-amber-50' : 'bg-red-50';
   const stageTextClass = status === 'pending' ? 'text-amber-700' : 'text-severin-red';
+
+  // Staleness detection — recalculated every render (polling every 2s, cheap)
+  let staleInfo: string | null = null;
+  if (status === 'pending' || status === 'processing') {
+    const ref = updatedAt || createdAt;
+    if (ref) {
+      // Server timestamps are UTC but may lack timezone suffix — force UTC parsing
+      const utcRef = ref.endsWith('Z') || ref.includes('+') ? ref : ref + 'Z';
+      const elapsed = (Date.now() - new Date(utcRef).getTime()) / 60_000;
+      const threshold = status === 'pending' ? 2 : 5;
+      if (elapsed >= threshold) {
+        staleInfo = `Задача не обновлялась ${Math.floor(elapsed)} мин`;
+      }
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -115,6 +140,17 @@ export function ProgressBar({ percent, stage, message, status }: ProgressBarProp
           <span className="text-sm text-slate-500 truncate max-w-xs">{message}</span>
         )}
       </div>
+
+      {/* Staleness warning */}
+      {staleInfo && (
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+          </span>
+          <span className="text-sm font-medium text-amber-700">{staleInfo}</span>
+        </div>
+      )}
     </div>
   );
 }

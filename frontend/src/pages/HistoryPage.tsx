@@ -1,15 +1,22 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Clock, CheckCircle2, XCircle, Loader2, RefreshCw, FileAudio, FileVideo, ChevronRight } from 'lucide-react';
+import { Clock, CheckCircle2, XCircle, Loader2, RefreshCw, FileAudio, FileVideo, ChevronRight, AlertTriangle } from 'lucide-react';
 import { getJobs } from '../api/client';
 
 const statusConfig = {
   completed: {
     icon: CheckCircle2,
     label: 'Готово',
-    bg: 'bg-red-50',
-    text: 'text-severin-red',
-    badge: 'bg-red-100 text-severin-red',
+    bg: 'bg-green-50',
+    text: 'text-green-600',
+    badge: 'bg-green-100 text-green-700',
+  },
+  completed_warnings: {
+    icon: AlertTriangle,
+    label: 'С предупреждениями',
+    bg: 'bg-amber-50',
+    text: 'text-amber-600',
+    badge: 'bg-amber-100 text-amber-700',
   },
   processing: {
     icon: Loader2,
@@ -38,7 +45,12 @@ export function HistoryPage() {
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['jobs'],
     queryFn: () => getJobs(50),
-    refetchInterval: 10000,
+    refetchInterval: (query) => {
+      // Only poll when there are active (pending/processing) jobs
+      const jobs = query.state.data?.jobs;
+      const hasActiveJobs = jobs?.some(j => j.status === 'pending' || j.status === 'processing');
+      return hasActiveJobs ? 10000 : false;
+    },
   });
 
   const jobs = data?.jobs || [];
@@ -107,12 +119,21 @@ export function HistoryPage() {
         </div>
       )}
 
+      {/* 24h retention notice */}
+      {!isLoading && !isError && jobs.length > 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 mb-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+          <Clock className="w-4 h-4 flex-shrink-0" />
+          <span>Файлы хранятся 24 часа после обработки</span>
+        </div>
+      )}
+
       {/* Jobs list */}
       {!isLoading && !isError && jobs.length > 0 && (
         <div className="bg-white rounded-2xl shadow-lg shadow-slate-200/50 border border-slate-200 overflow-hidden">
           <div className="divide-y divide-slate-100">
             {jobs.map((job) => {
-              const config = statusConfig[job.status] || statusConfig.pending;
+              const configKey = (job.status === 'completed' && job.has_warnings) ? 'completed_warnings' : job.status;
+              const config = statusConfig[configKey] || statusConfig.pending;
               const Icon = config.icon;
               const isVideo = isVideoFile(job.source_file);
 
@@ -159,12 +180,6 @@ export function HistoryPage() {
         </div>
       )}
 
-      {/* Info */}
-      {jobs.length > 0 && (
-        <p className="text-sm text-slate-400 text-center mt-6">
-          Файлы хранятся 24 часа после обработки
-        </p>
-      )}
     </div>
   );
 }

@@ -8,16 +8,19 @@
 - Аналитика затрат AI
 - Временная шкала
 - Здоровье системы
+- Экспорт в Excel
 """
 from datetime import date
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.shared.database import get_db
+from backend.shared.database import get_db_readonly
 from backend.core.auth.dependencies import AdminUser, CurrentUser
-from backend.domains.base_schemas import DOMAIN_MEETING_TYPES
+from backend.domains.registry import get_all_meeting_types as _get_meeting_types
+# Ленивый вызов — не на уровне модуля, чтобы не ломать порядок импортов
 from .service import StatsService
 from .schemas import (
     StatsFilters,
@@ -55,7 +58,7 @@ router = APIRouter(prefix="/stats", tags=["Админ - Статистика"])
 )
 async def get_dashboard(
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
     date_from: Optional[date] = Query(None, description="Начало периода"),
     date_to: Optional[date] = Query(None, description="Конец периода"),
     domain: Optional[str] = Query(None, description="Фильтр по домену"),
@@ -84,7 +87,7 @@ async def get_dashboard(
 )
 async def get_overview(
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     domain: Optional[str] = Query(None),
@@ -104,14 +107,15 @@ async def get_domains_list(
     current_user: CurrentUser,
 ) -> dict:
     """Получить список доступных доменов."""
+    from backend.domains.registry import DOMAINS
     domains = []
-    for domain_id, meeting_types in DOMAIN_MEETING_TYPES.items():
+    for defn in DOMAINS.values():
         domains.append({
-            "id": domain_id,
-            "name": _get_domain_display_name(domain_id),
+            "id": defn.id,
+            "name": defn.display_name,
             "meeting_types": [
                 {"id": mt.id, "name": mt.name}
-                for mt in meeting_types
+                for mt in defn.meeting_types
             ]
         })
     return {"domains": domains}
@@ -126,7 +130,7 @@ async def get_domains_list(
 async def get_domain_stats(
     domain_id: str,
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     meeting_type: Optional[str] = Query(None),
@@ -152,7 +156,7 @@ async def get_domain_stats(
 )
 async def get_users_stats(
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     domain: Optional[str] = Query(None),
@@ -161,7 +165,7 @@ async def get_users_stats(
     service = StatsService(db)
     filters = StatsFilters(date_from=date_from, date_to=date_to, domain=domain)
 
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     users = await service.get_users_stats(filters)
     timeline = await service.get_timeline_stats(filters)
@@ -170,7 +174,7 @@ async def get_users_stats(
         users=users,
         timeline=timeline,
         filters_applied=filters,
-        generated_at=datetime.now(),
+        generated_at=datetime.now(timezone.utc),
     )
 
 
@@ -182,7 +186,7 @@ async def get_users_stats(
 )
 async def get_costs_stats(
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     domain: Optional[str] = Query(None),
@@ -191,7 +195,7 @@ async def get_costs_stats(
     service = StatsService(db)
     filters = StatsFilters(date_from=date_from, date_to=date_to, domain=domain)
 
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     costs = await service.get_cost_stats(filters)
 
@@ -199,7 +203,36 @@ async def get_costs_stats(
         costs=costs,
         timeline=[],  # TODO: cost timeline
         filters_applied=filters,
-        generated_at=datetime.now(),
+        generated_at=datetime.now(timezone.utc),
+    )
+
+
+# =============================================================================
+# Экспорт в Excel
+# =============================================================================
+
+@router.get(
+    "/export",
+    summary="Экспорт статистики в Excel",
+    description="Генерация XLSX-файла со сводкой, ошибками и сырыми данными.",
+)
+async def export_stats_excel(
+    current_user: AdminUser,
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
+    date_from: Optional[date] = Query(None, description="Начало периода"),
+    date_to: Optional[date] = Query(None, description="Конец периода"),
+    domain: Optional[str] = Query(None, description="Фильтр по домену"),
+):
+    """Экспорт статистики в Excel (XLSX)."""
+    from .export import generate_stats_xlsx
+
+    filters = StatsFilters(date_from=date_from, date_to=date_to, domain=domain)
+    xlsx_bytes, filename = await generate_stats_xlsx(db, filters)
+
+    return StreamingResponse(
+        xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -221,7 +254,7 @@ async def get_costs_stats(
 )
 async def get_global_stats(
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
 ) -> GlobalStatsResponse:
     """
     Получить глобальную статистику системы (устаревший).
@@ -240,7 +273,7 @@ async def get_global_stats(
 )
 async def get_system_health(
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
 ) -> SystemHealthResponse:
     """
     Получить состояние здоровья системы.
@@ -262,10 +295,5 @@ async def get_system_health(
 
 def _get_domain_display_name(domain_id: str) -> str:
     """Получить человекочитаемое название домена."""
-    names = {
-        "construction": "Строительство",
-        "hr": "HR",
-        "it": "IT",
-        "general": "Общий",
-    }
-    return names.get(domain_id, domain_id.title())
+    from backend.domains.registry import get_domain_display_name
+    return get_domain_display_name(domain_id)

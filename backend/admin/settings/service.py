@@ -3,6 +3,8 @@ System settings service.
 
 Provides CRUD operations for dynamic system configuration.
 Settings are stored in the database and can be changed without redeployment.
+
+Priority: DB value (admin changed) > env var (shared/config.py) > hardcoded default.
 """
 from typing import Optional, List
 
@@ -10,6 +12,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.admin.models import SystemSetting
+from backend.shared import config
 from .schemas import (
     SettingResponse,
     SettingListResponse,
@@ -18,49 +21,90 @@ from .schemas import (
 )
 
 
-# Default settings to initialize on first run
+# Default settings with metadata for UI rendering.
+# Values come from backend.shared.config (single source of truth).
 DEFAULT_SETTINGS = {
-    "llm_model": {
-        "value": "gemini-2.0-flash",
-        "description": "LLM model for translation and report generation"
+    "gemini_translate_model": {
+        "value": config.TRANSLATE_MODEL,
+        "description": "Gemini модель для перевода (Flash — быстрая, дешёвая)",
+        "input_type": "select",
+        "options": [
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3-flash-preview",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+        ],
+        "category": "llm",
     },
-    "whisper_model": {
-        "value": "large-v3",
-        "description": "Whisper model for transcription (tiny, base, small, medium, large-v2, large-v3)"
+    "gemini_report_model": {
+        "value": config.REPORT_MODEL,
+        "description": "Gemini модель для отчётов и анализа (Pro — качественная)",
+        "input_type": "select",
+        "options": [
+            "gemini-3.1-pro-preview",
+            "gemini-3-flash-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.0-pro",
+        ],
+        "category": "llm",
     },
     "max_file_size_mb": {
-        "value": "500",
-        "description": "Maximum upload file size in megabytes"
+        "value": str(config.MAX_FILE_SIZE_MB),
+        "description": "Макс. размер загружаемого файла в МБ",
+        "input_type": "number",
+        "category": "limits",
     },
     "job_ttl_hours": {
-        "value": "24",
-        "description": "Hours to keep job data in Redis before auto-cleanup"
+        "value": str(config.JOB_TTL_HOURS),
+        "description": "Часов хранения данных задачи в Redis",
+        "input_type": "number",
+        "category": "retention",
     },
     "audio_retention_days": {
-        "value": "7",
-        "description": "Days to keep audio/video files before cleanup (reports are preserved)"
+        "value": str(config.AUDIO_RETENTION_DAYS),
+        "description": "Дней хранения аудио/видео файлов (отчёты сохраняются)",
+        "input_type": "number",
+        "category": "retention",
     },
     "error_log_retention_days": {
-        "value": "30",
-        "description": "Days to keep error logs in database"
-    },
-    "enable_emotions": {
-        "value": "true",
-        "description": "Enable emotion analysis by default"
-    },
-    "enable_diarization": {
-        "value": "true",
-        "description": "Enable speaker diarization by default"
-    },
-    "default_language": {
-        "value": "ru",
-        "description": "Default transcription language"
-    },
-    "batch_size": {
-        "value": "16",
-        "description": "Batch size for Whisper inference"
+        "value": str(config.ERROR_LOG_RETENTION_DAYS),
+        "description": "Дней хранения логов ошибок в БД",
+        "input_type": "number",
+        "category": "retention",
     },
 }
+
+
+def get_setting_value(key: str, default: str) -> str:
+    """Read a setting from DB with fallback to default.
+
+    Works from both sync (Celery) and async (FastAPI) contexts.
+    Use for runtime-changeable settings (admin panel).
+    """
+    from backend.shared.database import get_db_context
+    from backend.shared.async_utils import run_async
+
+    async def _fetch():
+        async with get_db_context() as db:
+            service = SettingsService(db)
+            return await service.get_value(key, default=default)
+
+    try:
+        return run_async(_fetch())
+    except Exception:
+        return default
+
+
+def _setting_metadata(key: str) -> dict:
+    """Get metadata for a known default setting."""
+    meta = DEFAULT_SETTINGS.get(key, {})
+    return {
+        "input_type": meta.get("input_type", "text"),
+        "options": meta.get("options"),
+        "category": meta.get("category", "other"),
+        "default_value": meta.get("value"),
+    }
 
 
 class SettingsService:
@@ -75,34 +119,69 @@ class SettingsService:
         limit: int = 100,
     ) -> SettingListResponse:
         """
-        List all system settings.
+        List all settings: merge defaults with DB overrides.
 
-        Args:
-            skip: Records to skip
-            limit: Max records to return
-
-        Returns:
-            List of settings with total count
+        Default settings always appear. If a DB record exists for a key,
+        its value overrides the default and is_default=False.
+        Custom (non-default) DB settings are appended at the end.
         """
-        # Get total count
-        count_result = await self.db.execute(
-            select(func.count()).select_from(SystemSetting)
-        )
-        total = count_result.scalar() or 0
-
-        # Get settings
+        # Load all DB settings
         result = await self.db.execute(
-            select(SystemSetting)
-            .offset(skip)
-            .limit(limit)
-            .order_by(SystemSetting.key)
+            select(SystemSetting).order_by(SystemSetting.key)
         )
-        settings = result.scalars().all()
+        db_settings = {s.key: s for s in result.scalars().all()}
 
-        return SettingListResponse(
-            settings=[SettingResponse.model_validate(s) for s in settings],
-            total=total,
-        )
+        merged: list[SettingResponse] = []
+
+        # 1. Default settings (in definition order)
+        for key, meta in DEFAULT_SETTINGS.items():
+            db_row = db_settings.pop(key, None)
+            if db_row:
+                merged.append(SettingResponse(
+                    key=key,
+                    value=db_row.value,
+                    description=meta["description"],
+                    updated_at=db_row.updated_at,
+                    updated_by=db_row.updated_by,
+                    is_default=False,
+                    default_value=meta["value"],
+                    input_type=meta.get("input_type", "text"),
+                    options=meta.get("options"),
+                    category=meta.get("category", "other"),
+                ))
+            else:
+                merged.append(SettingResponse(
+                    key=key,
+                    value=meta["value"],
+                    description=meta["description"],
+                    updated_at=None,
+                    updated_by=None,
+                    is_default=True,
+                    default_value=meta["value"],
+                    input_type=meta.get("input_type", "text"),
+                    options=meta.get("options"),
+                    category=meta.get("category", "other"),
+                ))
+
+        # 2. Custom settings (in DB but not in defaults)
+        for key, db_row in db_settings.items():
+            merged.append(SettingResponse(
+                key=key,
+                value=db_row.value,
+                description=db_row.description,
+                updated_at=db_row.updated_at,
+                updated_by=db_row.updated_by,
+                is_default=False,
+                default_value=None,
+                input_type="text",
+                options=None,
+                category="custom",
+            ))
+
+        total = len(merged)
+        page = merged[skip:skip + limit]
+
+        return SettingListResponse(settings=page, total=total)
 
     async def get_setting(self, key: str) -> Optional[SystemSetting]:
         """Get setting by key."""
@@ -166,33 +245,47 @@ class SettingsService:
         key: str,
         request: UpdateSettingRequest,
         updated_by: str = None,
-    ) -> SystemSetting:
+    ) -> SettingResponse:
         """
-        Update an existing setting.
-
-        Args:
-            key: Setting key
-            request: Update request
-            updated_by: Email of user updating the setting
+        Update a setting. Uses upsert for default settings not yet in DB.
 
         Returns:
-            Updated setting
-
-        Raises:
-            ValueError: If setting not found
+            Updated setting as SettingResponse (with metadata).
         """
         setting = await self.get_setting(key)
-        if not setting:
-            raise ValueError(f"Setting with key '{key}' not found")
 
-        setting.value = request.value
-        if request.description is not None:
-            setting.description = request.description
-        setting.updated_by = updated_by
+        if setting:
+            setting.value = request.value
+            if request.description is not None:
+                setting.description = request.description
+            setting.updated_by = updated_by
+            await self.db.flush()
+            await self.db.refresh(setting)
+        else:
+            # Default setting being customized for the first time — create DB row
+            meta = DEFAULT_SETTINGS.get(key)
+            if not meta:
+                raise ValueError(f"Setting with key '{key}' not found")
+            setting = SystemSetting(
+                key=key,
+                value=request.value,
+                description=request.description or meta["description"],
+                updated_by=updated_by,
+            )
+            self.db.add(setting)
+            await self.db.flush()
+            await self.db.refresh(setting)
 
-        await self.db.flush()
-        await self.db.refresh(setting)
-        return setting
+        metadata = _setting_metadata(key)
+        return SettingResponse(
+            key=setting.key,
+            value=setting.value,
+            description=setting.description,
+            updated_at=setting.updated_at,
+            updated_by=setting.updated_by,
+            is_default=False,
+            **metadata,
+        )
 
     async def upsert_setting(
         self,
@@ -235,13 +328,13 @@ class SettingsService:
 
     async def delete_setting(self, key: str) -> bool:
         """
-        Delete a setting.
+        Delete a setting (resets to default if it's a known setting).
 
         Args:
             key: Setting key
 
         Returns:
-            True if deleted, False if not found
+            True if deleted, False if not found in DB
         """
         setting = await self.get_setting(key)
         if not setting:
@@ -250,6 +343,39 @@ class SettingsService:
         await self.db.delete(setting)
         await self.db.flush()
         return True
+
+    async def reset_to_default(self, key: str) -> SettingResponse:
+        """
+        Reset a setting to its default value by removing the DB override.
+
+        Returns:
+            The setting with default value.
+
+        Raises:
+            ValueError: If key is not a known default setting.
+        """
+        meta = DEFAULT_SETTINGS.get(key)
+        if not meta:
+            raise ValueError(f"Setting '{key}' has no default value")
+
+        # Remove DB override if exists
+        setting = await self.get_setting(key)
+        if setting:
+            await self.db.delete(setting)
+            await self.db.flush()
+
+        return SettingResponse(
+            key=key,
+            value=meta["value"],
+            description=meta["description"],
+            updated_at=None,
+            updated_by=None,
+            is_default=True,
+            default_value=meta["value"],
+            input_type=meta.get("input_type", "text"),
+            options=meta.get("options"),
+            category=meta.get("category", "other"),
+        )
 
     async def bulk_update(
         self,
@@ -275,31 +401,3 @@ class SettingsService:
             )
             results.append(setting)
         return results
-
-    async def initialize_defaults(self, updated_by: str = None) -> int:
-        """
-        Initialize default settings if they don't exist.
-
-        Args:
-            updated_by: Email of user
-
-        Returns:
-            Number of settings created
-        """
-        created = 0
-        for key, data in DEFAULT_SETTINGS.items():
-            existing = await self.get_setting(key)
-            if not existing:
-                setting = SystemSetting(
-                    key=key,
-                    value=data["value"],
-                    description=data["description"],
-                    updated_by=updated_by,
-                )
-                self.db.add(setting)
-                created += 1
-
-        if created > 0:
-            await self.db.flush()
-
-        return created

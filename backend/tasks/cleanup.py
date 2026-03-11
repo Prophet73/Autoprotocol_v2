@@ -7,7 +7,7 @@ text reports and transcripts.
 import os
 import logging
 import shutil
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -19,15 +19,7 @@ from backend.admin.settings.service import SettingsService
 logger = logging.getLogger(__name__)
 
 
-def _run_async(coro):
-    """Run async coroutine in sync context (for Celery tasks)."""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+from backend.shared.async_utils import run_async
 
 
 # Storage paths
@@ -59,7 +51,7 @@ def cleanup_old_audio_files(
     Returns:
         Cleanup statistics
     """
-    return _run_async(_async_cleanup(retention_days, dry_run))
+    return run_async(_async_cleanup(retention_days, dry_run))
 
 
 async def _async_cleanup(
@@ -81,16 +73,18 @@ async def _async_cleanup(
         try:
             async with get_db_context() as db:
                 service = SettingsService(db)
+                from backend.shared.config import AUDIO_RETENTION_DAYS
                 retention_str = await service.get_value(
                     "audio_retention_days",
-                    default="7"  # Default 7 days
+                    default=str(AUDIO_RETENTION_DAYS),
                 )
                 retention_days = int(retention_str)
         except Exception as e:
             logger.warning(f"Could not get retention setting, using default: {e}")
-            retention_days = 7
+            from backend.shared.config import AUDIO_RETENTION_DAYS
+            retention_days = AUDIO_RETENTION_DAYS
 
-    cutoff_date = datetime.now() - timedelta(days=retention_days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
     logger.info(
         f"Starting cleanup: retention={retention_days} days, "
         f"cutoff={cutoff_date.isoformat()}, dry_run={dry_run}"
@@ -156,7 +150,7 @@ async def _cleanup_directory(
                 continue
 
             # Check directory modification time
-            dir_mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)
+            dir_mtime = datetime.fromtimestamp(job_dir.stat().st_mtime, tz=timezone.utc)
             if dir_mtime >= cutoff_date:
                 continue  # Skip recent directories
 
@@ -173,7 +167,7 @@ async def _cleanup_directory(
                         continue  # Skip non-audio files
 
                 # Check file age
-                file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+                file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
                 if file_mtime >= cutoff_date:
                     continue
 
@@ -209,17 +203,31 @@ async def _cleanup_directory(
 
 
 @celery_app.task(name="cleanup.cleanup_old_error_logs")
-def cleanup_old_error_logs(retention_days: int = 30) -> dict:
+def cleanup_old_error_logs(retention_days: int = None) -> dict:
     """
     Clean up old error logs from database.
-
-    Args:
-        retention_days: Days to keep error logs
-
-    Returns:
-        Cleanup statistics
+    Reads retention period from DB settings, falls back to 30 days.
     """
-    return _run_async(_cleanup_error_logs(retention_days))
+    return run_async(_cleanup_error_logs_with_settings(retention_days))
+
+
+async def _cleanup_error_logs_with_settings(retention_days: int = None) -> dict:
+    """Read retention from DB if not specified, then run cleanup."""
+    if retention_days is None:
+        try:
+            async with get_db_context() as db:
+                service = SettingsService(db)
+                from backend.shared.config import ERROR_LOG_RETENTION_DAYS
+                retention_str = await service.get_value(
+                    "error_log_retention_days",
+                    default=str(ERROR_LOG_RETENTION_DAYS),
+                )
+                retention_days = int(retention_str)
+        except Exception as e:
+            logger.warning(f"Could not get error_log_retention setting: {e}")
+            from backend.shared.config import ERROR_LOG_RETENTION_DAYS
+            retention_days = ERROR_LOG_RETENTION_DAYS
+    return await _cleanup_error_logs(retention_days)
 
 
 async def _cleanup_error_logs(retention_days: int) -> dict:
@@ -248,15 +256,23 @@ async def _cleanup_error_logs(retention_days: int) -> dict:
 @celery_app.task(name="cleanup.cleanup_expired_jobs")
 def cleanup_expired_jobs() -> dict:
     """
-    Clean up expired jobs from Redis.
+    Clean up expired jobs from Redis and orphan upload directories.
 
-    Jobs are automatically expired by Redis TTL, but this task
-    ensures consistency with filesystem cleanup.
+    Checks both Redis and database to find orphaned directories
+    (e.g., from interrupted uploads that never created a job).
+    Directories older than 1 day with no matching job are removed.
 
     Returns:
         Cleanup statistics
     """
+    return run_async(_async_cleanup_expired_jobs())
+
+
+async def _async_cleanup_expired_jobs() -> dict:
+    """Async implementation of expired jobs cleanup."""
     from backend.core.storage import get_job_store
+    from sqlalchemy import select
+    from backend.shared.models import TranscriptionJob
 
     stats = {
         "jobs_checked": 0,
@@ -265,10 +281,32 @@ def cleanup_expired_jobs() -> dict:
     }
 
     try:
+        # Collect known job IDs from Redis
         store = get_job_store()
-        jobs = store.list_jobs(limit=10000)
-        job_ids = {job.job_id for job in jobs}
-        stats["jobs_checked"] = len(jobs)
+        redis_job_ids: set[str] = set()
+        prefix = store.KEY_PREFIX
+        for key in store.redis.scan_iter(f"{prefix}*", count=100):
+            job_id = (
+                key.decode().removeprefix(prefix)
+                if isinstance(key, bytes)
+                else key.removeprefix(prefix)
+            )
+            redis_job_ids.add(job_id)
+        stats["jobs_checked"] = len(redis_job_ids)
+
+        # Collect known job IDs from database
+        db_job_ids: set[str] = set()
+        try:
+            async with get_db_context() as db:
+                result = await db.execute(
+                    select(TranscriptionJob.job_id)
+                )
+                db_job_ids = {row[0] for row in result.all()}
+        except Exception as e:
+            logger.warning(f"Could not query DB for job IDs: {e}")
+
+        known_job_ids = redis_job_ids | db_job_ids
+        orphan_cutoff = datetime.now(timezone.utc) - timedelta(days=1)
 
         # Check for orphaned directories
         for directory in [UPLOAD_DIR, OUTPUT_DIR]:
@@ -280,25 +318,33 @@ def cleanup_expired_jobs() -> dict:
                     continue
 
                 job_id = job_dir.name
-                if job_id not in job_ids:
-                    # Orphaned directory - job no longer exists in Redis
-                    try:
-                        shutil.rmtree(job_dir)
-                        stats["orphaned_dirs_removed"] += 1
-                        logger.info(f"Removed orphaned directory: {job_dir}")
-                    except Exception as e:
-                        stats["errors"].append(f"Failed to remove {job_dir}: {e}")
+                if job_id in known_job_ids:
+                    continue
+
+                # Only remove if directory is older than 1 day
+                dir_mtime = datetime.fromtimestamp(
+                    job_dir.stat().st_mtime, tz=timezone.utc
+                )
+                if dir_mtime >= orphan_cutoff:
+                    continue
+
+                try:
+                    shutil.rmtree(job_dir)
+                    stats["orphaned_dirs_removed"] += 1
+                    logger.info(f"Removed orphaned directory: {job_dir}")
+                except Exception as e:
+                    stats["errors"].append(f"Failed to remove {job_dir}: {e}")
 
     except Exception as e:
         stats["errors"].append(f"Error during orphan cleanup: {e}")
-        logger.exception(f"Error during orphan cleanup")
+        logger.exception("Error during orphan cleanup")
 
     return stats
 
 
 @celery_app.task(name="cleanup.recover_stuck_jobs")
 def recover_stuck_jobs(
-    stale_threshold_minutes: int = 10,
+    stale_threshold_minutes: int = int(os.getenv("STUCK_JOB_THRESHOLD_MINUTES", "30")),
     dry_run: bool = False,
 ) -> dict:
     """
@@ -332,26 +378,134 @@ def recover_stuck_jobs(
         }
 
 
-# Celery Beat schedule (optional - configure in celery_app.py)
-CLEANUP_SCHEDULE = {
-    "cleanup-audio-files-daily": {
-        "task": "cleanup.cleanup_old_audio_files",
-        "schedule": 86400.0,  # Every 24 hours
-        "args": (),
-    },
-    "cleanup-error-logs-weekly": {
-        "task": "cleanup.cleanup_old_error_logs",
-        "schedule": 604800.0,  # Every 7 days
-        "args": (30,),  # Keep 30 days
-    },
-    "cleanup-expired-jobs-hourly": {
-        "task": "cleanup.cleanup_expired_jobs",
-        "schedule": 3600.0,  # Every hour
-        "args": (),
-    },
-    "recover-stuck-jobs-every-5min": {
-        "task": "cleanup.recover_stuck_jobs",
-        "schedule": 300.0,  # Every 5 minutes
-        "args": (10,),  # 10 minute threshold
-    },
-}
+@celery_app.task(name="cleanup.check_system_health")
+def check_system_health_task() -> dict:
+    """
+    System watchdog: check for recent failures and send admin alerts.
+
+    Queries ErrorLog and TranscriptionJob for failures in the last 15 minutes.
+    Sends an admin email if thresholds are exceeded.
+    """
+    return run_async(_async_check_system_health())
+
+
+async def _async_check_system_health() -> dict:
+    """Async implementation of system health check."""
+    from backend.admin.logs.service import ErrorLogService
+    from backend.shared.models import TranscriptionJob, ErrorLog
+    from sqlalchemy import select, func
+
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(minutes=15)
+
+    failed_jobs_count = 0
+    critical_errors = []
+    recent_error_count = 0
+
+    # Critical error patterns (Gemini quota, CUDA OOM)
+    CRITICAL_PATTERNS = [
+        "ResourceExhausted",
+        "429",
+        "CUDA out of memory",
+        "OutOfMemoryError",
+        "quota",
+    ]
+
+    try:
+        async with get_db_context() as db:
+            # Count failed jobs in last 15 minutes
+            result = await db.execute(
+                select(func.count(TranscriptionJob.id))
+                .where(TranscriptionJob.status == "failed")
+                .where(TranscriptionJob.updated_at >= window_start)
+            )
+            failed_jobs_count = result.scalar() or 0
+
+            # Get recent error logs
+            result = await db.execute(
+                select(ErrorLog)
+                .where(ErrorLog.timestamp >= window_start)
+                .order_by(ErrorLog.timestamp.desc())
+                .limit(50)
+            )
+            recent_errors = result.scalars().all()
+            recent_error_count = len(recent_errors)
+
+            # Check for critical patterns
+            for err in recent_errors:
+                detail = (err.error_detail or "") + (err.error_type or "")
+                for pattern in CRITICAL_PATTERNS:
+                    if pattern.lower() in detail.lower():
+                        critical_errors.append({
+                            "type": err.error_type,
+                            "endpoint": err.endpoint,
+                            "detail": (err.error_detail or "")[:200],
+                            "timestamp": err.timestamp.isoformat() if err.timestamp else "",
+                        })
+                        break
+
+            # Aggregate most frequent error types
+            type_result = await db.execute(
+                select(ErrorLog.error_type, func.count(ErrorLog.id).label("cnt"))
+                .where(ErrorLog.timestamp >= window_start)
+                .group_by(ErrorLog.error_type)
+                .order_by(func.count(ErrorLog.id).desc())
+                .limit(5)
+            )
+            top_error_types = {row[0]: row[1] for row in type_result.all()}
+
+    except Exception as e:
+        logger.exception(f"Watchdog DB query failed: {e}")
+        return {"success": False, "error": str(e)}
+
+    # Decide whether to alert
+    should_alert = failed_jobs_count > 3 or len(critical_errors) > 0
+
+    stats = {
+        "failed_jobs_15min": failed_jobs_count,
+        "error_logs_15min": recent_error_count,
+        "critical_errors": len(critical_errors),
+        "alerted": should_alert,
+    }
+
+    if should_alert:
+        # Build alert message
+        lines = []
+        lines.append(f"<h2 style='margin:0 0 15px;color:#dc3545;'>Обнаружены проблемы</h2>")
+        lines.append(f"<p><strong>Упавших задач за 15 мин:</strong> {failed_jobs_count}</p>")
+        lines.append(f"<p><strong>Ошибок в логах за 15 мин:</strong> {recent_error_count}</p>")
+
+        if critical_errors:
+            lines.append("<h3 style='color:#dc3545;margin-top:20px;'>Критические ошибки:</h3>")
+            lines.append("<ul>")
+            for ce in critical_errors[:10]:
+                lines.append(
+                    f"<li><strong>{ce['type']}</strong> в <code>{ce['endpoint']}</code>"
+                    f"<br><span style='color:#666;font-size:12px;'>{ce['detail']}</span></li>"
+                )
+            lines.append("</ul>")
+
+        if top_error_types:
+            lines.append("<h3 style='margin-top:20px;'>Частые типы ошибок:</h3>")
+            lines.append("<ul>")
+            for etype, count in top_error_types.items():
+                lines.append(f"<li>{etype}: <strong>{count}</strong></li>")
+            lines.append("</ul>")
+
+        message = "\n".join(lines)
+
+        try:
+            from backend.core.email.service import email_service
+            email_service.send_admin_alert(
+                subject=f"⚠️ Watchdog: {failed_jobs_count} упавших задач, {len(critical_errors)} критических ошибок",
+                message=message,
+            )
+        except Exception as e:
+            logger.error(f"Watchdog alert email failed: {e}")
+            stats["alert_error"] = str(e)
+
+    logger.info(f"Watchdog check: {stats}")
+    return stats
+
+
+# Beat schedule is defined in celery_app.py (single source of truth)

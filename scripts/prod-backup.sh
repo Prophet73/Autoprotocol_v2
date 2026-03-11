@@ -56,6 +56,35 @@ docker run --rm \
     alpine tar czf /backup/output.tar.gz -C /data .
 echo -e "${GREEN}Output backup: $BACKUP_PATH/output.tar.gz${NC}"
 
+# Verify backup integrity
+echo ""
+echo -e "${BLUE}[4/4] Verifying backup integrity...${NC}"
+VERIFY_FAILED=false
+for gz_file in "$BACKUP_PATH"/*.gz; do
+    if gzip -t "$gz_file" 2>/dev/null; then
+        echo -e "  ${GREEN}OK:${NC} $(basename "$gz_file")"
+    else
+        echo -e "  ${RED}FAILED:${NC} $(basename "$gz_file")"
+        VERIFY_FAILED=true
+    fi
+done
+if [ "$VERIFY_FAILED" = true ]; then
+    echo -e "${RED}WARNING: Some backup files failed integrity check!${NC}"
+fi
+
+# Rotate old backups (keep last 10)
+KEEP_BACKUPS=${KEEP_BACKUPS:-10}
+BACKUP_COUNT=$(ls -1d "$BACKUP_DIR"/backup_* 2>/dev/null | wc -l)
+if [ "$BACKUP_COUNT" -gt "$KEEP_BACKUPS" ]; then
+    REMOVE_COUNT=$((BACKUP_COUNT - KEEP_BACKUPS))
+    echo ""
+    echo -e "${BLUE}Rotating backups: removing $REMOVE_COUNT old backup(s) (keeping $KEEP_BACKUPS)${NC}"
+    ls -1d "$BACKUP_DIR"/backup_* | head -n "$REMOVE_COUNT" | while read old_backup; do
+        rm -rf "$old_backup"
+        echo -e "  Removed: $(basename "$old_backup")"
+    done
+fi
+
 # Calculate sizes
 echo ""
 echo -e "${BLUE}Backup sizes:${NC}"

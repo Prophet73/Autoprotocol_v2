@@ -5,7 +5,7 @@ Receives pre-generated BasicReport (from shared LLM call) and formats as Excel.
 
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
@@ -24,6 +24,7 @@ def generate_tasks(
     basic_report: BasicReport,
     filename: str = None,
     participants: list = None,
+    meeting_date: str = None,
 ) -> Path:
     """
     Generate tasks.xlsx from BasicReport.
@@ -34,6 +35,7 @@ def generate_tasks(
         basic_report: Pre-generated BasicReport from shared LLM call
         filename: Optional custom filename
         participants: Optional list of participants
+        meeting_date: Optional meeting date string (YYYY-MM-DD)
 
     Returns:
         Path to generated file
@@ -56,7 +58,21 @@ def generate_tasks(
         bottom=Side(style="thin"),
     )
 
-    # Headers
+    # Title row with meeting date
+    title_text = "Извлечённые задачи"
+    if meeting_date:
+        try:
+            dt = datetime.strptime(meeting_date, "%Y-%m-%d")
+            title_text = f"Задачи совещания от {dt.strftime('%d.%m.%Y')}"
+        except ValueError:
+            title_text = f"Задачи совещания от {meeting_date}"
+
+    title_cell = ws.cell(row=1, column=1, value=title_text)
+    title_cell.font = Font(bold=True, size=14)
+    title_cell.alignment = Alignment(vertical="center")
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=10)
+
+    # Headers (row 2 now)
     headers = ["№", "Уверенность", "Приоритет", "Категория", "Задача", "Ответственный", "Срок", "Примечания", "Тайм-код", "Источник"]
     col_widths = [5, 14, 12, 22, 50, 20, 15, 25, 15, 40]
 
@@ -64,7 +80,7 @@ def generate_tasks(
     alt_row_fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")  # Light gray
 
     for col, (header, width) in enumerate(zip(headers, col_widths), 1):
-        cell = ws.cell(row=1, column=col, value=header)
+        cell = ws.cell(row=2, column=col, value=header)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_alignment
@@ -84,8 +100,8 @@ def generate_tasks(
 
     sorted_tasks = sorted(basic_report.tasks, key=get_sort_key)
 
-    # Data rows
-    for row_num, task in enumerate(sorted_tasks, 2):
+    # Data rows (start from row 3, after title + header)
+    for row_num, task in enumerate(sorted_tasks, 3):
         # Priority label
         priority_val = task.priority.value if isinstance(task.priority, TaskPriority) else str(task.priority)
         priority_labels = {"high": "Высокий", "medium": "Средний", "low": "Низкий"}
@@ -100,7 +116,7 @@ def generate_tasks(
         time_codes_str = ", ".join(task.time_codes) if task.time_codes else ""
 
         row_data = [
-            row_num - 1,
+            row_num - 2,
             confidence_label,
             priority_label,
             task.category.value if isinstance(task.category, TaskCategory) else str(task.category),
@@ -126,7 +142,7 @@ def generate_tasks(
     metadata = [
         ("Исходный файл", result.metadata.source_file),
         ("Длительность", result.metadata.duration_formatted),
-        ("Дата обработки", datetime.now().strftime("%d.%m.%Y %H:%M")),
+        ("Дата обработки", datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M")),
         ("Тип совещания", basic_report.meeting_type),
         ("Краткое содержание", basic_report.meeting_summary),
         ("Экспертный анализ", basic_report.expert_analysis),
@@ -201,7 +217,7 @@ def generate_tasks(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if filename is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"tasks_{timestamp}.xlsx"
 
     output_path = output_dir / filename
@@ -216,6 +232,7 @@ def regenerate_tasks_xlsx(
     source_file: str = "N/A",
     duration: str = "N/A",
     participants: list = None,
+    meeting_date: str = None,
 ) -> Path:
     """
     Regenerate tasks.xlsx from edited BasicReport JSON.
@@ -228,6 +245,7 @@ def regenerate_tasks_xlsx(
         source_file: Original source filename
         duration: Duration string
         participants: Optional list of participants
+        meeting_date: Optional meeting date string (YYYY-MM-DD)
 
     Returns:
         Path to generated XLSX file
@@ -258,4 +276,5 @@ def regenerate_tasks_xlsx(
         basic_report=basic_report,
         filename=filename,
         participants=participants,
+        meeting_date=meeting_date,
     )

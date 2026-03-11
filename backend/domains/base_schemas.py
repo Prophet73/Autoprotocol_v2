@@ -45,57 +45,34 @@ class MeetingTypeInfo(BaseModel):
     default: bool = Field(False, description="По умолчанию")
 
 
-# Реестр типов встреч по доменам
-DOMAIN_MEETING_TYPES: Dict[str, List[MeetingTypeInfo]] = {
-    "construction": [
-        MeetingTypeInfo(
-            id="site_meeting",
-            name="Совещание на объекте",
-            description="Производственное совещание на строительном объекте",
-            default=True
-        ),
-    ],
-    "dct": [
-        MeetingTypeInfo(
-            id="brainstorm",
-            name="Мозговой штурм",
-            description="Генерация и обсуждение идей",
-            default=True
-        ),
-        MeetingTypeInfo(
-            id="production",
-            name="Производственное совещание",
-            description="Обсуждение текущих задач и процессов"
-        ),
-        MeetingTypeInfo(
-            id="negotiation",
-            name="Переговоры с контрагентом",
-            description="Деловые переговоры с партнёрами"
-        ),
-        MeetingTypeInfo(
-            id="lecture",
-            name="Лекция/Вебинар",
-            description="Обучающее мероприятие"
-        ),
-    ],
-}
+# =============================================================================
+# Данные доменов — делегируем в единый реестр (registry.py)
+# =============================================================================
+# Импорты ниже выполняются лениво, чтобы избежать циклических зависимостей
+# (registry.py импортирует MeetingTypeInfo из этого файла).
 
 
 def get_meeting_types(domain: str) -> List[MeetingTypeInfo]:
     """Получить доступные типы встреч для домена."""
-    return DOMAIN_MEETING_TYPES.get(domain, [])
+    from .registry import get_meeting_types as _get
+    return _get(domain)
 
 
-def get_default_meeting_type(domain: str) -> Optional[str]:
-    """Получить тип встречи по умолчанию для домена."""
-    types = DOMAIN_MEETING_TYPES.get(domain, [])
-    for t in types:
-        if t.default:
-            return t.id
-    return types[0].id if types else None
+def get_domain_display_name(domain_id: str) -> str:
+    """Получить человекочитаемое название домена."""
+    from .registry import get_domain_display_name as _get
+    return _get(domain_id)
 
 
-def validate_meeting_type(domain: str, meeting_type: str) -> bool:
-    """Проверить валидность типа встречи для домена."""
-    types = DOMAIN_MEETING_TYPES.get(domain, [])
-    return any(t.id == meeting_type for t in types)
+# Обратная совместимость: DOMAIN_MEETING_TYPES и DOMAIN_DISPLAY_NAMES
+# как lazy-свойства через module-level __getattr__
+def __getattr__(name: str):
+    if name == "DOMAIN_MEETING_TYPES":
+        from .registry import get_all_meeting_types
+        return get_all_meeting_types()
+    if name == "DOMAIN_DISPLAY_NAMES":
+        from .registry import get_display_names
+        return get_display_names()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+

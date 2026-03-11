@@ -8,7 +8,7 @@
 
 ```bash
 # Клонирование
-git clone https://github.com/your-org/whisperx.git
+git clone <repo-url>
 cd whisperx
 
 # Python окружение
@@ -48,24 +48,29 @@ cd frontend && npm run lint
 ```
 backend/
 ├── api/                 # FastAPI роутеры
-│   ├── routes/          # Эндпоинты
+│   ├── routes/          # Эндпоинты (health, transcription, manager, domains)
 │   └── main.py          # Точка входа
 ├── admin/               # Админ-панель
 │   ├── users/           # Управление пользователями
-│   ├── stats/           # Статистика
+│   ├── stats/           # Статистика и экспорт
+│   ├── settings/        # Системные настройки
 │   ├── logs/            # Логи ошибок
-│   └── prompts/         # Управление промптами
+│   └── jobs/            # Управление задачами
 ├── core/                # Ядро
-│   ├── auth/            # Авторизация (JWT)
+│   ├── auth/            # Авторизация (JWT, Hub SSO)
 │   ├── email/           # Email уведомления
-│   ├── transcription/   # Пайплайн транскрипции
-│   │   ├── stages/      # Этапы пайплайна
+│   ├── transcription/   # 7-этапный пайплайн
+│   │   ├── stages/      # Этапы (audio, vad, transcribe, diarize, translate, emotion, report)
 │   │   └── pipeline.py  # Оркестратор
-│   └── utils/           # Утилиты
+│   └── utils/           # Утилиты (file_security, etc.)
 ├── domains/             # Доменные сервисы
-│   └── construction/    # Строительный домен
+│   ├── base.py          # BaseDomainService (ABC)
+│   ├── factory.py       # DomainServiceFactory
+│   ├── construction/    # Строительство (полный)
+│   ├── dct/             # Цифровая трансформация
+│   └── hr/              # HR (скелет)
 ├── shared/              # Общие модули
-│   ├── database.py      # SQLAlchemy
+│   ├── database.py      # SQLAlchemy async
 │   └── models.py        # ORM модели
 └── tasks/               # Celery задачи
 ```
@@ -82,6 +87,26 @@ frontend/src/
 ├── types/               # TypeScript типы
 └── utils/               # Утилиты
 ```
+
+## Документация
+
+| Документ | Содержание |
+|----------|-----------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Архитектура системы |
+| [API.md](docs/API.md) | Спецификация REST API |
+| [DATABASE.md](docs/DATABASE.md) | Схема базы данных |
+| [DOMAINS.md](docs/DOMAINS.md) | Домены и создание новых |
+| [DEPLOYMENT.md](docs/DEPLOYMENT.md) | Деплой на сервер |
+| [CLAUDE.md](CLAUDE.md) | Инструкции для Claude Code |
+
+## Разработка доменов
+
+При добавлении нового домена следуйте гайду в [DOMAINS.md](docs/DOMAINS.md#создание-нового-домена):
+
+1. Создать `backend/domains/<name>/` с `schemas.py`, `service.py`, `generators/`
+2. Зарегистрировать в `factory.py`
+3. Добавить типы встреч в `base_schemas.py`
+4. Опционально: router.py для API, models.py для БД
 
 ## Стиль кода
 
@@ -120,17 +145,6 @@ async def create_transcription(
 - camelCase для переменных и функций
 - PascalCase для компонентов и типов
 
-```typescript
-interface TranscribeOptions {
-  languages?: string;
-  skipDiarization?: boolean;
-}
-
-export function FileDropzone({ onFileSelect }: FileDropzoneProps) {
-  // ...
-}
-```
-
 ### CSS/Tailwind
 
 - Используйте Tailwind классы
@@ -145,8 +159,6 @@ export function FileDropzone({ onFileSelect }: FileDropzoneProps) {
 type(scope): краткое описание
 
 Подробное описание (опционально)
-
-Co-Authored-By: Your Name <email@example.com>
 ```
 
 ### Типы
@@ -158,20 +170,6 @@ Co-Authored-By: Your Name <email@example.com>
 - `refactor`: Рефакторинг
 - `test`: Тесты
 - `chore`: Поддержка (зависимости, конфиги)
-
-### Примеры
-
-```
-feat(auth): добавить rate limiting для login
-
-- 5 попыток в минуту на IP
-- Использует slowapi с Redis backend
-
-fix(api): исправить path traversal в download
-
-Валидация пути файла через validate_file_path()
-предотвращает доступ за пределы OUTPUT_DIR.
-```
 
 ## Pull Requests
 
@@ -212,9 +210,3 @@ emails = validate_email_list(user_input)
 from backend.admin.logs.service import _escape_like_pattern
 safe_pattern = _escape_like_pattern(user_input)
 ```
-
-## Помощь
-
-- [CLAUDE.md](CLAUDE.md) — Техническая документация
-- [docs/AUDIT_REPORT.md](docs/AUDIT_REPORT.md) — Отчёт аудита
-- Issues — Баг репорты и предложения

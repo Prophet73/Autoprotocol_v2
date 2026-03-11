@@ -5,7 +5,10 @@ Provides methods for:
 - Saving error logs
 - Querying error logs
 - Getting error summaries
+- Logging internal/Celery errors to ErrorLog table
 """
+import logging
+import traceback
 from datetime import datetime, timedelta
 from typing import Optional, List
 
@@ -15,6 +18,8 @@ from sqlalchemy.orm import selectinload
 
 from backend.shared.models import ErrorLog, User
 from .schemas import ErrorLogResponse, ErrorLogListResponse, ErrorLogSummary
+
+logger = logging.getLogger(__name__)
 
 
 def _escape_like_pattern(value: str) -> str:
@@ -260,3 +265,58 @@ class ErrorLogService:
             await self.db.flush()
 
         return count
+
+
+async def _log_celery_error_async(
+    task_name: str,
+    error: Exception,
+    user_id: Optional[int] = None,
+    context: Optional[str] = None,
+) -> None:
+    """
+    Save a Celery/internal error to the ErrorLog table.
+
+    Args:
+        task_name: Celery task name (used as endpoint).
+        error: The exception that occurred.
+        user_id: Optional uploader/user ID associated with the task.
+        context: Optional extra context (e.g. job_id) stored in request_body.
+    """
+    from backend.shared.database import get_db_context
+
+    try:
+        error_detail = traceback.format_exception(type(error), error, error.__traceback__)
+        detail_str = "".join(error_detail)[:2000]
+
+        async with get_db_context() as db:
+            service = ErrorLogService(db)
+            await service.create_log(
+                endpoint=task_name,
+                method="CELERY",
+                error_type=type(error).__name__,
+                error_detail=detail_str,
+                status_code=500,
+                user_id=user_id,
+                request_body=context,
+            )
+    except Exception as log_err:
+        logger.error(f"Failed to write Celery error to ErrorLog: {log_err}")
+
+
+def log_celery_error(
+    task_name: str,
+    error: Exception,
+    user_id: Optional[int] = None,
+    context: Optional[str] = None,
+) -> None:
+    """
+    Sync wrapper: log a Celery task error to the ErrorLog table.
+
+    Safe to call from synchronous Celery tasks — uses run_async internally.
+    """
+    from backend.shared.async_utils import run_async
+
+    try:
+        run_async(_log_celery_error_async(task_name, error, user_id, context))
+    except Exception as e:
+        logger.error(f"log_celery_error failed: {e}")

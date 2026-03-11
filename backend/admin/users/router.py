@@ -9,9 +9,9 @@ from typing import Optional, Annotated
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.shared.database import get_db
+from backend.shared.database import get_db, get_db_readonly
 from backend.shared.models import UserRole, Domain
-from backend.core.auth.dependencies import AdminUser, SuperUser
+from backend.core.auth.dependencies import AdminUser
 from backend.core.auth.hub_sync import HubSyncService
 from .service import UserService
 from .schemas import (
@@ -40,7 +40,7 @@ router = APIRouter(prefix="/users", tags=["Админ - Пользователи
 )
 async def list_users(
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
     skip: int = Query(0, ge=0, description="Пропустить записей"),
     limit: int = Query(100, ge=1, le=1000, description="Максимум записей"),
     role: Optional[UserRole] = Query(None, description="Фильтр по роли"),
@@ -69,7 +69,7 @@ async def list_users(
 async def get_user(
     user_id: int,
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
 ) -> UserResponse:
     """Получить детали пользователя по ID."""
     service = UserService(db)
@@ -310,7 +310,7 @@ async def assign_domains(
 async def get_user_domains(
     user_id: int,
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
 ) -> list[str]:
     """Получить список доменов пользователя."""
     service = UserService(db)
@@ -384,7 +384,7 @@ async def revoke_project_access(
 async def get_user_projects(
     user_id: int,
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
 ) -> UserProjectAccessList:
     """Получить список ID проектов, к которым пользователь имеет доступ."""
     service = UserService(db)
@@ -437,7 +437,7 @@ async def batch_update_project_access(
 async def get_project_users(
     project_id: int,
     current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
     include_details: bool = False,
 ) -> ProjectUserAccessList:
     """Получить список пользователей с доступом к проекту."""

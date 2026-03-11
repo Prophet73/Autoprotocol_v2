@@ -3,7 +3,7 @@ import os
 import logging
 import asyncio
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -33,6 +33,57 @@ def _run_async(coro):
 def _check_gemini_configured():
     """Check if Gemini API is configured via GOOGLE_API_KEY env var."""
     return bool(os.getenv("GOOGLE_API_KEY"))
+
+
+def _needs_llm_generators(artifact_options: Dict) -> bool:
+    """Check if any LLM-dependent generators are requested and Gemini is configured."""
+    if not _check_gemini_configured():
+        return False
+    return any([
+        artifact_options.get("generate_tasks", False),
+        artifact_options.get("generate_report", False),
+        artifact_options.get("generate_risk_brief", False),
+    ])
+
+
+def _generate_transcript_artifact(
+    result,
+    output_path: Path,
+    artifact_options: Dict,
+    progress_callback,
+    domain_type: Optional[str] = None,
+) -> Dict[str, str]:
+    """
+    Generate transcript.docx only (no LLM required). Runs on GPU worker.
+
+    Returns:
+        Dict mapping artifact type to file path.
+    """
+    output_files = {}
+
+    domain = domain_type or "construction"
+
+    from ..domains.generator_registry import get_domain_generators
+    gens = get_domain_generators(domain)
+    if gens:
+        generate_transcript = gens.generate_transcript
+    else:
+        from ..domains.construction.generators import generate_transcript
+
+    if artifact_options.get("generate_transcript", True):
+        progress_callback("domain_generators", 92, "Формирование стенограммы...")
+        try:
+            transcript_path = generate_transcript(
+                result, output_path,
+                meeting_type=artifact_options.get("meeting_type"),
+                meeting_date=artifact_options.get("meeting_date"),
+            )
+            output_files["transcript"] = str(transcript_path)
+            logger.info(f"Generated transcript: {transcript_path}")
+        except Exception as e:
+            logger.error(f"Transcript generation failed: {e}")
+
+    return output_files
 
 
 def get_job_store():
@@ -126,34 +177,132 @@ def _get_role_label(role: str) -> str:
     return role_labels.get(role, role)
 
 
+def _build_meeting_report(
+    domain_type: Optional[str],
+    domain_report_json: Optional[str],
+    basic_report_json: Optional[str],
+) -> Optional[Dict]:
+    """
+    Convert domain LLM report to MeetingReport format for Redis/frontend.
+
+    MeetingReport: {executive_summary, topics: [{title, problem, decision, risks}], tasks: [{description, responsible, priority}]}
+    """
+    import json
+
+    # CEO domain: NotechResult → MeetingReport
+    if domain_type == "ceo" and domain_report_json:
+        try:
+            raw = json.loads(domain_report_json)
+            # CEOReport wraps meeting_type + result based on type
+            # For notech: raw has meeting_summary, key_points, action_items, participants_summary
+            # plus notech-specific fields via the LLM output
+
+            # Try to find notech result data
+            notech = raw  # flat structure from BaseMeetingReport + CEOReport
+
+            topics = []
+            for i, q in enumerate(notech.get("questions", [])):
+                topics.append({
+                    "id": i,
+                    "title": q.get("title", f"Вопрос {i + 1}"),
+                    "problem": q.get("description", ""),
+                    "decision": q.get("decision"),
+                    "risks": q.get("risks", []),
+                    "value_points": q.get("value_points", []),
+                    "discussion_details": q.get("discussion_details", []),
+                    "timecodes": [],
+                })
+
+            tasks = []
+            for item in notech.get("action_items", []):
+                if isinstance(item, str):
+                    tasks.append({"description": item})
+                elif isinstance(item, dict):
+                    tasks.append({
+                        "description": item.get("description", str(item)),
+                        "responsible": item.get("responsible"),
+                        "priority": item.get("priority", "medium"),
+                    })
+
+            return {
+                "executive_summary": notech.get("meeting_summary") or notech.get("summary", ""),
+                "meeting_type": notech.get("meeting_type", "notech"),
+                "meeting_topic": notech.get("meeting_topic"),
+                "attendees": notech.get("attendees", []),
+                "topics": topics,
+                "tasks": tasks,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to build meeting_report for CEO: {e}")
+            return None
+
+    # Other non-construction domains: generic conversion
+    if domain_report_json and domain_type not in ("construction", None):
+        try:
+            raw = json.loads(domain_report_json)
+            tasks = []
+            for item in raw.get("action_items", []):
+                if isinstance(item, str):
+                    tasks.append({"description": item})
+                elif isinstance(item, dict):
+                    tasks.append({
+                        "description": item.get("description", str(item)),
+                        "responsible": item.get("responsible"),
+                        "priority": item.get("priority", "medium"),
+                    })
+            return {
+                "executive_summary": raw.get("meeting_summary", ""),
+                "meeting_type": raw.get("meeting_type", domain_type),
+                "topics": [],
+                "tasks": tasks,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to build meeting_report for {domain_type}: {e}")
+            return None
+
+    return None
+
+
 def _run_domain_generators(
     result,
     output_path: Path,
     artifact_options: Dict,
     progress_callback,
     domain_type: Optional[str] = None,
-) -> tuple[Dict[str, str], Optional[object], Optional[object], Optional[object]]:
+    job_id: Optional[str] = None,
+) -> tuple[Dict[str, str], Optional[object], Optional[object]]:
     """
-    Run domain-specific generators based on artifact_options and domain_type.
+    Run LLM-based domain generators (tasks, report, risk_brief).
+
+    Transcript generation is handled separately by _generate_transcript_artifact
+    and runs on the GPU worker without LLM dependency.
 
     Args:
         result: TranscriptionResult from pipeline
         output_path: Output directory
-        artifact_options: Dict with flags (generate_transcript, generate_tasks, etc.)
+        artifact_options: Dict with flags (generate_tasks, generate_report, etc.)
         progress_callback: Progress callback function
         domain_type: Domain type (construction, hr, it)
+        job_id: Job identifier (for adding warnings)
 
     Returns:
         Tuple of:
         - Dict mapping artifact type to file path
-        - AIAnalysis object or None
         - BasicReport object or None (for DB storage)
         - RiskBrief object or None (for DB storage)
     """
     output_files = {}
-    ai_analysis = None  # Will be populated if generate_analysis is called
     basic_report_obj = None  # Will store BasicReport for DB
     risk_brief_obj = None  # Will store RiskBrief for DB
+
+    def _add_warning(msg: str):
+        """Add a warning to the job store if job_id is available."""
+        if job_id:
+            try:
+                store = get_job_store()
+                store.add_warning(job_id, msg)
+            except Exception:
+                pass
 
     # Check if Gemini is configured for LLM-based generators
     has_gemini = _check_gemini_configured()
@@ -166,44 +315,30 @@ def _run_domain_generators(
     domain = domain_type or "construction"
 
     # Import generators based on domain
-    generate_analysis = None
     generate_risk_brief = None  # Default - only construction has risk_brief
     get_basic_report = None  # Only construction has shared basic report
-    get_dct_report = None  # DCT domain report generator
-    # HR domain - disabled for now
-    # if domain == "hr":
-    #     from ..domains.hr.generators import generate_transcript, generate_report
-    #     generate_tasks = None  # HR doesn't have separate tasks generator
-    if domain == "dct":
-        from ..domains.dct.generators import (
-            generate_transcript,
-            generate_report,
-            generate_tasks,
-            get_dct_report,  # LLM call for DCT reports
-        )
+    _get_domain_report = None  # Domain-specific LLM report generator
+    _MeetingTypeEnum = None  # Meeting type enum for non-construction domains
+    _file_prefix = None  # File prefix for non-construction domains
+
+    from ..domains.generator_registry import get_domain_generators
+    gens = get_domain_generators(domain)
+    if gens:
+        generate_tasks = gens.generate_tasks
+        generate_report = gens.generate_report
+        _get_domain_report = gens.get_llm_report
+        _MeetingTypeEnum = gens.meeting_type_enum
+        _file_prefix = gens.file_prefix
     else:  # construction (default)
         from ..domains.construction.generators import (
             get_basic_report,  # Shared LLM call for tasks.xlsx and report.docx
-            generate_transcript,
             generate_tasks,
             generate_report,
-            generate_analysis,  # manager brief (DOCX)
             generate_risk_brief,  # INoT approach - PDF for client
+            generate_summary,  # Topic-based synopsis (конспект)
         )
 
-    # 1. Transcript (no LLM required)
-    if artifact_options.get("generate_transcript", True):
-        progress_callback("domain_generators", 92, "Формирование стенограммы...")
-        try:
-            transcript_path = generate_transcript(
-                result, output_path,
-                meeting_type=meeting_type,
-                meeting_date=meeting_date,
-            )
-            output_files["transcript"] = str(transcript_path)
-            logger.info(f"Generated transcript: {transcript_path}")
-        except Exception as e:
-            logger.error(f"Transcript generation failed: {e}")
+    domain_report_obj = None  # Non-construction: LLM report for meeting_report
 
     # LLM-based generators (require Gemini via GOOGLE_API_KEY)
     if has_gemini:
@@ -217,72 +352,136 @@ def _run_domain_generators(
             except Exception as e:
                 logger.warning(f"Failed to fetch participants: {e}")
 
-        # Generate domain report ONCE for both tasks.xlsx and report.docx
         basic_report = None  # Construction domain
-        dct_report = None  # DCT domain
+        domain_report_obj = None  # Non-construction domains (dct, business, fta, ceo)
         needs_llm_report = (
             artifact_options.get("generate_tasks", False) or
             artifact_options.get("generate_report", False)
         )
 
-        # Construction domain - BasicReport
-        if needs_llm_report and get_basic_report:
-            progress_callback("domain_generators", 93, "Анализ совещания через LLM...")
-            try:
-                basic_report = get_basic_report(result, meeting_date=meeting_date)
-                basic_report_obj = basic_report  # Store for DB
-                logger.info(f"BasicReport generated: {len(basic_report.tasks)} tasks")
-            except Exception as e:
-                logger.error(f"BasicReport generation failed: {e}")
+        # --- Phase 1: Parallel LLM calls ---
+        # Construction: get_basic_report, generate_risk_brief, generate_summary
+        # are 3 independent LLM calls that can run concurrently.
+        if domain == "construction" or domain is None:
+            from concurrent.futures import ThreadPoolExecutor as _LLMPool
 
-        # DCT domain - DCT Report
-        if needs_llm_report and get_dct_report:
-            progress_callback("domain_generators", 93, "Анализ встречи ДЦТ через LLM...")
-            try:
-                dct_report = get_dct_report(result, meeting_type=meeting_type, meeting_date=meeting_date)
-                if dct_report:
-                    logger.info(f"DCT report generated for meeting type: {meeting_type}")
-                else:
-                    logger.warning("DCT report returned None (LLM may not be configured)")
-            except Exception as e:
-                logger.error(f"DCT report generation failed: {e}")
+            futures = {}
+            project_name = artifact_options.get("project_name")
+            project_code = artifact_options.get("project_code")
 
-        # 2. Tasks Excel
+            progress_callback("domain_generators", 93, "AI-генерация отчётов (параллельно)...")
+
+            with _LLMPool(max_workers=3, thread_name_prefix="llm") as pool:
+                # 1) BasicReport (needed for tasks + report)
+                if needs_llm_report and get_basic_report:
+                    futures["basic_report"] = pool.submit(
+                        get_basic_report, result, meeting_date=meeting_date,
+                        participants=participants,
+                    )
+
+                # 2) Risk Brief
+                if artifact_options.get("generate_risk_brief", False) and generate_risk_brief:
+                    futures["risk_brief"] = pool.submit(
+                        generate_risk_brief, result, output_path,
+                        meeting_date=meeting_date,
+                        project_name=project_name,
+                        project_code=project_code,
+                        participants=participants,
+                    )
+
+                # 3) Summary (конспект)
+                if artifact_options.get("generate_summary", False) and generate_summary:
+                    futures["summary"] = pool.submit(
+                        generate_summary, result, output_path,
+                        meeting_date=meeting_date,
+                        participants=participants,
+                    )
+
+                # Collect results as they complete
+                for future_key, future in futures.items():
+                    try:
+                        result_val = future.result()  # blocks until done
+                        if future_key == "basic_report":
+                            basic_report = result_val
+                            basic_report_obj = basic_report
+                            logger.info(f"BasicReport generated: {len(basic_report.tasks)} tasks")
+                        elif future_key == "risk_brief":
+                            risk_brief_path, risk_brief_data = result_val
+                            output_files["risk_brief"] = str(risk_brief_path)
+                            risk_brief_obj = risk_brief_data
+                            logger.info(f"Generated risk brief: {risk_brief_path}")
+                        elif future_key == "summary":
+                            output_files["summary"] = str(result_val)
+                            logger.info(f"Generated summary: {result_val}")
+                    except Exception as e:
+                        logger.error(f"{future_key} generation failed: {e}", exc_info=True)
+                        if future_key == "basic_report":
+                            _add_warning("Не удалось сгенерировать отчёт через AI. Попробуйте повторить генерацию.")
+                        elif future_key == "risk_brief":
+                            _add_warning("Часть аналитических отчётов не сформирована. Попробуйте повторить генерацию.")
+                        elif future_key == "summary":
+                            _add_warning("Не удалось сгенерировать конспект. Попробуйте повторить генерацию.")
+
+            logger.info(
+                f"Parallel LLM phase complete: "
+                f"basic_report={'ok' if basic_report else 'skip/fail'}, "
+                f"risk_brief={'ok' if 'risk_brief' in output_files else 'skip/fail'}, "
+                f"summary={'ok' if 'summary' in output_files else 'skip/fail'}"
+            )
+        else:
+            # Non-construction domains (dct, business, fta, ceo) - single LLM call
+            if needs_llm_report and _get_domain_report:
+                progress_callback("domain_generators", 93, f"AI-анализ встречи ({domain})...")
+                try:
+                    domain_report_obj = _get_domain_report(
+                        result, meeting_type=meeting_type, meeting_date=meeting_date,
+                    )
+                    if domain_report_obj:
+                        logger.info(f"{domain} report generated for meeting type: {meeting_type}")
+                    else:
+                        logger.warning(f"{domain} report returned None (LLM may not be configured)")
+                        _add_warning("AI-анализ встречи не сгенерирован")
+                except Exception as e:
+                    logger.error(f"{domain} report generation failed: {e}", exc_info=True)
+                    _add_warning("AI-анализ встречи не сгенерирован. Попробуйте повторить генерацию.")
+
+        # --- Phase 2: File generation (depends on LLM results) ---
+
+        # Tasks Excel
         if artifact_options.get("generate_tasks", False) and generate_tasks:
-            # Construction - uses BasicReport
             if basic_report:
-                progress_callback("domain_generators", 94, "Формирование списка задач...")
+                progress_callback("domain_generators", 96, "Формирование списка задач...")
                 try:
                     tasks_path = generate_tasks(
                         result, output_path,
                         basic_report=basic_report,
                         participants=participants,
+                        meeting_date=meeting_date,
                     )
                     output_files["tasks"] = str(tasks_path)
                     logger.info(f"Generated tasks: {tasks_path}")
                 except Exception as e:
-                    logger.error(f"Tasks generation failed: {e}")
-            # DCT - uses DCT Report
-            elif dct_report:
-                progress_callback("domain_generators", 94, "Формирование Excel отчёта...")
+                    logger.error(f"Tasks generation failed: {e}", exc_info=True)
+                    _add_warning("Excel-отчёт не сформирован. Попробуйте повторить генерацию.")
+            elif domain_report_obj and _MeetingTypeEnum and _file_prefix:
+                progress_callback("domain_generators", 96, "Формирование Excel отчёта...")
                 try:
-                    from ..domains.dct.schemas import DCTMeetingType
                     tasks_path = generate_tasks(
-                        DCTMeetingType(meeting_type),
-                        dct_report,
-                        output_path / f"dct_report_{meeting_type}.xlsx",
+                        _MeetingTypeEnum(meeting_type),
+                        domain_report_obj,
+                        output_path / f"{_file_prefix}_report_{meeting_type}.xlsx",
                         meeting_date=meeting_date,
                     )
                     output_files["tasks"] = str(tasks_path)
-                    logger.info(f"Generated DCT Excel: {tasks_path}")
+                    logger.info(f"Generated {domain} Excel: {tasks_path}")
                 except Exception as e:
-                    logger.error(f"DCT Excel generation failed: {e}")
+                    logger.error(f"{domain} Excel generation failed: {e}", exc_info=True)
+                    _add_warning("Excel-отчёт не сформирован. Попробуйте повторить генерацию.")
 
-        # 3. Report Word
+        # Report Word
         if artifact_options.get("generate_report", False):
-            # Construction - uses BasicReport
             if basic_report:
-                progress_callback("domain_generators", 96, "Формирование отчёта...")
+                progress_callback("domain_generators", 97, "Формирование отчёта...")
                 try:
                     report_path = generate_report(
                         result, output_path,
@@ -294,70 +493,38 @@ def _run_domain_generators(
                     output_files["report"] = str(report_path)
                     logger.info(f"Generated report: {report_path}")
                 except Exception as e:
-                    logger.error(f"Report generation failed: {e}")
-            # DCT - uses DCT Report
-            elif dct_report:
-                progress_callback("domain_generators", 96, "Формирование Word отчёта...")
+                    logger.error(f"Report generation failed: {e}", exc_info=True)
+                    _add_warning("Word-отчёт не сформирован. Попробуйте повторить генерацию.")
+            elif domain_report_obj and _MeetingTypeEnum and _file_prefix:
+                progress_callback("domain_generators", 97, "Формирование Word отчёта...")
                 try:
-                    from ..domains.dct.schemas import DCTMeetingType
-                    from ..domains.dct.generators.report import generate_dct_report as gen_dct_docx
-                    report_path = gen_dct_docx(
-                        DCTMeetingType(meeting_type),
-                        dct_report,
-                        output_path / f"dct_report_{meeting_type}.docx",
+                    report_path = generate_report(
+                        _MeetingTypeEnum(meeting_type),
+                        domain_report_obj,
+                        output_path / f"{_file_prefix}_report_{meeting_type}.docx",
                         meeting_date=meeting_date,
                     )
                     output_files["report"] = str(report_path)
-                    logger.info(f"Generated DCT report: {report_path}")
+                    logger.info(f"Generated {domain} report: {report_path}")
                 except Exception as e:
-                    logger.error(f"DCT report generation failed: {e}")
-
-        # 4. Manager brief (construction only) - generates AIAnalysis for dashboard
-        if artifact_options.get("generate_analysis", False) and generate_analysis:
-            # Silent generation - no progress message for user, no file output
-            try:
-                ai_analysis = generate_analysis(result)
-                logger.info("Generated manager brief (AIAnalysis for dashboard)")
-            except Exception as e:
-                logger.error(f"Manager brief generation failed: {e}")
-
-        # 5. Risk Brief (construction only) - INoT approach, PDF for client
-        if artifact_options.get("generate_risk_brief", False) and generate_risk_brief:
-            try:
-                # Reuse participants already fetched above
-                project_name = artifact_options.get("project_name")
-                project_code = artifact_options.get("project_code")
-                logger.info(f"Risk brief params: project_name={project_name}, participants={len(participants) if participants else 0} orgs")
-
-                # generate_risk_brief returns tuple[Path, RiskBrief]
-                risk_brief_path, risk_brief_data = generate_risk_brief(
-                    result,
-                    output_path,
-                    meeting_date=meeting_date,
-                    project_name=project_name,
-                    project_code=project_code,
-                    participants=participants,
-                )
-                output_files["risk_brief"] = str(risk_brief_path)
-                risk_brief_obj = risk_brief_data  # Store for DB
-                logger.info(f"Generated risk brief: {risk_brief_path}")
-            except Exception as e:
-                logger.error(f"Risk brief generation failed: {e}")
+                    logger.error(f"{domain} report generation failed: {e}", exc_info=True)
+                    _add_warning("Word-отчёт не сформирован. Попробуйте повторить генерацию.")
     else:
         # Log warning if LLM generators were requested but Gemini not configured
         llm_requested = any([
             artifact_options.get("generate_tasks", False),
             artifact_options.get("generate_report", False),
-            artifact_options.get("generate_analysis", False),
             artifact_options.get("generate_risk_brief", False),
+            artifact_options.get("generate_summary", False),
         ])
         if llm_requested:
             logger.warning(
                 "LLM generators requested but GOOGLE_API_KEY not set. "
-                "Skipping tasks.xlsx, report.docx, risk_brief.pdf, manager brief"
+                "Skipping tasks.xlsx, report.docx, risk_brief.pdf, summary.docx"
             )
+            _add_warning("AI-генерация отчётов недоступна. Обратитесь к администратору.")
 
-    return output_files, ai_analysis, basic_report_obj, risk_brief_obj
+    return output_files, basic_report_obj, risk_brief_obj, domain_report_obj
 
 
 def _sync_job_to_db(
@@ -365,11 +532,11 @@ def _sync_job_to_db(
     domain: str,
     meeting_type: Optional[str],
     user_id: Optional[int],
-    guest_uid: Optional[str],
     project_id: Optional[int],
     source_filename: Optional[str],
     source_size_bytes: Optional[int] = None,
     status: str = "pending",
+    is_private: bool = False,
 ) -> None:
     """
     Create/update TranscriptionJob record in PostgreSQL for stats tracking.
@@ -393,10 +560,10 @@ def _sync_job_to_db(
                     meeting_type=meeting_type,
                     status=status,
                     user_id=user_id,
-                    guest_uid=guest_uid,
                     project_id=project_id,
                     source_filename=source_filename,
                     source_size_bytes=source_size_bytes,
+                    is_private=is_private,
                 )
                 db.add(job)
                 await db.commit()
@@ -417,79 +584,75 @@ def _update_job_in_db(
     speaker_count: Optional[int] = None,
     input_tokens: int = 0,
     output_tokens: int = 0,
+    flash_input_tokens: int = 0,
+    flash_output_tokens: int = 0,
+    pro_input_tokens: int = 0,
+    pro_output_tokens: int = 0,
     artifacts: Optional[dict] = None,
     error_message: Optional[str] = None,
     error_stage: Optional[str] = None,
 ) -> None:
     """
     Update TranscriptionJob record in PostgreSQL after processing completes.
-    Uses fresh async session factory to avoid event loop issues.
+
+    Uses raw asyncpg with a fresh connection per call — avoids both:
+    - psycopg2 (not installed in containers)
+    - SQLAlchemy async pool "Future attached to different loop" errors in Celery ForkPool
     """
-    from sqlalchemy import update
-    from ..shared.database import get_celery_session_factory
-    from ..shared.models import TranscriptionJob
-    # Import ConstructionProject to ensure SQLAlchemy can resolve FK to construction_projects table
-    from ..domains.construction.models import ConstructionProject  # noqa: F401
+    import asyncpg
+    import json
+    from ..shared.database import DATABASE_URL
 
-    async def _async_update():
-        session_factory = get_celery_session_factory()
-        async with session_factory() as db:
-            try:
-                update_data = {
-                    "status": status,
-                    "processing_time_seconds": processing_time_seconds,
-                    "audio_duration_seconds": audio_duration_seconds,
-                    "segment_count": segment_count,
-                    "speaker_count": speaker_count,
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "artifacts": artifacts,
-                    "error_message": error_message,
-                    "error_stage": error_stage,
-                }
+    # Build raw asyncpg DSN from SQLAlchemy URL
+    dsn = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
 
-                if status == "completed":
-                    update_data["completed_at"] = datetime.now()
-                elif status == "processing":
-                    update_data["started_at"] = datetime.now()
+    update_data: dict = {
+        "status": status,
+        "processing_time_seconds": processing_time_seconds,
+        "audio_duration_seconds": audio_duration_seconds,
+        "segment_count": segment_count,
+        "speaker_count": speaker_count,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "flash_input_tokens": flash_input_tokens,
+        "flash_output_tokens": flash_output_tokens,
+        "pro_input_tokens": pro_input_tokens,
+        "pro_output_tokens": pro_output_tokens,
+        "artifacts": json.dumps(artifacts) if artifacts is not None else None,
+        "error_message": error_message,
+        "error_stage": error_stage,
+    }
 
-                # Remove None values
-                update_data = {k: v for k, v in update_data.items() if v is not None}
+    if status == "completed":
+        update_data["completed_at"] = datetime.now(timezone.utc)
+    elif status == "processing":
+        update_data["started_at"] = datetime.now(timezone.utc)
 
-                stmt = update(TranscriptionJob).where(
-                    TranscriptionJob.job_id == job_id
-                ).values(**update_data)
+    # Remove None values (don't overwrite existing DB fields with None)
+    update_data = {k: v for k, v in update_data.items() if v is not None}
 
-                result = await db.execute(stmt)
+    async def _do_update():
+        conn = await asyncpg.connect(dsn)
+        try:
+            keys = list(update_data.keys())
+            values = list(update_data.values())
+            set_clause = ", ".join(f"{k} = ${i + 1}" for i, k in enumerate(keys))
+            values.append(job_id)
+            query = f"UPDATE transcription_jobs SET {set_clause} WHERE job_id = ${len(values)}"
+            result = await conn.execute(query, *values)
+            # result is "UPDATE N" — extract row count
+            rows = int(result.split()[-1])
+            if rows == 0:
+                logger.warning(f"TranscriptionJob {job_id} not found in DB, skipping update")
+            else:
+                logger.info(f"TranscriptionJob {job_id} updated: {status}")
+        finally:
+            await conn.close()
 
-                # Fallback: if no rows updated, record doesn't exist - create it
-                if result.rowcount == 0:
-                    logger.warning(f"TranscriptionJob record not found for {job_id}, creating new record")
-                    job = TranscriptionJob(
-                        job_id=job_id,
-                        status=status,
-                        domain="construction",
-                        processing_time_seconds=processing_time_seconds,
-                        audio_duration_seconds=audio_duration_seconds,
-                        segment_count=segment_count,
-                        speaker_count=speaker_count,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        artifacts=artifacts,
-                        error_message=error_message,
-                        error_stage=error_stage,
-                    )
-                    if status == "completed":
-                        job.completed_at = datetime.now()
-                    db.add(job)
-
-                await db.commit()
-                logger.info(f"TranscriptionJob record updated for {job_id}: {status}")
-            except Exception as e:
-                await db.rollback()
-                logger.error(f"Failed to update TranscriptionJob record: {e}")
-
-    _run_async(_async_update())
+    try:
+        _run_async(_do_update())
+    except Exception as e:
+        logger.error(f"Failed to update TranscriptionJob {job_id}: {e}")
 
 
 def _save_domain_report(
@@ -498,9 +661,7 @@ def _save_domain_report(
     project_id: int,
     domain_type: str,
     output_files: Optional[Dict[str, str]] = None,
-    guest_uid: Optional[str] = None,
     uploader_id: Optional[int] = None,
-    ai_analysis: Optional[object] = None,
     artifact_options: Optional[Dict] = None,
     basic_report: Optional[object] = None,
     risk_brief: Optional[object] = None,
@@ -508,7 +669,7 @@ def _save_domain_report(
     """
     Save domain-specific report to database after transcription.
 
-    Also saves ReportAnalytics and ReportProblem records if ai_analysis is provided,
+    Also saves ReportAnalytics and ReportProblem records from risk_brief data,
     enabling the manager dashboard to show health status, KPIs, and attention items.
 
     Stores basic_report and risk_brief as JSON for future file regeneration.
@@ -518,10 +679,10 @@ def _save_domain_report(
         result: TranscriptionResult from pipeline
         project_id: Project ID
         domain_type: Domain type ('construction', 'hr', etc.)
-        guest_uid: Guest UUID for anonymous uploads
         uploader_id: User ID for authenticated uploads
-        ai_analysis: AIAnalysis object from generate_analysis() for dashboard integration
         artifact_options: Dict with artifact options including participant_ids
+        basic_report: BasicReport object for DB storage
+        risk_brief: RiskBrief object for DB storage and dashboard analytics
     """
     from ..shared.database import get_celery_session_factory
     from ..domains.factory import DomainServiceFactory
@@ -553,20 +714,19 @@ def _save_domain_report(
                     project_id=project_id,
                     report=report,
                     output_files=output_files or {},
-                    guest_uid=guest_uid,
                     uploader_id=uploader_id,
                     basic_report=basic_report,
                     risk_brief=risk_brief,
                     participant_ids=artifact_options.get("participant_ids"),
                 )
 
-                # Save analytics if provided (enables manager dashboard)
-                if ai_analysis is not None and domain_type == "construction":
+                # Save analytics from risk_brief (enables manager dashboard)
+                if risk_brief is not None and domain_type == "construction":
                     try:
                         await service.save_analytics_to_db(
                             db=db,
                             report_id=db_report.id,
-                            ai_analysis=ai_analysis,
+                            risk_brief=risk_brief,
                         )
                         logger.info(f"Analytics saved for report {db_report.id}")
                     except Exception as e:
@@ -605,9 +765,6 @@ def _save_domain_report(
 @celery_app.task(
     bind=True,
     name="transcription.process",
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_kwargs={"max_retries": 2},
 )
 def process_transcription_task(
     self,
@@ -623,7 +780,6 @@ def process_transcription_task(
     project_id: Optional[int] = None,
     domain_type: Optional[str] = None,
     meeting_type: Optional[str] = None,
-    guest_uid: Optional[str] = None,
     uploader_id: Optional[int] = None,
     # Email notification
     notify_emails: Optional[List[str]] = None,
@@ -652,6 +808,10 @@ def process_transcription_task(
 
     store = get_job_store()
     artifact_options = artifact_options or {}
+
+    # Reset token tracker for this job
+    from backend.core.llm.token_tracker import reset_tracker
+    reset_tracker()
 
     logger.info(f"Starting transcription job: {job_id}")
     logger.info(f"Input: {input_file}")
@@ -695,16 +855,19 @@ def process_transcription_task(
             output_dir=output_path,
         )
 
-        # Run domain generators based on artifact_options
-        output_files = {}
-        generated_artifacts, ai_analysis, basic_report_obj, risk_brief_obj = _run_domain_generators(
+        # Save pipeline result to disk for LLM task
+        result_json_path = output_path / "pipeline_result.json"
+        result_json_path.write_text(result.model_dump_json())
+        logger.info(f"Pipeline result saved: {result_json_path}")
+
+        # Generate transcript (no LLM needed)
+        output_files = _generate_transcript_artifact(
             result=result,
             output_path=output_path,
             artifact_options=artifact_options,
             progress_callback=progress_callback,
             domain_type=domain_type,
         )
-        output_files.update(generated_artifacts)
 
         # Find any additional output files from pipeline
         artifact_patterns = {
@@ -712,15 +875,44 @@ def process_transcription_task(
             "protocol_txt": "protocol*.txt",
             "result_json": "result*.json",
         }
-
         for artifact_type, pattern in artifact_patterns.items():
             if artifact_type not in output_files:
                 files = list(output_path.glob(pattern))
                 if files:
                     output_files[artifact_type] = str(files[0])
 
-        # Save domain report to database if project is linked
-        logger.info(f"[DOMAIN_SAVE_CHECK] domain_type={domain_type}, project_id={project_id}, risk_brief_obj={risk_brief_obj is not None}")
+        # Collect GPU token usage (translation stage uses Gemini)
+        from backend.core.llm.token_tracker import get_tracker
+        gpu_token_usage = get_tracker().usage.as_dict()
+
+        # Check if LLM generators are needed
+        if _needs_llm_generators(artifact_options):
+            # Dispatch LLM task to separate worker/queue
+            progress_callback("domain_generators", 90, "Запуск AI-генерации отчётов...")
+            process_llm_generators(
+                job_id=job_id,
+                output_dir=output_dir,
+                artifact_options=artifact_options,
+                domain_type=domain_type,
+                project_id=project_id,
+                uploader_id=uploader_id,
+                notify_emails=notify_emails,
+                gpu_output_files=output_files,
+                processing_time_seconds=result.processing_time_seconds,
+                audio_duration_seconds=result.total_duration or None,
+                segment_count=result.segment_count,
+                speaker_count=getattr(result, 'speaker_count', None),
+                language_distribution=result.language_distribution,
+                gpu_token_usage=gpu_token_usage,
+            )
+            logger.info(f"LLM generators dispatched for job {job_id}")
+            return {
+                "job_id": job_id,
+                "status": "processing",
+                "message": "Генерация отчётов через AI...",
+            }
+
+        # No LLM generators needed — complete job directly
         if domain_type and project_id:
             progress_callback("domain_report", 99, "Сохранение в базу данных...")
             try:
@@ -730,93 +922,37 @@ def process_transcription_task(
                     project_id=project_id,
                     domain_type=domain_type,
                     output_files=output_files,
-                    guest_uid=guest_uid,
                     uploader_id=uploader_id,
-                    ai_analysis=ai_analysis,
                     artifact_options=artifact_options,
-                    basic_report=basic_report_obj,
-                    risk_brief=risk_brief_obj,
                 )
-                
-                # Auto-send critical risk brief to project managers
-                if risk_brief_obj is not None and domain_type == "construction":
-                    try:
-                        overall_status = getattr(risk_brief_obj, 'overall_status', None)
-                        # Handle both enum and string
-                        if hasattr(overall_status, 'value'):
-                            status_value = overall_status.value
-                        else:
-                            status_value = str(overall_status) if overall_status else None
-                        
-                        logger.info(
-                            f"[CRITICAL_NOTIFY_CHECK] job_id={job_id}, project_id={project_id}, "
-                            f"overall_status={overall_status}, status_value={status_value}"
-                        )
-                        
-                        if status_value == "critical":
-                            from ..core.email.service import email_service
-                            
-                            # Get project name
-                            project_name = getattr(risk_brief_obj, 'project_name', None)
-                            
-                            logger.info(
-                                f"[CRITICAL_NOTIFY_SEND] Sending notification for project_id={project_id}, "
-                                f"project_name={project_name}, job_id={job_id}"
-                            )
-                            
-                            email_sent = email_service.send_critical_risk_brief_to_managers(
-                                project_id=project_id,
-                                job_id=job_id,
-                                project_name=project_name,
-                                risk_brief_status=status_value,
-                            )
-                            
-                            if email_sent:
-                                logger.info(f"[CRITICAL_NOTIFY_SUCCESS] Critical risk brief notification sent for project {project_id}")
-                            else:
-                                logger.warning(f"[CRITICAL_NOTIFY_FAILED] Notification returned False for project {project_id}")
-                        else:
-                            logger.info(f"[CRITICAL_NOTIFY_SKIP] Status is '{status_value}', not 'critical' - skipping notification")
-                    except Exception as e:
-                        logger.error(f"[CRITICAL_NOTIFY_ERROR] Critical brief notification failed (non-fatal): {e}", exc_info=True)
-                        
             except Exception as e:
                 logger.error(f"Domain report save failed (non-fatal): {e}")
-                # Don't fail the whole job if domain report fails
-        else:
-            logger.info(f"[DOMAIN_SAVE_SKIP] Skipping domain report save: domain_type={domain_type}, project_id={project_id}")
 
-        # Hide manager brief from user-facing downloads
-        public_output_files = {k: v for k, v in output_files.items() if k != "analysis"}
-
-        # Mark completed in Redis
         store.complete(
             job_id=job_id,
-            output_files=public_output_files,
+            output_files=output_files,
             processing_time=result.processing_time_seconds,
             segment_count=result.segment_count,
             language_distribution=result.language_distribution,
         )
 
-        # Update TranscriptionJob in PostgreSQL for stats
         _update_job_in_db(
             job_id=job_id,
             status="completed",
             processing_time_seconds=result.processing_time_seconds,
-            audio_duration_seconds=getattr(result, 'audio_duration_seconds', None),
+            audio_duration_seconds=result.total_duration or None,
             segment_count=result.segment_count,
             speaker_count=getattr(result, 'speaker_count', None),
-            input_tokens=getattr(result, 'input_tokens', 0),
-            output_tokens=getattr(result, 'output_tokens', 0),
+            **gpu_token_usage,
             artifacts={
                 "transcript": "transcript" in output_files,
-                "tasks": "tasks" in output_files,
-                "report": "report" in output_files,
-                "analysis": "analysis" in output_files,
+                "tasks": False,
+                "report": False,
+                "risk_brief": False,
             },
         )
 
-        logger.info(f"Job {job_id} completed successfully")
+        logger.info(f"Job {job_id} completed successfully (transcript only)")
 
         # Send email notification if emails are provided
         if notify_emails:
@@ -824,24 +960,16 @@ def process_transcription_task(
             email_sent = False
             try:
                 from ..core.email.service import send_report_email
-
-                # Get project name from job store for email subject
                 job_data = store.get(job_id)
                 project_name = getattr(job_data, 'project_code', None)
-
                 email_sent = send_report_email(
                     recipients=notify_emails,
                     job_id=job_id,
                     project_name=project_name,
-                    output_files=public_output_files,
+                    output_files=output_files,
                 )
-                if email_sent:
-                    logger.info(f"Email notification sent to {notify_emails}")
-                else:
-                    logger.warning(f"Email notification failed for {notify_emails}")
             except Exception as e:
                 logger.error(f"Email notification failed (non-fatal): {e}")
-                # Don't fail the job if email fails
             finally:
                 store.update(
                     job_id,
@@ -849,7 +977,7 @@ def process_transcription_task(
                     current_stage="completed",
                     progress_percent=100,
                     message="Completed successfully" if email_sent else "Completed; email notification failed",
-                    completed_at=datetime.now(),
+                    completed_at=datetime.now(timezone.utc),
                 )
 
         return {
@@ -858,15 +986,17 @@ def process_transcription_task(
             "processing_time_seconds": result.processing_time_seconds,
             "segment_count": result.segment_count,
             "language_distribution": result.language_distribution,
-            "output_files": public_output_files,
-            "completed_at": datetime.now().isoformat(),
+            "output_files": output_files,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    except SoftTimeLimitExceeded:
-        error_msg = "Task exceeded time limit"
+    except SoftTimeLimitExceeded as e:
+        error_msg = "Превышено время обработки"
         logger.error(f"Job {job_id}: {error_msg}")
         store.fail(job_id, error_msg)
         _update_job_in_db(job_id=job_id, status="failed", error_message=error_msg, error_stage="timeout")
+        from backend.admin.logs.service import log_celery_error
+        log_celery_error("transcription.process", e, user_id=uploader_id, context=f"job_id={job_id}")
         return {
             "job_id": job_id,
             "status": "failed",
@@ -876,8 +1006,382 @@ def process_transcription_task(
     except Exception as e:
         logger.exception(f"Job {job_id} failed: {e}")
         store.fail(job_id, str(e))
-        _update_job_in_db(job_id=job_id, status="failed", error_message=str(e)[:500], error_stage="processing")
-        raise  # Will trigger retry
+        _update_job_in_db(job_id=job_id, status="failed", error_message=str(e)[:500], error_stage="pipeline")
+        from backend.admin.logs.service import log_celery_error
+        log_celery_error("transcription.process", e, user_id=uploader_id, context=f"job_id={job_id}")
+        raise
+
+
+def process_llm_generators(
+    job_id: str,
+    output_dir: str,
+    artifact_options: dict,
+    domain_type: str = None,
+    project_id: int = None,
+    uploader_id: int = None,
+    notify_emails: list = None,
+    gpu_output_files: dict = None,
+    processing_time_seconds: float = None,
+    audio_duration_seconds: float = None,
+    segment_count: int = None,
+    speaker_count: int = None,
+    language_distribution: dict = None,
+    gpu_token_usage: dict = None,
+) -> None:
+    """
+    Dispatch LLM report generation as a Celery chain of 3 independent tasks:
+
+    1. generate_llm_reports_task — LLM calls, returns JSON with paths and serialized models
+    2. save_reports_to_db_task — saves to DB, marks job completed
+    3. send_email_notification_task — sends email notifications
+
+    Each task retries independently. Email failure does NOT re-trigger LLM generation.
+    """
+    from celery import chain
+
+    shared_kwargs = {
+        "job_id": job_id,
+        "output_dir": output_dir,
+        "domain_type": domain_type,
+    }
+
+    chain(
+        generate_llm_reports_task.s(
+            **shared_kwargs,
+            artifact_options=artifact_options,
+        ),
+        save_reports_to_db_task.s(
+            **shared_kwargs,
+            artifact_options=artifact_options,
+            project_id=project_id,
+            uploader_id=uploader_id,
+            gpu_output_files=gpu_output_files or {},
+            gpu_token_usage=gpu_token_usage or {},
+            processing_time_seconds=processing_time_seconds,
+            audio_duration_seconds=audio_duration_seconds,
+            segment_count=segment_count,
+            speaker_count=speaker_count,
+            language_distribution=language_distribution,
+        ),
+        send_email_notification_task.s(
+            job_id=job_id,
+            notify_emails=notify_emails,
+        ),
+    ).apply_async()
+
+
+@celery_app.task(
+    bind=True,
+    name="transcription.generate_reports",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 2},
+)
+def generate_llm_reports_task(
+    self,
+    job_id: str,
+    output_dir: str,
+    artifact_options: dict,
+    domain_type: str = None,
+) -> dict:
+    """
+    Step 1/3: Run LLM generators (tasks, report, risk_brief).
+
+    Loads pipeline result from disk, calls LLM, returns serialized results.
+    Safe to retry — no GPU work is repeated, no DB writes, no emails.
+    """
+    from ..core.transcription.models import TranscriptionResult
+    from backend.core.llm.token_tracker import reset_tracker, get_tracker
+
+    store = get_job_store()
+    reset_tracker()
+
+    logger.info(f"[Step 1/3] Starting LLM generators for job: {job_id}")
+
+    def progress_callback(stage: str, percent: int, message: str):
+        store.update_progress(job_id, stage, percent, message)
+        self.update_state(
+            state="PROGRESS",
+            meta={"current_stage": stage, "progress_percent": percent, "message": message},
+        )
+
+    try:
+        output_path = Path(output_dir)
+        result_json_path = output_path / "pipeline_result.json"
+        result = TranscriptionResult.model_validate_json(result_json_path.read_text())
+        logger.info(f"Loaded pipeline result from {result_json_path}")
+
+        progress_callback("llm_generators", 93, "AI-генерация отчётов...")
+        generated_artifacts, basic_report_obj, risk_brief_obj, domain_report_obj = _run_domain_generators(
+            result=result,
+            output_path=output_path,
+            artifact_options=artifact_options,
+            progress_callback=progress_callback,
+            domain_type=domain_type,
+            job_id=job_id,
+        )
+
+        llm_token_usage = get_tracker().usage.as_dict()
+
+        logger.info(f"[Step 1/3] LLM generators completed for job: {job_id}")
+        return {
+            "generated_artifacts": generated_artifacts,
+            "basic_report_json": basic_report_obj.model_dump_json() if basic_report_obj else None,
+            "risk_brief_json": risk_brief_obj.model_dump_json() if risk_brief_obj else None,
+            "domain_report_json": domain_report_obj.model_dump_json() if domain_report_obj else None,
+            "llm_token_usage": llm_token_usage,
+        }
+
+    except Exception as e:
+        logger.exception(f"LLM generators failed for job {job_id}: {e}")
+        if self.request.retries >= 2:
+            store.fail(job_id, f"Ошибка генерации отчётов: {str(e)[:200]}")
+            _update_job_in_db(
+                job_id=job_id,
+                status="failed",
+                error_message=f"LLM generators: {str(e)[:300]}",
+                error_stage="llm_generators",
+            )
+            from backend.admin.logs.service import log_celery_error
+            log_celery_error("transcription.generate_reports", e, context=f"job_id={job_id}")
+        raise
+
+
+@celery_app.task(
+    bind=True,
+    name="transcription.save_reports",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 2},
+)
+def save_reports_to_db_task(
+    self,
+    llm_result: dict,
+    job_id: str,
+    output_dir: str,
+    artifact_options: dict,
+    domain_type: str = None,
+    project_id: int = None,
+    uploader_id: int = None,
+    gpu_output_files: dict = None,
+    gpu_token_usage: dict = None,
+    processing_time_seconds: float = None,
+    audio_duration_seconds: float = None,
+    segment_count: int = None,
+    speaker_count: int = None,
+    language_distribution: dict = None,
+) -> dict:
+    """
+    Step 2/3: Save reports to DB, mark job completed.
+
+    Receives LLM results from step 1. Deserializes Pydantic models,
+    saves domain report + analytics, sends critical risk brief alert,
+    marks job completed in Redis + PostgreSQL.
+    """
+    from ..core.transcription.models import TranscriptionResult
+
+    store = get_job_store()
+    gpu_output_files = gpu_output_files or {}
+    gpu_token_usage = gpu_token_usage or {}
+
+    logger.info(f"[Step 2/3] Saving reports for job: {job_id}")
+
+    def progress_callback(stage: str, percent: int, message: str):
+        store.update_progress(job_id, stage, percent, message)
+        self.update_state(
+            state="PROGRESS",
+            meta={"current_stage": stage, "progress_percent": percent, "message": message},
+        )
+
+    try:
+        generated_artifacts = llm_result.get("generated_artifacts", {})
+        basic_report_json = llm_result.get("basic_report_json")
+        risk_brief_json = llm_result.get("risk_brief_json")
+        llm_token_usage = llm_result.get("llm_token_usage", {})
+
+        # Merge GPU + LLM output files
+        output_files = {**gpu_output_files, **generated_artifacts}
+
+        # Deserialize Pydantic models for DB storage
+        basic_report_obj = None
+        risk_brief_obj = None
+
+        if basic_report_json and domain_type == "construction":
+            from ..domains.construction.schemas import BasicReport
+            basic_report_obj = BasicReport.model_validate_json(basic_report_json)
+
+        if risk_brief_json and domain_type == "construction":
+            from ..domains.construction.schemas import RiskBrief
+            risk_brief_obj = RiskBrief.model_validate_json(risk_brief_json)
+
+        # Save domain report to database
+        if domain_type and project_id:
+            progress_callback("domain_report", 99, "Сохранение в базу данных...")
+            output_path = Path(output_dir)
+            result_json_path = output_path / "pipeline_result.json"
+            result = TranscriptionResult.model_validate_json(result_json_path.read_text())
+
+            try:
+                _save_domain_report(
+                    job_id=job_id,
+                    result=result,
+                    project_id=project_id,
+                    domain_type=domain_type,
+                    output_files=output_files,
+                    uploader_id=uploader_id,
+                    artifact_options=artifact_options,
+                    basic_report=basic_report_obj,
+                    risk_brief=risk_brief_obj,
+                )
+
+                # Auto-send critical risk brief to project managers
+                if risk_brief_obj is not None and domain_type == "construction":
+                    try:
+                        overall_status = getattr(risk_brief_obj, 'overall_status', None)
+                        if hasattr(overall_status, 'value'):
+                            status_value = overall_status.value
+                        else:
+                            status_value = str(overall_status) if overall_status else None
+
+                        if status_value == "critical":
+                            from ..core.email.service import email_service
+                            project_name = getattr(risk_brief_obj, 'project_name', None)
+                            email_service.send_critical_risk_brief_to_managers(
+                                project_id=project_id,
+                                job_id=job_id,
+                                project_name=project_name,
+                                risk_brief_status=status_value,
+                            )
+                            logger.info(f"Critical risk brief notification sent for project {project_id}")
+                    except Exception as e:
+                        logger.error(f"Critical brief notification failed (non-fatal): {e}")
+
+            except Exception as e:
+                logger.error(f"Domain report save failed (non-fatal): {e}")
+
+        # Build meeting_report for Redis (used by CEO dashboard viewer)
+        meeting_report_dict = _build_meeting_report(
+            domain_type=domain_type,
+            domain_report_json=llm_result.get("domain_report_json"),
+            basic_report_json=basic_report_json,
+        )
+
+        # Mark completed in Redis
+        store.complete(
+            job_id=job_id,
+            output_files=output_files,
+            processing_time=processing_time_seconds,
+            segment_count=segment_count,
+            language_distribution=language_distribution,
+        )
+
+        # Store meeting_report separately (complete() doesn't accept it)
+        if meeting_report_dict:
+            store.update(job_id, meeting_report=meeting_report_dict)
+
+        # Combine GPU + LLM token usage
+        combined_tokens = {
+            k: gpu_token_usage.get(k, 0) + llm_token_usage.get(k, 0)
+            for k in llm_token_usage
+        }
+
+        _update_job_in_db(
+            job_id=job_id,
+            status="completed",
+            processing_time_seconds=processing_time_seconds,
+            audio_duration_seconds=audio_duration_seconds,
+            segment_count=segment_count,
+            speaker_count=speaker_count,
+            **combined_tokens,
+            artifacts={
+                "transcript": "transcript" in output_files,
+                "tasks": "tasks" in output_files,
+                "report": "report" in output_files,
+                "risk_brief": "risk_brief" in output_files,
+            },
+        )
+
+        logger.info(f"[Step 2/3] Reports saved for job: {job_id}")
+        return {
+            "job_id": job_id,
+            "output_files": output_files,
+        }
+
+    except Exception as e:
+        logger.exception(f"Save reports failed for job {job_id}: {e}")
+        if self.request.retries >= 2:
+            store.fail(job_id, f"Ошибка сохранения отчётов: {str(e)[:200]}")
+            _update_job_in_db(
+                job_id=job_id,
+                status="failed",
+                error_message=f"Save reports: {str(e)[:300]}",
+                error_stage="save_reports",
+            )
+            from backend.admin.logs.service import log_celery_error
+            log_celery_error(
+                "transcription.save_reports", e,
+                user_id=uploader_id, context=f"job_id={job_id}",
+            )
+        raise
+
+
+@celery_app.task(
+    bind=True,
+    name="transcription.send_email",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 2},
+)
+def send_email_notification_task(
+    self,
+    db_result: dict,
+    job_id: str,
+    notify_emails: list = None,
+) -> dict:
+    """
+    Step 3/3: Send email notifications.
+
+    Receives output_files from step 2. Job is already marked completed —
+    email failure is independent and does NOT affect job status.
+    """
+    from ..core.storage.job_store import JobStatus
+
+    if not notify_emails:
+        return {"job_id": job_id, "email_sent": False, "reason": "no_recipients"}
+
+    store = get_job_store()
+    output_files = db_result.get("output_files", {})
+
+    logger.info(f"[Step 3/3] Sending email for job: {job_id}")
+
+    store.update_progress(job_id, "email_notification", 100, "Отправка уведомления на почту...")
+
+    email_sent = False
+    try:
+        from ..core.email.service import send_report_email
+        job_data = store.get(job_id)
+        project_name = getattr(job_data, 'project_code', None)
+        email_sent = send_report_email(
+            recipients=notify_emails,
+            job_id=job_id,
+            project_name=project_name,
+            output_files=output_files,
+        )
+    except Exception as e:
+        logger.error(f"Email notification failed for job {job_id}: {e}")
+        raise
+    finally:
+        store.update(
+            job_id,
+            status=JobStatus.COMPLETED,
+            current_stage="completed",
+            progress_percent=100,
+            message="Completed successfully" if email_sent else "Completed; email notification failed",
+            completed_at=datetime.now(timezone.utc),
+        )
+
+    logger.info(f"[Step 3/3] Email sent for job: {job_id}")
+    return {"job_id": job_id, "email_sent": email_sent}
 
 
 @celery_app.task(name="transcription.cleanup")
@@ -922,9 +1426,9 @@ def process_text_task(
     artifact_options: dict = None,
     domain_type: str = None,
     project_id: int = None,
-    guest_uid: str = None,
     uploader_id: int = None,
     notify_emails: list = None,
+    existing_output_files: dict = None,
 ):
     """
     Celery task for processing text files (docx, txt).
@@ -950,7 +1454,6 @@ def process_text_task(
         domain=domain_type or "construction",
         meeting_type=None,
         user_id=uploader_id,
-        guest_uid=guest_uid,
         project_id=project_id,
         source_filename=source_filename,
         source_size_bytes=source_size_bytes,
@@ -960,20 +1463,30 @@ def process_text_task(
     # Import the async function from API routes
     from ..api.routes.transcription import run_text_report_generation
 
-    # Run async function in event loop
-    asyncio.run(
-        run_text_report_generation(
-            job_id=job_id,
-            input_file=Path(input_file),
-            output_dir=Path(output_dir),
-            artifact_options=artifact_options,
-            domain_type=domain_type,
-            project_id=project_id,
-            guest_uid=guest_uid,
-            uploader_id=uploader_id,
-            notify_emails=notify_emails,
+    try:
+        # Run async function in event loop
+        asyncio.run(
+            run_text_report_generation(
+                job_id=job_id,
+                input_file=Path(input_file),
+                output_dir=Path(output_dir),
+                artifact_options=artifact_options,
+                domain_type=domain_type,
+                project_id=project_id,
+                uploader_id=uploader_id,
+                notify_emails=notify_emails,
+                existing_output_files=existing_output_files,
+            )
         )
-    )
+    except Exception as e:
+        logger.exception(f"Text processing failed for job {job_id}: {e}")
+        if self.request.retries >= 2:
+            from backend.admin.logs.service import log_celery_error
+            log_celery_error(
+                "transcription.process_text", e,
+                user_id=uploader_id, context=f"job_id={job_id}",
+            )
+        raise
 
     logger.info(f"Text processing job {job_id} completed")
     return {"job_id": job_id, "status": "completed"}

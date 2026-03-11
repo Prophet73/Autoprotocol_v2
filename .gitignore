@@ -140,6 +140,12 @@ yarn-error.log*
 .yarn
 
 # ============================
+# Linters / Testing cache
+# ============================
+.ruff_cache/
+.pytest_cache/
+
+# ============================
 # Playwright / MCP
 # ============================
 .playwright-mcp/
@@ -152,7 +158,8 @@ test-results/
 *.tar
 docker-compose.override.yml
 docker/.env
-# docker/.env.production  # Included for private repo
+docker/.env.dev
+docker/.env.production
 
 # ============================
 # Backups
@@ -172,10 +179,20 @@ secrets.json
 # Тестовые файлы (временные)
 # ============================
 test_risk_brief*.py
+test_*.ps1
 risk_brief_v2_*.json
 risk_brief_v2_*.html
+temp_*.json
+
+# ============================
+# Результаты тестов (локальные)
+# ============================
+results_*/
+test_all_domains.py
+task.md
 
 # ============================
 # Reference files (local only)
 # ============================
 _reference/
+prompts/

@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { logsApi } from '../../api/adminApi';
+import { getApiErrorMessage } from '../../utils/errorMessage';
+import { useConfirm } from '../../hooks/useConfirm';
 import type { ErrorLog, ErrorLogSummary } from '../../api/adminApi';
 
 export default function LogsPage() {
+  const { confirm, alert, ConfirmDialog } = useConfirm();
   const [logs, setLogs] = useState<ErrorLog[]>([]);
   const [summary, setSummary] = useState<ErrorLogSummary | null>(null);
   const [total, setTotal] = useState(0);
@@ -28,23 +31,23 @@ export default function LogsPage() {
       setTotal(logsResponse.total);
       setSummary(summaryData);
       setError('');
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Ошибка загрузки логов');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Ошибка загрузки логов'));
     } finally {
       setLoading(false);
     }
   };
 
   const handleCleanup = async (days: number) => {
-    if (!confirm(`Удалить логи старше ${days} дней?`)) return;
+    if (!(await confirm(`Удалить логи старше ${days} дней?`, { variant: 'danger' }))) return;
 
     try {
       setCleaning(true);
       const result = await logsApi.cleanup(days);
-      alert(`Удалено записей: ${result.deleted}`);
+      await alert(`Удалено записей: ${result.deleted}`);
       await loadData();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Ошибка очистки');
+    } catch (err) {
+      await alert(getApiErrorMessage(err, 'Ошибка очистки'));
     } finally {
       setCleaning(false);
     }
@@ -308,6 +311,7 @@ export default function LogsPage() {
           </div>
         </div>
       )}
+      {ConfirmDialog}
     </div>
   );
 }

@@ -203,7 +203,7 @@ class ProjectService:
                 logger.warning(f"[update_project] Code {data.project_code} already exists for project {existing.id}")
                 raise ValueError(f"Project code {data.project_code} already exists")
             project.project_code = data.project_code
-            logger.info(f"[update_project] Project code updated successfully")
+            logger.info("[update_project] Project code updated successfully")
         if data.description is not None:
             project.description = data.description
         if data.manager_id is not None:
@@ -265,20 +265,20 @@ class ProjectService:
         if len(code) != 4 or not code.isdigit():
             return ProjectCodeValidation(
                 valid=False,
-                message="Invalid code format. Must be 4 digits."
+                message="Неверный формат кода. Должно быть 4 цифры."
             )
 
         project = await self.get_project_by_code(code)
         if not project:
             return ProjectCodeValidation(
                 valid=False,
-                message="Project not found with this code."
+                message="Проект с таким кодом не зарегистрирован в системе. Убедитесь, что проект создан на портале, или обратитесь к администратору."
             )
 
         if not project.is_active:
             return ProjectCodeValidation(
                 valid=False,
-                message="Project is archived and not accepting uploads."
+                message="Проект в архиве и не принимает загрузки."
             )
 
         return ProjectCodeValidation(
@@ -286,8 +286,8 @@ class ProjectService:
             project_id=project.id,
             project_name=project.name,
             tenant_id=project.tenant_id,
-            domain_type="construction",  # Domain type for routing
-            message="Valid project code."
+            domain_type="construction",
+            message="Код проекта подтверждён."
         )
 
     async def assign_manager(self, project_id: int, user_id: int) -> bool:
@@ -720,6 +720,89 @@ class ProjectService:
         await self.db.flush()
         await self.db.refresh(person)
         return person
+
+    async def update_person(
+        self,
+        person_id: int,
+        full_name: str = None,
+        position: str = None,
+    ) -> Optional[Person]:
+        """Update a person's name and/or position."""
+        result = await self.db.execute(
+            select(Person).where(Person.id == person_id)
+        )
+        person = result.scalar_one_or_none()
+        if not person:
+            return None
+
+        if full_name is not None:
+            person.full_name = full_name
+        if position is not None:
+            person.position = position
+
+        await self.db.flush()
+        await self.db.refresh(person)
+        return person
+
+    async def delete_person(self, person_id: int) -> bool:
+        """Soft-delete a person (set is_active=False)."""
+        result = await self.db.execute(
+            select(Person).where(Person.id == person_id)
+        )
+        person = result.scalar_one_or_none()
+        if not person:
+            return False
+
+        person.is_active = False
+        await self.db.flush()
+        return True
+
+    async def update_organization(
+        self,
+        organization_id: int,
+        name: str = None,
+        short_name: str = None,
+    ) -> Optional[Organization]:
+        """Update an organization's name."""
+        result = await self.db.execute(
+            select(Organization).where(Organization.id == organization_id)
+        )
+        org = result.scalar_one_or_none()
+        if not org:
+            return None
+
+        if name is not None:
+            org.name = name
+            if short_name is not None:
+                org.short_name = short_name
+            elif org.short_name:
+                org.short_name = name
+
+        await self.db.flush()
+        await self.db.refresh(org)
+        return org
+
+    async def remove_contractor(
+        self,
+        project_id: int,
+        contractor_id: int,
+    ) -> bool:
+        """Remove a contractor from a project."""
+        result = await self.db.execute(
+            select(ProjectContractor).where(
+                and_(
+                    ProjectContractor.id == contractor_id,
+                    ProjectContractor.project_id == project_id,
+                )
+            )
+        )
+        contractor = result.scalar_one_or_none()
+        if not contractor:
+            return False
+
+        await self.db.delete(contractor)
+        await self.db.flush()
+        return True
 
     async def get_standard_roles(self) -> List[dict]:
         """Get list of standard contractor roles."""

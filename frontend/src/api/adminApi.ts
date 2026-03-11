@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { useAuthStore } from '../stores/authStore';
 import { API_BASE_URL } from '../config/api';
+import { triggerSSOReauth } from '../utils/tokenExpiry';
 import type {
   CurrentUser,
   AdminUser,
@@ -30,13 +31,18 @@ adminApi.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle 401 responses
+// Handle 401 responses — try SSO re-auth before falling back to login
 adminApi.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       useAuthStore.getState().logout();
-      window.location.href = '/login';
+
+      if (import.meta.env.VITE_SSO_HUB_ENABLED === 'true') {
+        triggerSSOReauth();
+      } else {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }
@@ -49,18 +55,6 @@ adminApi.interceptors.response.use(
 export interface LoginRequest {
   username: string;
   password: string;
-}
-
-export interface DevUser {
-  email: string;
-  role: string;
-  is_superuser: boolean;
-  full_name: string | null;
-}
-
-export interface DevUsersResponse {
-  users: DevUser[];
-  enabled: boolean;
 }
 
 export const authApi = {
@@ -82,17 +76,6 @@ export const authApi = {
 
   setActiveDomain: async (domain: string): Promise<CurrentUser> => {
     const response = await adminApi.post('/auth/me/domain', { domain });
-    return response.data;
-  },
-
-  // Dev tools (only in dev mode)
-  devGetUsers: async (): Promise<DevUsersResponse> => {
-    const response = await adminApi.get('/auth/dev/users');
-    return response.data;
-  },
-
-  devLogin: async (role: string): Promise<LoginResponse> => {
-    const response = await adminApi.post('/auth/dev/login', { role });
     return response.data;
   },
 };
@@ -122,7 +105,7 @@ export interface ProjectUserAccessList {
 
 export const usersApi = {
   list: async (params?: { skip?: number; limit?: number; role?: string; domain?: string }): Promise<UserListResponse> => {
-    const response = await adminApi.get('/api/admin/users', { params });
+    const response = await adminApi.get('/api/admin/users/', { params });
     return response.data;
   },
 
@@ -132,7 +115,7 @@ export const usersApi = {
   },
 
   create: async (data: CreateUserRequest): Promise<AdminUser> => {
-    const response = await adminApi.post('/api/admin/users', data);
+    const response = await adminApi.post('/api/admin/users/', data);
     return response.data;
   },
 
@@ -219,7 +202,6 @@ export interface GlobalStats {
   };
   domains: {
     construction: number;
-    hr: number;
     it: number;
     general: number;
   };
@@ -332,6 +314,18 @@ export interface CostStats {
   by_domain: Record<string, number>;
   input_price_per_million: number;
   output_price_per_million: number;
+  // Per-model breakdown
+  flash_input_tokens: number;
+  flash_output_tokens: number;
+  pro_input_tokens: number;
+  pro_output_tokens: number;
+  flash_cost_usd: number;
+  pro_cost_usd: number;
+  // Pricing
+  flash_input_price: number;
+  flash_output_price: number;
+  pro_input_price: number;
+  pro_output_price: number;
 }
 
 export interface TimelinePoint {
@@ -339,6 +333,7 @@ export interface TimelinePoint {
   jobs: number;
   completed: number;
   failed: number;
+  unique_users: number;
 }
 
 export interface TimelineStats {
@@ -421,7 +416,7 @@ export interface CostStatsResponse {
   generated_at: string;
 }
 
-export interface DomainInfo {
+export interface AdminDomainInfo {
   id: string;
   name: string;
   meeting_types: Array<{ id: string; name: string }>;
@@ -433,7 +428,7 @@ export const comprehensiveStatsApi = {
     return response.data;
   },
 
-  getDomains: async (): Promise<{ domains: DomainInfo[] }> => {
+  getDomains: async (): Promise<{ domains: AdminDomainInfo[] }> => {
     const response = await adminApi.get('/api/admin/stats/domains');
     return response.data;
   },
@@ -457,6 +452,25 @@ export const comprehensiveStatsApi = {
     const response = await adminApi.get('/api/admin/stats/health');
     return response.data;
   },
+
+  exportExcel: async (filters?: StatsFilters): Promise<void> => {
+    const response = await adminApi.get('/api/admin/stats/export', {
+      params: filters,
+      responseType: 'blob',
+    });
+    const contentDisposition = response.headers['content-disposition'] || '';
+    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : `autoprotocol_stats_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
 };
 
 // =============================================================================
@@ -467,8 +481,13 @@ export interface SystemSetting {
   key: string;
   value: string;
   description: string | null;
-  updated_at: string;
+  updated_at: string | null;
   updated_by: string | null;
+  is_default: boolean;
+  default_value: string | null;
+  input_type: 'text' | 'number' | 'select';
+  options: string[] | null;
+  category: string;
 }
 
 export interface SettingsListResponse {
@@ -478,7 +497,7 @@ export interface SettingsListResponse {
 
 export const settingsApi = {
   list: async (): Promise<SettingsListResponse> => {
-    const response = await adminApi.get('/api/admin/settings');
+    const response = await adminApi.get('/api/admin/settings/');
     return response.data;
   },
 
@@ -493,7 +512,7 @@ export const settingsApi = {
   },
 
   create: async (key: string, value: string, description?: string): Promise<SystemSetting> => {
-    const response = await adminApi.post('/api/admin/settings', { key, value, description });
+    const response = await adminApi.post('/api/admin/settings/', { key, value, description });
     return response.data;
   },
 
@@ -501,8 +520,8 @@ export const settingsApi = {
     await adminApi.delete(`/api/admin/settings/${key}`);
   },
 
-  initialize: async (): Promise<{ created: number }> => {
-    const response = await adminApi.post('/api/admin/settings/initialize');
+  reset: async (key: string): Promise<SystemSetting> => {
+    const response = await adminApi.post(`/api/admin/settings/${key}/reset`);
     return response.data;
   },
 };
@@ -628,89 +647,72 @@ export const projectsApi = {
 };
 
 // =============================================================================
-// Prompts API
-// =============================================================================
-
-export interface PromptTemplate {
-  id: number;
-  name: string;
-  slug: string;
-  domain: string;
-  description: string | null;
-  system_prompt: string;
-  user_prompt_template: string;
-  response_schema: Record<string, unknown> | null;
-  is_active: boolean;
-  is_default: boolean;
-  version: number;
-  created_at: string;
-  updated_at: string;
-  created_by: string | null;
-}
-
-export interface PromptTemplateListResponse {
-  templates: PromptTemplate[];
-  total: number;
-}
-
-export interface CreatePromptTemplateRequest {
-  name: string;
-  slug: string;
-  domain: string;
-  description?: string;
-  system_prompt: string;
-  user_prompt_template: string;
-  response_schema?: Record<string, unknown>;
-  is_default?: boolean;
-}
-
-export interface UpdatePromptTemplateRequest {
-  name?: string;
-  description?: string;
-  system_prompt?: string;
-  user_prompt_template?: string;
-  response_schema?: Record<string, unknown>;
-  is_active?: boolean;
-  is_default?: boolean;
-}
-
-export interface ValidateSchemaResponse {
-  valid: boolean;
-  errors: string[];
-  warnings: string[];
-  supported_by_gemini: boolean;
-}
-
-export interface DomainInfo {
-  name: string;
-  template_count: number;
-}
-
-// =============================================================================
 // Jobs API (Admin)
 // =============================================================================
 
 export interface AdminJobInfo {
   job_id: string;
   status: string;
+  domain: string | null;
+  meeting_type: string | null;
   created_at: string | null;
-  updated_at: string | null;
+  completed_at: string | null;
   source_file: string | null;
   progress_percent: number;
   current_stage: string | null;
   message: string | null;
-  project_code: string | null;
   uploader_email: string | null;
   error: string | null;
+  artifacts: Record<string, string>;
+  processing_time_seconds: number | null;
 }
 
 export interface AdminJobsListResponse {
   jobs: AdminJobInfo[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface JobReportTask {
+  description: string;
+  responsible: string;
+  deadline: string;
+  category: string;
+  priority: string;
+  confidence: string;
+  evidence: string;
+  notes: string;
+  time_codes: string[];
+}
+
+export interface JobReportData {
+  job_id: string;
+  domain: string | null;
+  meeting_type: string | null;
+  basic_report: {
+    meeting_type?: string;
+    meeting_summary?: string;
+    expert_analysis?: string;
+    tasks?: JobReportTask[];
+  } | null;
+  risk_brief: Record<string, unknown> | null;
+  transcript_text: string | null;
+  report_text: string | null;
+  tasks_data: Record<string, string>[] | null;
 }
 
 export const jobsApi = {
-  list: async (limit: number = 100): Promise<AdminJobsListResponse> => {
-    const response = await adminApi.get('/api/admin/jobs', { params: { limit } });
+  list: async (params?: {
+    limit?: number; page?: number;
+    status?: string; domain?: string; user_email?: string;
+  }): Promise<AdminJobsListResponse> => {
+    const response = await adminApi.get('/api/admin/jobs', { params });
+    return response.data;
+  },
+
+  getReport: async (jobId: string): Promise<JobReportData> => {
+    const response = await adminApi.get(`/api/admin/jobs/${jobId}/report`);
     return response.data;
   },
 
@@ -718,54 +720,9 @@ export const jobsApi = {
     const response = await adminApi.delete(`/api/admin/jobs/${jobId}`);
     return response.data;
   },
-};
 
-// =============================================================================
-// Prompts API
-// =============================================================================
-
-export const promptsApi = {
-  list: async (params?: { domain?: string; is_active?: boolean; skip?: number; limit?: number }): Promise<PromptTemplateListResponse> => {
-    const response = await adminApi.get('/api/admin/prompts/templates', { params });
-    return response.data;
-  },
-
-  get: async (id: number): Promise<PromptTemplate> => {
-    const response = await adminApi.get(`/api/admin/prompts/templates/${id}`);
-    return response.data;
-  },
-
-  getBySlug: async (slug: string): Promise<PromptTemplate> => {
-    const response = await adminApi.get(`/api/admin/prompts/templates/slug/${slug}`);
-    return response.data;
-  },
-
-  create: async (data: CreatePromptTemplateRequest): Promise<PromptTemplate> => {
-    const response = await adminApi.post('/api/admin/prompts/templates', data);
-    return response.data;
-  },
-
-  update: async (id: number, data: UpdatePromptTemplateRequest): Promise<PromptTemplate> => {
-    const response = await adminApi.patch(`/api/admin/prompts/templates/${id}`, data);
-    return response.data;
-  },
-
-  delete: async (id: number): Promise<void> => {
-    await adminApi.delete(`/api/admin/prompts/templates/${id}`);
-  },
-
-  validateSchema: async (schema: Record<string, unknown>): Promise<ValidateSchemaResponse> => {
-    const response = await adminApi.post('/api/admin/prompts/validate-schema', { schema });
-    return response.data;
-  },
-
-  getDomains: async (): Promise<{ domains: DomainInfo[] }> => {
-    const response = await adminApi.get('/api/admin/prompts/domains');
-    return response.data;
-  },
-
-  getSchemaTemplates: async (): Promise<{ templates: Array<{ id: string; name: string; description: string; domain: string; schema: Record<string, unknown> }> }> => {
-    const response = await adminApi.get('/api/admin/prompts/schema-templates');
+  purge: async (jobId: string): Promise<{ success: boolean; deleted: Record<string, boolean> }> => {
+    const response = await adminApi.delete(`/api/admin/jobs/${jobId}/purge`);
     return response.data;
   },
 };

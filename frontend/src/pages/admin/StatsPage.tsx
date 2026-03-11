@@ -1,12 +1,46 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { getApiErrorMessage } from '../../utils/errorMessage';
+import { useConfirm } from '../../hooks/useConfirm';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarController,
+  LineController,
+  BarElement,
+  LineElement,
+  PointElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  type ChartData,
+  type ChartOptions,
+} from 'chart.js';
+import { Chart } from 'react-chartjs-2';
 import {
   comprehensiveStatsApi,
   type FullDashboardResponse,
   type StatsFilters,
-  type DomainInfo,
+  type AdminDomainInfo,
   type DomainStatsResponse,
   type CostStatsResponse,
+  type TimelinePoint,
 } from '../../api/adminApi';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarController,
+  LineController,
+  BarElement,
+  LineElement,
+  PointElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+);
 
 type TabId = 'overview' | 'domains' | 'users' | 'costs';
 
@@ -112,41 +146,135 @@ function ProgressBar({ value, max, label, color }: { value: number; max: number;
   );
 }
 
-// Simple bar chart component
-function BarChart({ data, height = 150 }: { data: Array<{ label: string; value: number }>; height?: number }) {
-  const maxValue = Math.max(...data.map(d => d.value), 1);
+// Dual-axis timeline chart: bars for jobs, line for unique users
+function TimelineChart({ points }: { points: TimelinePoint[] }) {
+  const chartRef = useRef<ChartJS<'bar'>>(null);
+
+  const data: ChartData<'bar' | 'line', number[], string> = useMemo(() => {
+    const labels = points.map(p =>
+      new Date(p.date).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
+    );
+    return {
+      labels,
+      datasets: [
+        {
+          type: 'bar' as const,
+          label: 'Обработок',
+          data: points.map(p => p.jobs),
+          backgroundColor: 'rgba(216, 30, 5, 0.75)',
+          hoverBackgroundColor: 'rgba(216, 30, 5, 1)',
+          borderRadius: 3,
+          borderSkipped: false,
+          order: 2,
+        },
+        {
+          type: 'line' as const,
+          label: 'Уникальных пользователей',
+          data: points.map(p => p.unique_users),
+          borderColor: '#0D2C54',
+          backgroundColor: 'rgba(13, 44, 84, 0.1)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          pointBackgroundColor: '#0D2C54',
+          fill: true,
+          tension: 0.3,
+          order: 1,
+        },
+      ],
+    };
+  }, [points]);
+
+  const options: ChartOptions<'bar' | 'line'> = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {
+      mode: 'index' as const,
+      intersect: false,
+    },
+    plugins: {
+      legend: {
+        position: 'top' as const,
+        labels: {
+          usePointStyle: true,
+          pointStyle: 'rectRounded',
+          padding: 16,
+          font: { size: 12, family: 'Manrope, sans-serif' },
+        },
+      },
+      tooltip: {
+        backgroundColor: 'rgba(255,255,255,0.95)',
+        titleColor: '#1e293b',
+        bodyColor: '#475569',
+        borderColor: '#e2e8f0',
+        borderWidth: 1,
+        padding: 10,
+        titleFont: { weight: 'bold' as const },
+        callbacks: {
+          title: (items) => {
+            if (!items.length) return '';
+            const idx = items[0].dataIndex;
+            const p = points[idx];
+            return new Date(p.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+          },
+          afterBody: (items) => {
+            if (!items.length) return '';
+            const idx = items[0].dataIndex;
+            const p = points[idx];
+            return `Успешных: ${p.completed} / Ошибок: ${p.failed}`;
+          },
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: {
+          font: { size: 11 },
+          maxRotation: 45,
+          autoSkip: true,
+          maxTicksLimit: 15,
+        },
+      },
+      y: {
+        type: 'linear' as const,
+        position: 'left' as const,
+        beginAtZero: true,
+        ticks: {
+          stepSize: 1,
+          font: { size: 11 },
+        },
+        grid: { color: 'rgba(0,0,0,0.06)' },
+      },
+    },
+  }), [points]);
 
   return (
-    <div className="flex items-end justify-between gap-1" style={{ height }}>
-      {data.map((item, idx) => (
-        <div key={idx} className="flex-1 flex flex-col items-center">
-          <div
-            className="w-full bg-severin-red rounded-t transition-all hover:bg-severin-red-dark"
-            style={{ height: `${(item.value / maxValue) * 100}%`, minHeight: item.value > 0 ? 4 : 0 }}
-            title={`${item.label}: ${item.value}`}
-          />
-          <span className="text-xs text-slate-400 mt-1 truncate w-full text-center">{item.label}</span>
-        </div>
-      ))}
+    <div style={{ height: 300 }}>
+      <Chart ref={chartRef} type="bar" data={data as ChartData<'bar', number[], string>} options={options as ChartOptions<'bar'>} />
     </div>
   );
 }
 
 export default function StatsPage() {
+  const { alert, ConfirmDialog } = useConfirm();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   // Data states
   const [dashboard, setDashboard] = useState<FullDashboardResponse | null>(null);
-  const [domains, setDomains] = useState<DomainInfo[]>([]);
+  const [domains, setDomains] = useState<AdminDomainInfo[]>([]);
   const [selectedDomain, setSelectedDomain] = useState<string>('');
   const [domainStats, setDomainStats] = useState<DomainStatsResponse | null>(null);
   const [costStats, setCostStats] = useState<CostStatsResponse | null>(null);
 
-  // Filters
+  // Filters — default to current month
   const [filters, setFilters] = useState<StatsFilters>({});
-  const [dateFrom, setDateFrom] = useState('');
+  const [dateFrom, setDateFrom] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  });
   const [dateTo, setDateTo] = useState('');
 
   // Load initial data
@@ -179,8 +307,8 @@ export default function StatsPage() {
       const data = await comprehensiveStatsApi.getDashboard(appliedFilters);
       setDashboard(data);
       setError('');
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Ошибка загрузки статистики');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Ошибка загрузки статистики'));
     } finally {
       setLoading(false);
     }
@@ -241,13 +369,26 @@ export default function StatsPage() {
     loadDashboard();
   };
 
-  // Timeline chart data
-  const timelineData = useMemo(() => {
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const appliedFilters: StatsFilters = { ...filters };
+      if (dateFrom) appliedFilters.date_from = dateFrom;
+      if (dateTo) appliedFilters.date_to = dateTo;
+      await comprehensiveStatsApi.exportExcel(appliedFilters);
+    } catch (err) {
+      await alert('Ошибка экспорта: ' + getApiErrorMessage(err, 'неизвестная ошибка'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Timeline chart data — all points from the period
+  const timelinePoints = useMemo(() => {
     if (!dashboard?.timeline?.points) return [];
-    return dashboard.timeline.points.slice(-14).map(p => ({
-      label: new Date(p.date).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
-      value: p.jobs,
-    }));
+    return dashboard.timeline.points;
   }, [dashboard]);
 
   if (loading && !dashboard) {
@@ -277,15 +418,27 @@ export default function StatsPage() {
           <h1 className="text-2xl font-bold text-slate-800">Статистика</h1>
           <p className="text-slate-500 mt-1">Аналитика и отчёты</p>
         </div>
-        <button
-          onClick={loadDashboard}
-          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition flex items-center self-start border border-slate-200"
-        >
-          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Обновить
-        </button>
+        <div className="flex gap-2 self-start">
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg transition flex items-center border border-green-700"
+          >
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            {exporting ? 'Экспорт...' : 'Excel'}
+          </button>
+          <button
+            onClick={loadDashboard}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition flex items-center border border-slate-200"
+          >
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Обновить
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -359,7 +512,7 @@ export default function StatsPage() {
 
       {/* Tab Content */}
       {activeTab === 'overview' && dashboard && (
-        <OverviewTab dashboard={dashboard} timelineData={timelineData} />
+        <OverviewTab dashboard={dashboard} timelinePoints={timelinePoints} dateFrom={dateFrom} dateTo={dateTo} />
       )}
 
       {activeTab === 'domains' && (
@@ -386,17 +539,39 @@ export default function StatsPage() {
           Данные обновлены: {new Date(dashboard.generated_at).toLocaleString('ru-RU')}
         </div>
       )}
+      {ConfirmDialog}
     </div>
   );
 }
 
 // Overview Tab
-function OverviewTab({ dashboard, timelineData }: { dashboard: FullDashboardResponse; timelineData: Array<{ label: string; value: number }> }) {
+function formatPeriodLabel(dateFrom: string, dateTo: string): string {
+  const fmt = (d: string) => {
+    if (!d) return null;
+    const [y, m, day] = d.split('-');
+    return `${day}.${m}.${y}`;
+  };
+  const from = fmt(dateFrom);
+  const to = fmt(dateTo);
+  if (from && to) return `${from} — ${to}`;
+  if (from) return `с ${from}`;
+  return 'Весь период';
+}
+
+function OverviewTab({ dashboard, timelinePoints, dateFrom, dateTo }: {
+  dashboard: FullDashboardResponse;
+  timelinePoints: TimelinePoint[];
+  dateFrom: string;
+  dateTo: string;
+}) {
   const { overview, domains, artifacts, errors } = dashboard;
+  const periodLabel = formatPeriodLabel(dateFrom, dateTo);
 
   return (
     <div className="space-y-6">
       {/* KPI Cards */}
+      <div>
+        <p className="text-xs text-slate-400 mb-2 uppercase tracking-wider font-medium">{periodLabel}</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
           title="Всего обработок"
@@ -413,9 +588,9 @@ function OverviewTab({ dashboard, timelineData }: { dashboard: FullDashboardResp
           icon={<svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
         <KPICard
-          title="Время обработки"
-          value={`${overview.total_processing_hours.toFixed(1)}ч`}
-          subtitle={`Среднее: ${overview.avg_processing_minutes.toFixed(1)} мин`}
+          title="Часы медиа"
+          value={`${overview.total_audio_hours.toFixed(1)}ч`}
+          subtitle={`Обработка: ${overview.total_processing_hours.toFixed(1)}ч`}
           color="bg-purple-600"
           icon={<svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
@@ -427,23 +602,24 @@ function OverviewTab({ dashboard, timelineData }: { dashboard: FullDashboardResp
           icon={<svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
       </div>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Timeline chart */}
-        <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Обработки за период</h3>
-          {timelineData.length > 0 ? (
-            <BarChart data={timelineData} height={180} />
-          ) : (
-            <p className="text-slate-400 text-center py-8">Нет данных за выбранный период</p>
-          )}
-        </div>
+      {/* Timeline chart — full width */}
+      <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
+        <h3 className="text-lg font-semibold text-slate-800 mb-4">Обработки за период</h3>
+        {timelinePoints.length > 0 ? (
+          <TimelineChart points={timelinePoints} />
+        ) : (
+          <p className="text-slate-400 text-center py-8">Нет данных за выбранный период</p>
+        )}
+      </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Domains breakdown */}
         <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">По доменам</h3>
           {domains.domains.length > 0 ? (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {domains.domains.map(d => (
                 <div key={d.domain} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
                   <div>
@@ -463,9 +639,7 @@ function OverviewTab({ dashboard, timelineData }: { dashboard: FullDashboardResp
             <p className="text-slate-400 text-center py-8">Нет данных</p>
           )}
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Artifacts */}
         <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Артефакты</h3>
@@ -524,7 +698,7 @@ function DomainsTab({
   domainStats,
   dashboard: _dashboard,
 }: {
-  domains: DomainInfo[];
+  domains: AdminDomainInfo[];
   selectedDomain: string;
   setSelectedDomain: (id: string) => void;
   domainStats: DomainStatsResponse | null;
@@ -567,8 +741,8 @@ function DomainsTab({
               icon={<svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             />
             <KPICard
-              title="Время обработки"
-              value={`${domainStats.domain.total_processing_hours.toFixed(1)}ч`}
+              title="Часы медиа"
+              value={`${domainStats.domain.total_audio_hours.toFixed(1)}ч`}
               color="bg-purple-600"
               icon={<svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             />
@@ -804,6 +978,7 @@ function CostsTab({ costStats, dashboard }: { costStats: CostStatsResponse | nul
         <KPICard
           title="Общие затраты"
           value={`$${costs.total_cost_usd.toFixed(2)}`}
+          subtitle={`Flash: $${(costs.flash_cost_usd ?? 0).toFixed(2)} / Pro: $${(costs.pro_cost_usd ?? 0).toFixed(2)}`}
           color="bg-yellow-600"
           icon={<svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
@@ -817,14 +992,14 @@ function CostsTab({ costStats, dashboard }: { costStats: CostStatsResponse | nul
         <KPICard
           title="Input токены"
           value={costs.total_input_tokens.toLocaleString('ru-RU')}
-          subtitle={`$${costs.input_price_per_million}/1M`}
+          subtitle={`Flash: ${(costs.flash_input_tokens ?? 0).toLocaleString('ru-RU')} / Pro: ${(costs.pro_input_tokens ?? 0).toLocaleString('ru-RU')}`}
           color="bg-purple-600"
           icon={<svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" /></svg>}
         />
         <KPICard
           title="Output токены"
           value={costs.total_output_tokens.toLocaleString('ru-RU')}
-          subtitle={`$${costs.output_price_per_million}/1M`}
+          subtitle={`Flash: ${(costs.flash_output_tokens ?? 0).toLocaleString('ru-RU')} / Pro: ${(costs.pro_output_tokens ?? 0).toLocaleString('ru-RU')}`}
           color="bg-green-600"
           icon={<svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>}
         />
@@ -851,23 +1026,34 @@ function CostsTab({ costStats, dashboard }: { costStats: CostStatsResponse | nul
         {/* Pricing Info */}
         <div className="bg-white rounded-lg p-6 shadow-sm border border-slate-200">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Тарификация Gemini</h3>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
-              <p className="text-slate-500 text-sm mb-1">Gemini Flash 2.0</p>
-              <div className="flex justify-between">
-                <span className="text-slate-600">Input токены</span>
-                <span className="text-slate-800">${costs.input_price_per_million} / 1M</span>
+              <p className="text-slate-700 text-sm font-semibold mb-2">Gemini 2.5 Flash <span className="text-slate-400 font-normal">— перевод</span></p>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">Input</span>
+                <span className="text-slate-700">${costs.flash_input_price ?? 0.30} / 1M</span>
               </div>
-              <div className="flex justify-between mt-1">
-                <span className="text-slate-600">Output токены</span>
-                <span className="text-slate-800">${costs.output_price_per_million} / 1M</span>
+              <div className="flex justify-between text-sm mt-1">
+                <span className="text-slate-500">Output</span>
+                <span className="text-slate-700">${costs.flash_output_price ?? 2.50} / 1M</span>
               </div>
             </div>
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-blue-600 text-sm">
-                Цены актуальны на момент настройки системы. Проверяйте актуальные тарифы на{' '}
-                <a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-800">
-                  Google AI
+            <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+              <p className="text-slate-700 text-sm font-semibold mb-2">Gemini 2.5 Pro <span className="text-slate-400 font-normal">— отчёты, анализ</span></p>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">Input</span>
+                <span className="text-slate-700">${costs.pro_input_price ?? 1.25} / 1M</span>
+              </div>
+              <div className="flex justify-between text-sm mt-1">
+                <span className="text-slate-500">Output</span>
+                <span className="text-slate-700">${costs.pro_output_price ?? 10.00} / 1M</span>
+              </div>
+            </div>
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-blue-600 text-xs">
+                Стоимость считается точно по каждой модели из usage_metadata Gemini API.{' '}
+                <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-800">
+                  Актуальные тарифы
                 </a>
               </p>
             </div>

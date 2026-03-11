@@ -24,4 +24,4 @@ else
     PYTHON="python"
 fi
 
-exec $PYTHON deploy/scripts/seed_projects.py "$@"
+exec $PYTHON scripts/db_seed/seed_projects.py "$@"

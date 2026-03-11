@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { Loader2, PlayCircle, Check, X, Mail, Calendar, LogIn, Shield } from 'lucide-react';
+import { Loader2, PlayCircle, Check, X, Mail, Calendar, LogIn, Shield, EyeOff, Users, ChevronRight } from 'lucide-react';
 import { FileDropzone } from '../components/FileDropzone';
 import { ArtifactOptions, defaultArtifactState } from '../components/ArtifactOptions';
 import { LanguageSelector, defaultLanguages } from '../components/LanguageSelector';
 import { MeetingTypeSelector } from '../components/MeetingTypeSelector';
-import { ParticipantSelector } from '../components/ParticipantSelector';
+import { ParticipantModal } from '../components/ParticipantModal';
 import type { ArtifactState } from '../components/ArtifactOptions';
-import { createTranscription, validateProjectCode } from '../api/client';
+import { createTranscription, validateProjectCode, getProjectContractors } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
 
 // Login prompt component for unauthenticated users
@@ -110,15 +110,36 @@ export function UploadPage() {
   const [meetingDate, setMeetingDate] = useState('');
   // Use active_domain (from domain switcher) or fall back to first domain or 'construction'
   const userDomain = user?.active_domain || user?.domain || (user?.domains?.[0]) || 'construction';
-  const showMeetingTypeSelector = userDomain !== 'construction';
-  // For construction, show project code; for HR/IT, project code is optional
-  const showProjectCodeRequired = userDomain === 'construction';
+  const showMeetingTypeSelector = userDomain !== 'construction' && userDomain !== 'fta';
+  // For construction and FTA, show project code input
+  const showProjectCodeRequired = userDomain === 'construction' || userDomain === 'fta';
+
+  // Reset invalid artifacts when domain changes
+  useEffect(() => {
+    setArtifacts((prev) => {
+      const next = { ...prev };
+      // summary is only valid for construction/fta
+      if (!showProjectCodeRequired && next.summary) {
+        next.summary = false;
+      }
+      // risk_brief is always generated automatically — no user toggle needed
+      return next;
+    });
+  }, [userDomain]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Email notification (optional)
   const [notifyEmails, setNotifyEmails] = useState('');
 
+  // Private record (hidden from department calendar)
+  const [isPrivate, setIsPrivate] = useState(false);
+
+  // Upload progress tracking
+  const [uploadProgress, setUploadProgress] = useState(0);
+
   // Meeting participants
   const [selectedParticipants, setSelectedParticipants] = useState<number[]>([]);
+  const [showParticipantModal, setShowParticipantModal] = useState(false);
+  const [participantSummary, setParticipantSummary] = useState('');
 
   // Validate project code when it changes
   useEffect(() => {
@@ -140,6 +161,23 @@ export function UploadPage() {
       setCodeValidation(null);
     }
   }, [projectCode, isAuthenticated]);
+
+  // Update participant summary when selection changes
+  useEffect(() => {
+    if (!codeValidation?.valid || selectedParticipants.length === 0) {
+      setParticipantSummary('');
+      return;
+    }
+    // Fetch contractors to build summary
+    getProjectContractors(projectCode).then((contractors) => {
+      const parts: string[] = [];
+      for (const c of contractors) {
+        const count = c.persons.filter((p) => selectedParticipants.includes(p.id)).length;
+        if (count > 0) parts.push(`${c.organization_name} (${count})`);
+      }
+      setParticipantSummary(parts.join(', '));
+    }).catch(() => setParticipantSummary(`${selectedParticipants.length} чел.`));
+  }, [selectedParticipants, codeValidation?.valid, projectCode]);
 
   const handleCodeChange = (value: string) => {
     // Only allow digits, max 4
@@ -173,12 +211,14 @@ export function UploadPage() {
         throw new Error('Invalid project code');
       }
 
+      setUploadProgress(0);
       const response = await createTranscription(file, {
         languages: languages.join(','),
         domain: userDomain,  // Pass current domain
         generate_transcript: artifacts.transcript,
         generate_tasks: artifacts.tasks,
         generate_report: artifacts.report,
+        generate_summary: artifacts.summary,
         generate_risk_brief: userDomain === 'construction',  // Risk brief only for construction
         // Only send project_code if it's valid (for construction or if manually entered for other domains)
         project_code: codeValidation?.valid ? projectCode : undefined,
@@ -186,12 +226,17 @@ export function UploadPage() {
         meeting_date: meetingDate || undefined,
         notify_emails: notifyEmails.trim() || undefined,
         participant_ids: selectedParticipants.length > 0 ? selectedParticipants : undefined,
-      });
+        is_private: isPrivate || undefined,
+      }, setUploadProgress);
 
       return response;
     },
     onSuccess: (data) => {
+      setUploadProgress(0);
       navigate(`/job/${data.job_id}`);
+    },
+    onError: () => {
+      setUploadProgress(0);
     },
   });
 
@@ -212,7 +257,7 @@ export function UploadPage() {
       <div className="bg-white rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden">
         {/* Project code section - required for construction, optional for HR/IT */}
         {showProjectCodeRequired ? (
-        <div className="px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-red-50/30">
+        <div className="px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-red-50/30" data-tour="project-code">
           <h2 className="text-sm font-semibold text-slate-800 mb-2">
             <span className="text-severin-red">1.</span> Введите код проекта и дату встречи
           </h2>
@@ -274,36 +319,64 @@ export function UploadPage() {
         </div>
         ) : null}
 
-        {/* Participant selector (for construction domain with valid code) */}
-        {showProjectCodeRequired && codeValidation?.valid && (
+        {/* Participant selector button (for construction/fta domains) */}
+        {showProjectCodeRequired && (
           <div className="px-5 py-3 border-b border-slate-100">
-            <ParticipantSelector
-              projectCode={projectCode}
-              selectedPersonIds={selectedParticipants}
-              onChange={setSelectedParticipants}
-            />
+            <button
+              type="button"
+              onClick={() => setShowParticipantModal(true)}
+              className="w-full flex items-center gap-3 px-4 py-2.5 border-2 border-dashed border-slate-300 rounded-lg text-sm text-slate-600 hover:border-severin-red hover:bg-red-50/50 hover:text-slate-800 transition-all group cursor-pointer"
+            >
+              <Users className="w-5 h-5 text-slate-400 group-hover:text-severin-red transition-colors" />
+              <span className="font-medium">Участники совещания</span>
+              {selectedParticipants.length > 0 ? (
+                <span className="bg-severin-red text-white px-2 py-0.5 rounded-full text-xs font-medium">
+                  {selectedParticipants.length}
+                </span>
+              ) : (
+                <span className="text-xs text-slate-400">необязательно</span>
+              )}
+              {participantSummary && (
+                <span className="text-xs text-slate-400 truncate ml-auto mr-1 max-w-[200px]">
+                  {participantSummary}
+                </span>
+              )}
+              <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-severin-red ml-auto transition-colors" />
+            </button>
           </div>
         )}
 
-        {/* Meeting type selector (for HR/IT domains) */}
+        {/* Participant modal */}
+        {showParticipantModal && (
+          <ParticipantModal
+            projectCode={projectCode}
+            selectedPersonIds={selectedParticipants}
+            onChange={setSelectedParticipants}
+            onClose={() => setShowParticipantModal(false)}
+          />
+        )}
+
+        {/* Meeting type selector (for non-construction domains) */}
         {showMeetingTypeSelector && (
           <div className="px-5 py-3 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-purple-50/30">
             <h2 className="text-sm font-semibold text-slate-800 mb-2">
               <span className="text-severin-red">1.</span> Выберите тип и дату встречи
             </h2>
-            <div className="flex items-center gap-4">
-              <MeetingTypeSelector
-                domain={userDomain}
-                value={meetingType}
-                onChange={setMeetingType}
-              />
-              <div className="relative">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <MeetingTypeSelector
+                  domain={userDomain}
+                  value={meetingType}
+                  onChange={setMeetingType}
+                />
+              </div>
+              <div className="relative flex-shrink-0">
                 <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                 <input
                   type="date"
                   value={meetingDate}
                   onChange={(e) => setMeetingDate(e.target.value)}
-                  className="w-40 pl-10 pr-3 py-2 border-2 border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent"
+                  className="w-44 pl-10 pr-3 py-2 border-2 border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent"
                 />
               </div>
             </div>
@@ -311,7 +384,7 @@ export function UploadPage() {
         )}
 
         {/* File upload section */}
-        <div className="px-5 py-3 border-b border-slate-100">
+        <div className="px-5 py-3 border-b border-slate-100" data-tour="dropzone">
           <h2 className="text-sm font-semibold text-slate-800 mb-2">
             <span className="text-severin-red">2.</span> Загрузите аудио или видео файл
           </h2>
@@ -331,11 +404,15 @@ export function UploadPage() {
         </div>
 
         {/* Artifact options */}
-        <div className="px-5 py-3 border-b border-slate-100">
+        <div className="px-5 py-3 border-b border-slate-100" data-tour="artifact-options">
           <h2 className="text-sm font-semibold text-slate-800 mb-2">
             <span className="text-severin-red">4.</span> Выберите документы для генерации
           </h2>
-          <ArtifactOptions value={artifacts} onChange={setArtifacts} />
+          <ArtifactOptions
+            value={artifacts}
+            onChange={setArtifacts}
+            showSummary={showProjectCodeRequired}
+          />
         </div>
 
         {/* Email notification (optional) */}
@@ -358,6 +435,31 @@ export function UploadPage() {
             Укажите email-адреса через запятую для получения готовых отчётов
           </p>
         </div>
+
+        {/* Private record toggle — only for DCT and Business domains */}
+        {isAuthenticated && (userDomain === 'dct' || userDomain === 'business') && (
+          <div className="px-5 py-3 border-b border-slate-100">
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <div
+                className={`relative w-9 h-5 rounded-full transition-colors ${
+                  isPrivate ? 'bg-severin-red' : 'bg-slate-300'
+                }`}
+                onClick={() => setIsPrivate(!isPrivate)}
+              >
+                <div
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                    isPrivate ? 'translate-x-4' : ''
+                  }`}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <EyeOff className={`w-4 h-4 ${isPrivate ? 'text-severin-red' : 'text-slate-400'}`} />
+                <span className="text-sm font-medium text-slate-700">Личная запись</span>
+              </div>
+              <span className="text-xs text-slate-400 ml-auto">Видна только вам</span>
+            </label>
+          </div>
+        )}
 
         {/* Submit section */}
         <div className="px-5 py-4 bg-gradient-to-r from-slate-50 to-red-50/50">
@@ -398,7 +500,7 @@ export function UploadPage() {
             {mutation.isPending ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                Загрузка...
+                Загрузка... {uploadProgress > 0 && uploadProgress < 100 ? `${uploadProgress}%` : ''}
               </>
             ) : (
               <>
@@ -407,6 +509,21 @@ export function UploadPage() {
               </>
             )}
           </button>
+
+          {/* Upload progress bar */}
+          {mutation.isPending && uploadProgress > 0 && (
+            <div className="mt-3">
+              <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-severin-red rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <p className="text-xs text-slate-500 mt-1 text-center">
+                {uploadProgress < 100 ? `Загрузка файла: ${uploadProgress}%` : 'Файл загружен, обработка...'}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

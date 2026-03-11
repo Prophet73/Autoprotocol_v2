@@ -20,6 +20,9 @@ from sqlalchemy import (
     Table,
     Column,
     JSON,
+    UniqueConstraint,
+    CheckConstraint,
+    Index,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -73,13 +76,24 @@ class UserRole(str, Enum):
     SUPERUSER = "superuser"
 
 
-class Domain(str, Enum):
-    """Available domains for role assignment."""
-    CONSTRUCTION = "construction"
-    HR = "hr"
-    IT = "it"
-    DCT = "dct"
-    GENERAL = "general"
+def _build_domain_enum() -> type:
+    """Build Domain enum dynamically from registry."""
+    try:
+        from backend.domains.registry import DOMAINS
+        members = {d_id.upper(): d_id for d_id in DOMAINS}
+    except Exception:
+        # Fallback if registry not ready (migrations, tests)
+        members = {
+            "CONSTRUCTION": "construction",
+            "DCT": "dct",
+            "FTA": "fta",
+            "BUSINESS": "business",
+            "CEO": "ceo",
+        }
+    return Enum("Domain", members, type=str)
+
+
+Domain = _build_domain_enum()
 
 
 class Tenant(Base):
@@ -111,7 +125,7 @@ class Tenant(Base):
     users: Mapped[list["User"]] = relationship(
         "User",
         back_populates="tenant",
-        lazy="selectin"
+        lazy="select"
     )
 
     def __repr__(self) -> str:
@@ -192,7 +206,7 @@ class User(Base):
     error_logs: Mapped[list["ErrorLog"]] = relationship(
         "ErrorLog",
         back_populates="user",
-        lazy="selectin"
+        lazy="select"
     )
     domain_assignments: Mapped[list["UserDomainAssignment"]] = relationship(
         "UserDomainAssignment",
@@ -280,6 +294,9 @@ class UserDomainAssignment(Base):
     Allows users to have access to multiple domains (construction, hr, it).
     """
     __tablename__ = "user_domain_assignments"
+    __table_args__ = (
+        UniqueConstraint("user_id", "domain", name="uq_user_domain"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(
@@ -320,6 +337,9 @@ class UserProjectAccessRecord(Base):
     Similar to Autoprotokol's UserProjectAccess.
     """
     __tablename__ = "user_project_access_records"
+    __table_args__ = (
+        UniqueConstraint("user_id", "project_id", name="uq_user_project"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(
@@ -388,6 +408,14 @@ class TranscriptionJob(Base):
         completed_at: Processing completion timestamp
     """
     __tablename__ = "transcription_jobs"
+    __table_args__ = (
+        Index("idx_job_user_status_created", "user_id", "status", "created_at"),
+        Index("idx_job_status_created", "status", "created_at"),
+        CheckConstraint(
+            "status IN ('pending','queued','processing','completed','failed','expired')",
+            name="ck_job_status",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     job_id: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
@@ -406,11 +434,6 @@ class TranscriptionJob(Base):
         nullable=True,
         index=True
     )
-    guest_uid: Mapped[Optional[str]] = mapped_column(
-        String(64),
-        nullable=True,
-        index=True
-    )
     tenant_id: Mapped[Optional[int]] = mapped_column(
         Integer,
         ForeignKey("tenants.id", ondelete="SET NULL"),
@@ -426,6 +449,9 @@ class TranscriptionJob(Base):
         index=True
     )
 
+    # Visibility
+    is_private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
+
     # Source file info
     source_filename: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     source_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -439,6 +465,12 @@ class TranscriptionJob(Base):
     # AI token usage (for cost calculation)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Per-model token breakdown (Flash = translate, Pro = reports/analysis)
+    flash_input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    flash_output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    pro_input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    pro_output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
 
     # Artifacts generated (JSON: {transcript: true, tasks: true, report: false, analysis: false})
     artifacts: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)

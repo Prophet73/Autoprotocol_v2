@@ -3,26 +3,24 @@ Shared BasicReport generator - single LLM call for both Excel and Word reports.
 """
 
 import os
-import json
 import logging
-from datetime import datetime
-
-from google import genai
+from datetime import datetime, timezone
 
 from backend.core.transcription.models import TranscriptionResult
 from backend.domains.construction.schemas import BasicReport
-from backend.domains.construction.prompts import CONSTRUCTION_PROMPTS
-from backend.domains.construction.generators.llm_utils import run_llm_call
+from backend.domains.construction.prompts import BASIC_REPORT_SYSTEM, BASIC_REPORT_USER, format_participants_for_prompt
+from backend.core.llm.llm_utils import run_llm_call, strip_markdown_json
+from backend.core.llm.client import get_llm_client
 
 
-# Model for reports (pro for quality)
-REPORT_MODEL = os.getenv("GEMINI_REPORT_MODEL", "gemini-2.5-pro")
+from backend.shared.config import REPORT_MODEL as _DEFAULT_REPORT_MODEL
 logger = logging.getLogger(__name__)
 
 
 def get_basic_report(
     result: TranscriptionResult,
     meeting_date: str = None,
+    participants: list = None,
 ) -> BasicReport:
     """
     Generate BasicReport from transcription via LLM.
@@ -33,12 +31,14 @@ def get_basic_report(
     Args:
         result: TranscriptionResult from pipeline
         meeting_date: Optional meeting date (YYYY-MM-DD format)
+        participants: Optional list of participants grouped by organization
 
     Returns:
         BasicReport with meeting analysis and tasks
     """
-    # Get transcript text
-    transcript_text = result.to_plain_text()
+    # Get transcript text (sanitize to prevent prompt injection)
+    from backend.core.llm.llm_utils import sanitize_transcript_for_llm
+    transcript_text = sanitize_transcript_for_llm(result.to_plain_text())
 
     # Check if Gemini is configured
     if not os.getenv("GOOGLE_API_KEY"):
@@ -58,69 +58,52 @@ def get_basic_report(
         except ValueError:
             meeting_date_formatted = meeting_date
     else:
-        meeting_date_formatted = datetime.now().strftime("%d.%m.%Y")
+        meeting_date_formatted = datetime.now(timezone.utc).strftime("%d.%m.%Y")
 
-    return _extract_basic_report_via_llm(transcript_text, meeting_date_formatted)
+    return _extract_basic_report_via_llm(transcript_text, meeting_date_formatted, participants)
 
 
-def _extract_basic_report_via_llm(transcript_text: str, meeting_date: str) -> BasicReport:
+def _extract_basic_report_via_llm(transcript_text: str, meeting_date: str, participants: list = None) -> BasicReport:
     """Extract BasicReport from transcript using LLM."""
-    client = genai.Client()
 
-    # Get prompts from config
-    reports_prompts = CONSTRUCTION_PROMPTS.get("reports", {})
-    basic_prompts = reports_prompts.get("basic_report", {})
+    # Format participants for prompt
+    participants_text = format_participants_for_prompt(participants)
+    participants_block = (
+        f"\nУчастники совещания:\n{participants_text}\nИспользуй эти данные для поля responsible в задачах.\n"
+        if participants_text else ""
+    )
 
-    system_prompt = basic_prompts.get("system", CONSTRUCTION_PROMPTS.get("system", ""))
-    user_prompt_template = basic_prompts.get("user", "")
-
-    if not user_prompt_template:
-        # Fallback prompt
-        user_prompt_template = """
-Проанализируй стенограмму совещания и извлеки:
-1. Тип совещания (production/working/negotiation/inspection)
-2. Краткое содержание (2-3 предложения)
-3. Экспертный анализ (1-2 предложения)
-4. Список задач с категориями
-
-Дата совещания: {meeting_date}
-
-Стенограмма:
-{transcript}
-
-Ответь в формате JSON согласно схеме BasicReport.
-"""
-
-    # Format prompt with variables
-    full_prompt = user_prompt_template.format(
+    # Format user prompt with variables
+    full_prompt = BASIC_REPORT_USER.format(
         transcript=transcript_text,
         meeting_date=meeting_date,
+        participants_info=participants_block,
     )
+
+    def _make_call(model: str):
+        return lambda: get_llm_client().generate_content(
+            model=model,
+            contents=full_prompt,
+            system_instruction=BASIC_REPORT_SYSTEM,
+            response_mime_type="application/json",
+            response_schema=BasicReport,
+        )
+
+    from backend.admin.settings.service import get_setting_value
+    report_model = get_setting_value("gemini_report_model", _DEFAULT_REPORT_MODEL)
 
     try:
         response = run_llm_call(
-            lambda: client.models.generate_content(
-                model=REPORT_MODEL,
-                contents=[system_prompt, full_prompt] if system_prompt else full_prompt,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_schema": BasicReport.model_json_schema(),
-                },
-            )
+            _make_call(report_model),
+            model_name=report_model,
+            make_call=_make_call,
         )
 
-        # Parse response
-        report_data = json.loads(response.text)
-        basic_report = BasicReport.model_validate(report_data)
+        basic_report = BasicReport.model_validate_json(strip_markdown_json(response.text))
 
         logger.info(f"BasicReport generated: {len(basic_report.tasks)} tasks extracted")
         return basic_report
 
     except Exception as e:
         logger.warning("LLM BasicReport extraction failed: %s", e)
-        return BasicReport(
-            meeting_type="production",
-            meeting_summary="Ошибка извлечения данных через LLM",
-            expert_analysis=str(e),
-            tasks=[],
-        )
+        raise

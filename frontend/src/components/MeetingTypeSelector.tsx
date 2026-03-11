@@ -1,11 +1,11 @@
 /**
  * Meeting Type Selector Component
  *
- * Displays a dropdown to select meeting type based on user's domain.
- * Only shown for HR and IT domains (construction has no choice).
+ * Dropdown selector for meeting type based on user's domain.
+ * Shows name and description for each option.
  */
 import { useState, useEffect } from 'react';
-import { ChevronDown, Briefcase } from 'lucide-react';
+import { ChevronDown, Briefcase, Check, Loader2 } from 'lucide-react';
 import { getMeetingTypes } from '../api/client';
 import type { MeetingTypeInfo } from '../api/client';
 
@@ -56,27 +56,32 @@ export function MeetingTypeSelector({ domain, value, onChange }: MeetingTypeSele
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         disabled={isLoading || meetingTypes.length === 0}
-        className="w-full flex items-center justify-between gap-2 px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-left hover:border-severin-red focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full h-10 flex items-center justify-between gap-2 px-4 bg-white border border-slate-300 rounded-lg text-left hover:border-severin-red focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <div className="flex items-center gap-2">
-          <Briefcase className="w-4 h-4 text-slate-400" />
-          <span className={selectedType ? 'text-slate-800' : 'text-slate-400'}>
-            {isLoading ? 'Загрузка...' : (selectedType?.name || 'Выберите тип встречи')}
-          </span>
+        <div className="flex items-center gap-2 min-w-0">
+          <Briefcase className="w-4 h-4 text-slate-400 flex-shrink-0" />
+          {isLoading ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
+              <span className="text-slate-400 text-sm">Загрузка...</span>
+            </div>
+          ) : selectedType ? (
+            <span className="text-sm text-slate-800 truncate">{selectedType.name}</span>
+          ) : (
+            <span className="text-slate-400 text-sm">Выберите тип встречи</span>
+          )}
         </div>
-        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && meetingTypes.length > 0 && (
         <>
-          {/* Backdrop */}
           <div
             className="fixed inset-0 z-10"
             onClick={() => setIsOpen(false)}
           />
 
-          {/* Dropdown */}
-          <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+          <div className="absolute z-20 left-0 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
             {meetingTypes.map((type) => (
               <button
                 key={type.id}
@@ -85,13 +90,21 @@ export function MeetingTypeSelector({ domain, value, onChange }: MeetingTypeSele
                   onChange(type.id);
                   setIsOpen(false);
                 }}
-                className={`w-full px-4 py-2.5 text-left hover:bg-slate-50 transition-colors ${
-                  type.id === value
-                    ? 'bg-red-50 text-severin-red font-medium'
-                    : 'text-slate-700'
+                className={`w-full px-4 py-2.5 text-left hover:bg-slate-50 transition-colors flex items-center justify-between ${
+                  type.id === value ? 'bg-red-50' : ''
                 }`}
               >
-                {type.name}
+                <div>
+                  <div className={`text-sm ${type.id === value ? 'text-severin-red font-medium' : 'text-slate-700'}`}>
+                    {type.name}
+                  </div>
+                  {type.description && (
+                    <div className="text-xs text-slate-400">{type.description}</div>
+                  )}
+                </div>
+                {type.id === value && (
+                  <Check className="w-4 h-4 text-severin-red flex-shrink-0" />
+                )}
               </button>
             ))}
           </div>

@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { authApi } from '../../api/adminApi';
 import { useAuthStore } from '../../stores/authStore';
+import { getApiErrorMessage, getApiErrorStatus } from '../../utils/errorMessage';
 import {
   getAvailableSSOProviders,
   getSSOProviderInfo,
   initiateSSOLogin,
   type SSOProvider,
 } from '../../utils/ssoAuth';
+import { clearExplicitLogout, wasExplicitLogout } from '../../utils/tokenExpiry';
+
 
 // SSO Provider Icons
 function SSOProviderIcon({ provider }: { provider: SSOProvider }) {
@@ -57,28 +60,6 @@ function SSOProviderIcon({ provider }: { provider: SSOProvider }) {
   }
 }
 
-// Dev role badge colors
-const ROLE_COLORS: Record<string, string> = {
-  superuser: 'bg-purple-100 text-purple-700 border-purple-300',
-  admin: 'bg-red-100 text-red-700 border-red-300',
-  manager: 'bg-blue-100 text-blue-700 border-blue-300',
-  user: 'bg-green-100 text-green-700 border-green-300',
-};
-
-// Domain badge colors
-const DOMAIN_COLORS: Record<string, string> = {
-  construction: 'bg-orange-100 text-orange-700',
-  hr: 'bg-pink-100 text-pink-700',
-  it: 'bg-cyan-100 text-cyan-700',
-};
-
-interface DevUser {
-  email: string;
-  role: string;
-  is_superuser: boolean;
-  full_name: string | null;
-  domain?: string;
-}
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -95,12 +76,7 @@ export default function LoginPage() {
 
   const ssoOnly = import.meta.env.VITE_SSO_ONLY === 'true';
 
-  // Dev tools state
-  const [devEnabled, setDevEnabled] = useState(false);
-  const [devUsers, setDevUsers] = useState<DevUser[]>([]);
-  const [devLoading, setDevLoading] = useState<string | null>(null);
-
-  // Check for available SSO providers and dev mode on mount
+  // Check for available SSO providers on mount
   useEffect(() => {
     const providers = getAvailableSSOProviders();
     setSsoProviders(providers);
@@ -125,25 +101,15 @@ export default function LoginPage() {
     // Skip if there's an error in URL (returning from failed SSO)
     const params = new URLSearchParams(location.search);
     const hasError = params.get('error');
-    const skipAutoRedirect = params.get('manual') === 'true';
+    const skipAutoRedirect = params.get('manual') === 'true' || wasExplicitLogout();
 
-    if (!hasError && !skipAutoRedirect && (providers.includes('hub') || ssoProviders.includes('hub'))) {
+    if (!hasError && !skipAutoRedirect && providers.includes('hub')) {
       // Auto-redirect to Hub SSO (if SSO-only mode or hub is primary)
       if (ssoOnly || providers.length === 1) {
         initiateSSOLogin('hub');
         return;
       }
     }
-
-    // Check if dev mode is enabled and get users
-    authApi.devGetUsers().then((res) => {
-      setDevEnabled(res.enabled);
-      if (res.enabled && res.users) {
-        setDevUsers(res.users);
-      }
-    }).catch(() => {
-      setDevEnabled(false);
-    });
   }, []);
 
   // Check for redirect back from SSO with error
@@ -156,41 +122,9 @@ export default function LoginPage() {
   }, [location]);
 
   const handleSSOLogin = (provider: SSOProvider) => {
+    clearExplicitLogout();
     setSsoLoading(provider);
     initiateSSOLogin(provider);
-  };
-
-  // Dev login handler - can login by role (creates user) or email (existing user)
-  const handleDevLogin = async (roleOrEmail: string) => {
-    setError('');
-    setDevLoading(roleOrEmail);
-
-    try {
-      // Get token via dev login
-      const tokenResponse = await authApi.devLogin(roleOrEmail);
-
-      // Store token
-      setToken(tokenResponse.access_token);
-
-      // Get user info
-      const userInfo = await authApi.getMe();
-
-      // Store auth data
-      login(tokenResponse.access_token, userInfo);
-
-      // Redirect based on role
-      if (userInfo.is_superuser || userInfo.role === 'admin') {
-        navigate('/admin');
-      } else if (userInfo.role === 'manager' || userInfo.role === 'viewer') {
-        navigate('/dashboard');
-      } else {
-        navigate('/');
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Dev login failed');
-    } finally {
-      setDevLoading(null);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -219,17 +153,15 @@ export default function LoginPage() {
       }
 
       // Store auth data
-      login(tokenResponse.access_token, userInfo);
+      login(tokenResponse.access_token, userInfo, tokenResponse.refresh_token ?? undefined);
 
       // Redirect to admin dashboard
       navigate('/admin');
-    } catch (err: any) {
-      if (err.response?.status === 401) {
+    } catch (err) {
+      if (getApiErrorStatus(err) === 401) {
         setError('Неверный email или пароль');
-      } else if (err.response?.data?.detail) {
-        setError(err.response.data.detail);
       } else {
-        setError('Ошибка входа. Попробуйте позже.');
+        setError(getApiErrorMessage(err, 'Ошибка входа. Попробуйте позже.'));
       }
     } finally {
       setLoading(false);
@@ -364,89 +296,6 @@ export default function LoginPage() {
             </>
           )}
 
-          {/* Dev Tools (only in development) */}
-          {devEnabled && (
-            <>
-              <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-orange-200"></div>
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-orange-500 font-medium">🛠️ Dev Tools</span>
-                </div>
-              </div>
-
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                {/* Quick role buttons */}
-                <p className="text-xs text-orange-600 mb-2">Быстрый вход по роли:</p>
-                <div className="flex gap-2 mb-3">
-                  {['admin', 'manager', 'user'].map((role) => (
-                    <button
-                      key={role}
-                      onClick={() => handleDevLogin(role)}
-                      disabled={!!devLoading}
-                      className={`flex-1 py-2 px-3 text-sm font-medium rounded-md border transition disabled:opacity-50 ${
-                        ROLE_COLORS[role === 'admin' ? 'superuser' : role] || 'bg-gray-100'
-                      } hover:opacity-80`}
-                    >
-                      {devLoading === role ? '...' : role}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Existing users from DB */}
-                {devUsers.length > 0 && (
-                  <>
-                    <p className="text-xs text-orange-600 mb-2">Существующие пользователи:</p>
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {devUsers.map((user) => {
-                        const roleKey = user.is_superuser ? 'superuser' : user.role;
-                        return (
-                          <button
-                            key={user.email}
-                            onClick={() => handleDevLogin(user.email)}
-                            disabled={!!devLoading}
-                            className="w-full p-2 text-left bg-white border border-orange-200 rounded-md hover:bg-orange-100 transition disabled:opacity-50"
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-slate-800 truncate">
-                                  {user.full_name || user.email}
-                                </p>
-                                <p className="text-xs text-slate-500 truncate">{user.email}</p>
-                              </div>
-                              <div className="flex gap-1 ml-2">
-                                <span className={`px-2 py-0.5 text-xs rounded ${ROLE_COLORS[roleKey] || ROLE_COLORS.user}`}>
-                                  {user.is_superuser ? 'Super' : user.role}
-                                </span>
-                                {user.domain && (
-                                  <span className={`px-2 py-0.5 text-xs rounded ${DOMAIN_COLORS[user.domain] || 'bg-gray-100 text-gray-700'}`}>
-                                    {user.domain}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            {devLoading === user.email && (
-                              <div className="mt-1">
-                                <div className="h-1 bg-orange-200 rounded overflow-hidden">
-                                  <div className="h-full bg-orange-500 animate-pulse w-full"></div>
-                                </div>
-                              </div>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-
-                <p className="text-xs text-orange-500 mt-3 text-center">
-                  Admin/Super → /admin | Manager → /dashboard | User → /
-                </p>
-              </div>
-            </>
-          )}
-
           {/* Back link */}
           <div className="mt-6 text-center">
             <a href="/" className="text-sm text-slate-500 hover:text-severin-red transition">
@@ -457,7 +306,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p className="text-center text-white/60 text-sm mt-8">
-          SeverinAutoprotocol v2.0
+          SeverinAutoprotocol v2.0 · Design by <span className="text-red-400">N. Khromenok</span> & <span className="text-red-400">V. Vasin</span>
         </p>
       </div>
     </div>

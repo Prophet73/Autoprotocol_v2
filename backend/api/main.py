@@ -119,12 +119,12 @@ app = FastAPI(
 - WhisperX large-v3 — транскрипция
 - pyannote/speaker-diarization-3.1 — диаризация
 - KELONMYOSA/wav2vec2-xls-r-300m-emotion-ru — эмоции
-- Gemini 2.0 Flash — перевод и генерация отчётов
+- Gemini 2.5 Flash — перевод, Gemini 2.5 Pro — генерация отчётов
     """,
-    version="2.0.0",
+    version="2.1.1",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if os.getenv("ENVIRONMENT", "development") != "production" else None,
+    redoc_url="/redoc" if os.getenv("ENVIRONMENT", "development") != "production" else None,
 )
 
 # Add rate limiter to app state (if available)
@@ -134,7 +134,8 @@ if SLOWAPI_AVAILABLE and limiter:
 
 # Proxy headers middleware - trust X-Forwarded-* headers from reverse proxy
 # This is needed for correct URL generation (https vs http) behind nginx/proxy
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
+_trusted_hosts = [h.strip() for h in os.getenv("TRUSTED_PROXY_HOSTS", "127.0.0.1,172.16.0.0/12,10.0.0.0/8").split(",") if h.strip()]
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_trusted_hosts)
 
 # Error logging middleware (must be added before CORS for proper ordering)
 app.add_middleware(ErrorLoggingMiddleware)
@@ -162,7 +163,7 @@ app.add_middleware(
     allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["Content-Type", "Authorization", "X-Guest-ID", "X-Requested-With"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 # Include routers
@@ -193,7 +194,7 @@ async def root():
     """Root endpoint."""
     return {
         "service": "SeverinAutoprotocol API",
-        "version": "v2",
+        "version": app.version,
         "docs": "/docs",
     }
 

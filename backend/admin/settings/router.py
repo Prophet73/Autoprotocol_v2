@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.shared.database import get_db
+from backend.shared.database import get_db, get_db_readonly
 from backend.core.auth.dependencies import SuperUser
 from .service import SettingsService
 from .schemas import (
@@ -28,15 +28,15 @@ router = APIRouter(prefix="/settings", tags=["Админ - Настройки"])
     "/",
     response_model=SettingListResponse,
     summary="Список настроек",
-    description="Получение всех системных настроек с текущими значениями."
+    description="Все настройки: дефолты + переопределённые в БД."
 )
 async def list_settings(
     current_user: SuperUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
 ) -> SettingListResponse:
-    """Получить список всех системных настроек."""
+    """Получить список всех системных настроек (merge дефолтов и БД)."""
     service = SettingsService(db)
     return await service.list_settings(skip=skip, limit=limit)
 
@@ -50,7 +50,7 @@ async def list_settings(
 async def get_setting(
     key: str,
     current_user: SuperUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
+    db: Annotated[AsyncSession, Depends(get_db_readonly)],
 ) -> SettingResponse:
     """Получить конкретную настройку."""
     service = SettingsService(db)
@@ -68,7 +68,7 @@ async def get_setting(
     response_model=SettingResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Создать настройку",
-    description="Создание новой системной настройки."
+    description="Создание новой пользовательской настройки."
 )
 async def create_setting(
     request: CreateSettingRequest,
@@ -94,7 +94,7 @@ async def create_setting(
     "/{key}",
     response_model=SettingResponse,
     summary="Обновить настройку",
-    description="Обновление значения существующей настройки."
+    description="Обновление значения настройки (upsert для дефолтов)."
 )
 async def update_setting(
     key: str,
@@ -102,18 +102,39 @@ async def update_setting(
     current_user: SuperUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SettingResponse:
-    """Обновить настройку."""
+    """Обновить настройку (создаёт запись в БД для дефолтов при первом изменении)."""
     service = SettingsService(db)
     try:
-        setting = await service.update_setting(
+        return await service.update_setting(
             key,
             request,
             updated_by=current_user.email,
         )
-        return SettingResponse.model_validate(setting)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+
+
+@router.post(
+    "/{key}/reset",
+    response_model=SettingResponse,
+    summary="Сбросить к дефолту",
+    description="Удаляет переопределение из БД, возвращает значение по умолчанию."
+)
+async def reset_setting(
+    key: str,
+    current_user: SuperUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> SettingResponse:
+    """Сбросить настройку к значению по умолчанию."""
+    service = SettingsService(db)
+    try:
+        return await service.reset_to_default(key)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
 
@@ -122,7 +143,7 @@ async def update_setting(
     "/{key}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Удалить настройку",
-    description="Удаление системной настройки."
+    description="Удаление пользовательской настройки."
 )
 async def delete_setting(
     key: str,
@@ -160,24 +181,3 @@ async def bulk_update_settings(
         settings=[SettingResponse.model_validate(s) for s in settings],
         total=len(settings),
     )
-
-
-@router.post(
-    "/initialize",
-    response_model=dict,
-    summary="Инициализация настроек",
-    description="Создание настроек по умолчанию, если они не существуют."
-)
-async def initialize_defaults(
-    current_user: SuperUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
-    """Инициализировать настройки по умолчанию."""
-    service = SettingsService(db)
-    created = await service.initialize_defaults(
-        updated_by=current_user.email,
-    )
-    return {
-        "message": f"Initialized {created} default settings",
-        "created": created,
-    }

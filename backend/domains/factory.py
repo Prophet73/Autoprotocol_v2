@@ -2,14 +2,18 @@
 Domain Service Factory.
 
 Provides factory pattern for creating domain-specific services
-based on domain type. Used by transcription pipeline to route
-to correct domain logic after transcription completes.
+based on domain type. Service classes загружаются лениво из единого
+реестра (registry.py).
 """
+import logging
+import importlib
 from typing import Dict, Type, Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .base import BaseDomainService
+
+logger = logging.getLogger(__name__)
 
 
 class DomainServiceFactory:
@@ -17,7 +21,7 @@ class DomainServiceFactory:
     Factory for creating domain-specific services.
 
     Registers domain services and creates instances based on domain_type.
-    Used by Celery tasks to route transcription results to correct domain logic.
+    Service paths are defined in registry.py; lazy-loaded on first use.
 
     Usage:
         factory = DomainServiceFactory()
@@ -29,13 +33,7 @@ class DomainServiceFactory:
 
     @classmethod
     def register(cls, domain_type: str, service_class: Type[BaseDomainService]) -> None:
-        """
-        Register a domain service class.
-
-        Args:
-            domain_type: Domain identifier (e.g., 'construction', 'hr')
-            service_class: Service class that extends BaseDomainService
-        """
+        """Register a domain service class."""
         cls._registry[domain_type] = service_class
 
     @classmethod
@@ -48,65 +46,47 @@ class DomainServiceFactory:
         """
         Create a domain service instance.
 
-        Args:
-            domain_type: Domain identifier
-            db: Database session (optional, passed to service)
-            **kwargs: Additional arguments for service constructor
-
-        Returns:
-            Instance of domain service
-
-        Raises:
-            ValueError: If domain_type is not registered
+        Lazy-loads the service class from registry on first access.
         """
+        # Lazy-load if not yet registered
+        if domain_type not in cls._registry:
+            cls._load_from_registry(domain_type)
+
         service_class = cls._registry.get(domain_type)
-
         if not service_class:
-            available = list(cls._registry.keys())
-            raise ValueError(
-                f"Unknown domain type: '{domain_type}'. "
-                f"Available domains: {available}"
-            )
+            raise ValueError(f"Unknown domain type: '{domain_type}'")
 
-        # Pass db as llm_client placeholder if using new pattern
-        # Most domains will use kwargs for gemini_client etc.
+        if db is not None:
+            kwargs['db'] = db
         return service_class(**kwargs)
 
     @classmethod
     def get_available_domains(cls) -> list[str]:
-        """Get list of registered domain types."""
-        return list(cls._registry.keys())
+        """Get list of all domain types from registry."""
+        from .registry import get_all_domain_ids
+        return get_all_domain_ids()
 
     @classmethod
     def is_registered(cls, domain_type: str) -> bool:
         """Check if domain type is registered."""
-        return domain_type in cls._registry
+        if domain_type in cls._registry:
+            return True
+        from .registry import DOMAINS
+        return domain_type in DOMAINS
 
+    @classmethod
+    def _load_from_registry(cls, domain_type: str) -> None:
+        """Load service class from registry's service_path."""
+        from .registry import DOMAINS
+        defn = DOMAINS.get(domain_type)
+        if not defn or not defn.service_path:
+            return
 
-# Auto-register domains on import
-def _register_default_domains():
-    """Register built-in domain services."""
-    # Construction domain
-    try:
-        from .construction.service import ConstructionService
-        DomainServiceFactory.register('construction', ConstructionService)
-    except ImportError:
-        pass  # Construction domain not available
-
-    # HR domain - disabled for now
-    # try:
-    #     from .hr.service import HRService
-    #     DomainServiceFactory.register('hr', HRService)
-    # except ImportError:
-    #     pass  # HR domain not available
-
-    # DCT domain (Департамент Цифровой Трансформации)
-    try:
-        from .dct.service import DCTService
-        DomainServiceFactory.register('dct', DCTService)
-    except ImportError:
-        pass  # DCT domain not available
-
-
-# Register on module load
-_register_default_domains()
+        try:
+            module_path, class_name = defn.service_path.rsplit(":", 1)
+            module = importlib.import_module(module_path)
+            service_class = getattr(module, class_name)
+            cls._registry[domain_type] = service_class
+            logger.debug(f"Loaded domain service: {domain_type} -> {defn.service_path}")
+        except (ImportError, AttributeError) as e:
+            logger.warning(f"Domain {domain_type} service not available: {e}")

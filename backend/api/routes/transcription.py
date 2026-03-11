@@ -13,12 +13,13 @@ import os
 import re
 import uuid
 import shutil
+import asyncio
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Header, Query
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,9 +34,10 @@ from ...core.utils.file_security import validate_file_path
 from ...core.storage.job_store import JobData
 from ...core.transcription.models import JobStatus
 from ...tasks.transcription import process_transcription_task, _sync_job_to_db, _update_job_in_db, _save_domain_report
-from ...core.utils.text_extraction import is_text_file, extract_text_from_file
+from ...core.utils.text_extraction import is_text_file, extract_text_from_file, parse_transcript
 from ...shared.database import get_db
 from ...domains.construction.project_service import ProjectService
+from ...domains.base_schemas import DOMAIN_MEETING_TYPES
 from ...core.auth.dependencies import get_optional_user
 from ...shared.models import User, TranscriptionJob, UserRole
 
@@ -125,14 +127,14 @@ def validate_email_list(emails_str: Optional[str]) -> list[str]:
         if not _EMAIL_REGEX.match(email):
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid email format: {email}"
+                detail=f"Неверный формат email: {email}"
             )
 
         # Additional security: prevent email header injection
         if '\n' in email or '\r' in email:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid characters in email: {email}"
+                detail=f"Недопустимые символы в email: {email}"
             )
 
         emails.append(email)
@@ -178,6 +180,10 @@ def _complete_job(
     audio_duration_seconds: float = None,
     input_tokens: int = 0,
     output_tokens: int = 0,
+    flash_input_tokens: int = 0,
+    flash_output_tokens: int = 0,
+    pro_input_tokens: int = 0,
+    pro_output_tokens: int = 0,
     all_output_files: dict = None,
 ):
     """Пометить задачу как завершённую в хранилище и БД.
@@ -204,11 +210,16 @@ def _complete_job(
         speaker_count=speaker_count,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        flash_input_tokens=flash_input_tokens,
+        flash_output_tokens=flash_output_tokens,
+        pro_input_tokens=pro_input_tokens,
+        pro_output_tokens=pro_output_tokens,
         artifacts={
             "transcript": "transcript" in artifacts_source,
             "tasks": "tasks" in artifacts_source,
             "report": "report" in artifacts_source,
-            "analysis": "analysis" in artifacts_source,
+            "risk_brief": "risk_brief" in artifacts_source,
+            "summary": "summary" in artifacts_source,
         },
     )
 
@@ -267,18 +278,18 @@ async def create_transcription(
     meeting_type: Optional[str] = Form(default=None, description="Тип встречи (brainstorm, production, и т.д.)"),
     # Meeting date (optional)
     meeting_date: Optional[str] = Form(default=None, description="Дата встречи (YYYY-MM-DD)"),
-    # Guest ID for anonymous users (from X-Guest-ID header)
-    x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-ID", description="UUID гостя для анонимной загрузки"),
     # Domain artifact options (ДПУ)
     generate_transcript: bool = Form(default=True, description="Создать транскрипт (transcript.docx)"),
     generate_tasks: bool = Form(default=False, description="Извлечь задачи через LLM (tasks.xlsx)"),
     generate_report: bool = Form(default=False, description="Создать отчёт через LLM (report.docx)"),
-    generate_analysis: bool = Form(default=False, description="Генерировать менеджерский бриф для дашборда"),
     generate_risk_brief: bool = Form(default=False, description="Создать риск-бриф (risk_brief.pdf)"),
+    generate_summary: bool = Form(default=False, description="Создать конспект (summary.docx)"),
     # Email notification
     notify_emails: Optional[str] = Form(default=None, description="Email адреса для уведомления (через запятую)"),
     # Meeting participants (person IDs, comma-separated)
     participant_ids: Optional[str] = Form(default=None, description="ID участников совещания через запятую"),
+    # Private job (visible only to uploader, hidden from domain scope)
+    is_private: bool = Form(default=False, description="Личная запись — не отображать в общем календаре департамента"),
 ):
     """
     ## Загрузка файла и запуск транскрипции
@@ -304,6 +315,9 @@ async def create_transcription(
 
     Возвращает `job_id` для отслеживания прогресса.
     """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+
     store = get_store()
 
     # Generate job ID
@@ -325,7 +339,7 @@ async def create_transcription(
         if not validation.valid:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid project code: {validation.message}"
+                detail=f"Неверный код проекта: {validation.message}"
             )
         project_id = validation.project_id
         tenant_id = validation.tenant_id
@@ -334,29 +348,60 @@ async def create_transcription(
         logger.info(f"Job linked to project {project_id} ({project_name}) via code {project_code}")
 
     # Determine uploader identity
-    uploader_id = current_user.id if current_user else None
-    # Use guest_uid only for anonymous users
-    guest_uid = x_guest_id if not current_user else None
+    uploader_id = current_user.id
 
     # Create directories
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Save uploaded file
+    # Validate file extension
+    ALLOWED_EXTENSIONS = {
+        '.wav', '.mp3', '.flac', '.ogg', '.m4a', '.wma', '.aac',
+        '.mp4', '.mkv', '.avi', '.mov', '.webm', '.wmv',
+        '.txt', '.docx',
+    }
+    from backend.core.utils.file_security import sanitize_filename
+    safe_filename = sanitize_filename(file.filename or "unnamed_file")
+    file_ext = Path(safe_filename).suffix.lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Неподдерживаемый формат файла: {file_ext}")
+
+    # Validate file size — read from DB (admin override) with config fallback
+    from backend.shared.config import MAX_FILE_SIZE_MB as _DEFAULT_MAX_SIZE
+    from backend.admin.settings.service import SettingsService
+    settings_svc = SettingsService(db)
+    max_size_str = await settings_svc.get_value("max_file_size_mb", default=str(_DEFAULT_MAX_SIZE))
+    MAX_FILE_SIZE_MB = int(max_size_str)
+    MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+
+    # Save uploaded file with sanitized name
     job_upload_dir = UPLOAD_DIR / job_id
     job_upload_dir.mkdir(parents=True, exist_ok=True)
 
-    input_file = job_upload_dir / file.filename
-    with open(input_file, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    input_file = job_upload_dir / safe_filename
 
-    logger.info(f"File uploaded: {input_file}")
+    def _save_upload():
+        with open(input_file, "wb") as f:
+            shutil.copyfileobj(file.file, f)
 
-    # Manager brief is always generated for construction domain
-    generate_analysis_effective = (domain_type or "construction") == "construction"
+    await asyncio.to_thread(_save_upload)
+
+    # Check file size after save
+    actual_size = input_file.stat().st_size
+    if actual_size > MAX_FILE_SIZE_BYTES:
+        input_file.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=413,
+            detail=f"Файл слишком большой: {actual_size // (1024*1024)}MB (максимум {MAX_FILE_SIZE_MB}MB)"
+        )
+    if actual_size == 0:
+        input_file.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Загруженный файл пустой")
+
+    logger.info(f"File uploaded: {input_file} ({actual_size // 1024}KB)")
 
     # Create job record in Redis
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     # Parse and validate notify emails
     notify_emails_list = validate_email_list(notify_emails)
 
@@ -365,11 +410,23 @@ async def create_transcription(
     if participant_ids:
         try:
             participant_ids_list = [int(pid.strip()) for pid in participant_ids.split(",") if pid.strip()]
-            logger.info(f"[DEBUG] Parsed participant_ids: {participant_ids} -> {participant_ids_list}")
+            logger.debug(f" Parsed participant_ids: {participant_ids} -> {participant_ids_list}")
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid participant_ids format")
+            raise HTTPException(status_code=400, detail="Неверный формат списка участников")
     else:
-        logger.info("[DEBUG] No participant_ids provided in form data")
+        logger.debug(" No participant_ids provided in form data")
+
+    # Auto-fill meeting date from file metadata if not provided
+    effective_meeting_date = meeting_date
+    if not effective_meeting_date:
+        # Try to extract from media file internal metadata (creation_time)
+        effective_meeting_date = _extract_media_creation_date(input_file)
+        if effective_meeting_date:
+            logger.info(f"Auto-filled meeting date from media metadata: {effective_meeting_date}")
+        else:
+            # Fallback: use current date (file mtime is upload time, not original)
+            effective_meeting_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            logger.info(f"Using current date as meeting date: {effective_meeting_date}")
 
     job_data = JobData(
         job_id=job_id,
@@ -382,7 +439,8 @@ async def create_transcription(
         project_code=project_code,
         tenant_id=tenant_id,
         domain_type=domain_type,
-        guest_uid=guest_uid,
+        meeting_type=meeting_type,
+        meeting_date=effective_meeting_date,
         uploader_id=uploader_id,
         skip_diarization=skip_diarization,
         skip_translation=skip_translation,
@@ -390,56 +448,48 @@ async def create_transcription(
         generate_transcript=generate_transcript,
         generate_tasks=generate_tasks,
         generate_report=generate_report,
-        generate_analysis=generate_analysis_effective,
         generate_risk_brief=generate_risk_brief,
+        generate_summary=generate_summary,
         notify_emails=notify_emails_list,
     )
 
     store.create(job_data)
 
-    # Create TranscriptionJob record in PostgreSQL for stats tracking
+    # Create TranscriptionJob record in PostgreSQL using the existing async session.
+    # NOTE: _sync_job_to_db cannot be used here — it calls asyncio.run() which conflicts
+    # with FastAPI's running event loop (asyncpg futures get attached to a different loop).
     try:
         file_size = input_file.stat().st_size if input_file.exists() else None
-        _sync_job_to_db(
+        db_job = TranscriptionJob(
             job_id=job_id,
             domain=domain_type or "construction",
             meeting_type=meeting_type,
+            status="pending",
             user_id=uploader_id,
-            guest_uid=guest_uid,
             project_id=project_id,
             source_filename=file.filename,
             source_size_bytes=file_size,
-            status="pending",
+            is_private=is_private,
         )
+        db.add(db_job)
+        await db.commit()
     except Exception as e:
-        logger.warning(f"Failed to sync job to DB (non-fatal): {e}")
-
-    # Auto-fill meeting date from file metadata if not provided
-    effective_meeting_date = meeting_date
-    if not effective_meeting_date:
-        # Try to extract from media file internal metadata (creation_time)
-        effective_meeting_date = _extract_media_creation_date(input_file)
-        if effective_meeting_date:
-            logger.info(f"Auto-filled meeting date from media metadata: {effective_meeting_date}")
-        else:
-            # Fallback: use current date (file mtime is upload time, not original)
-            effective_meeting_date = datetime.now().strftime("%Y-%m-%d")
-            logger.info(f"Using current date as meeting date: {effective_meeting_date}")
+        logger.warning(f"Failed to create TranscriptionJob record in DB (non-fatal): {e}")
 
     # Artifact options for task
     artifact_options = {
         "generate_transcript": generate_transcript,
         "generate_tasks": generate_tasks,
         "generate_report": generate_report,
-        "generate_analysis": generate_analysis_effective,
         "generate_risk_brief": generate_risk_brief,
+        "generate_summary": generate_summary,
         "meeting_type": meeting_type,
         "meeting_date": effective_meeting_date,
         "participant_ids": participant_ids_list,
         "project_name": project_name,  # For risk brief header
         "project_code": project_code,  # For risk brief header
     }
-    logger.info(f"[DEBUG] artifact_options participant_ids: {artifact_options.get('participant_ids')}")
+    logger.debug(f" artifact_options participant_ids: {artifact_options.get('participant_ids')}")
 
     # Check if this is a text file (direct report generation without transcription)
     if is_text_file(file.filename):
@@ -455,7 +505,6 @@ async def create_transcription(
                     "artifact_options": artifact_options,
                     "domain_type": domain_type,
                     "project_id": project_id,
-                    "guest_uid": guest_uid,
                     "uploader_id": uploader_id,
                     "notify_emails": notify_emails_list,
                 },
@@ -473,7 +522,6 @@ async def create_transcription(
                 artifact_options=artifact_options,
                 domain_type=domain_type,
                 project_id=project_id,
-                guest_uid=guest_uid,
                 uploader_id=uploader_id,
                 notify_emails=notify_emails_list,
             )
@@ -500,7 +548,6 @@ async def create_transcription(
                 "project_id": project_id,
                 "domain_type": domain_type,
                 "meeting_type": meeting_type,
-                "guest_uid": guest_uid,
                 "uploader_id": uploader_id,
                 # Email notification
                 "notify_emails": notify_emails_list,
@@ -524,7 +571,6 @@ async def create_transcription(
             # Domain linkage
             project_id=project_id,
             domain_type=domain_type,
-            guest_uid=guest_uid,
             uploader_id=uploader_id,
             notify_emails=notify_emails_list,
         )
@@ -533,8 +579,68 @@ async def create_transcription(
         job_id=job_id,
         status=JobStatus.PENDING,
         created_at=now,
-        message="Job queued for processing",
+        message="Задача добавлена в очередь",
     )
+
+
+def _can_retry_reports(job: JobData) -> bool:
+    """Check if report generation can be retried for this job."""
+    if job.status != JobStatus.COMPLETED:
+        return False
+    if not job.warnings:
+        return False
+    # Check for LLM-related warnings
+    llm_keywords = ["AI-генерация", "отчёт через AI", "AI-анализ", "генерацию"]
+    has_llm_warning = any(
+        any(kw in w for kw in llm_keywords)
+        for w in job.warnings
+    )
+    if not has_llm_warning:
+        return False
+    # Check that source data exists (pipeline_result.json for media, or input file for text)
+    output_dir = OUTPUT_DIR / job.job_id
+    result_json = output_dir / "pipeline_result.json"
+    if result_json.exists():
+        return True
+    # For text jobs: check that input file exists
+    upload_dir = UPLOAD_DIR / job.job_id
+    return upload_dir.exists() and any(upload_dir.iterdir())
+
+
+async def _verify_job_access(
+    job_id: str,
+    db: AsyncSession,
+    current_user: Optional[User],
+) -> TranscriptionJob:
+    """Проверить права доступа к задаче.
+
+    Загружает TranscriptionJob из БД и проверяет владение:
+    - Требуется авторизация
+    - Суперадмин видит всё
+    - Авторизованный пользователь видит свои задачи (user_id)
+
+    Возвращает TranscriptionJob при успехе, иначе 401/404/403.
+    """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+
+    result = await db.execute(
+        select(TranscriptionJob).where(TranscriptionJob.job_id == job_id)
+    )
+    db_job = result.scalar_one_or_none()
+
+    if db_job is None:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+
+    # Superuser can access any job
+    if current_user.is_superuser:
+        return db_job
+
+    # Authenticated user owns the job
+    if db_job.user_id == current_user.id:
+        return db_job
+
+    raise HTTPException(status_code=403, detail="Нет доступа к этой задаче")
 
 
 @router.get(
@@ -543,7 +649,11 @@ async def create_transcription(
     summary="Получить статус задачи",
     description="Возвращает текущий статус обработки, этап и процент выполнения.",
 )
-async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
+async def get_job_status(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
     """
     ## Статус задачи
 
@@ -553,26 +663,20 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
     - **progress_percent** — процент выполнения (0-100)
     - **message** — описание текущего действия
     """
+    db_job = await _verify_job_access(job_id, db, current_user)
+
     store = get_store()
     job = store.get(job_id)
 
-    result = await db.execute(
-        select(TranscriptionJob).where(TranscriptionJob.job_id == job_id)
-    )
-    db_job = result.scalar_one_or_none()
-
-    if job is None and db_job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    if db_job and job and job.status in [JobStatus.PENDING, JobStatus.PROCESSING]:
+    if job and job.status in [JobStatus.PENDING, JobStatus.PROCESSING]:
         if db_job.status == "completed":
             store.update(
                 job_id,
                 status=JobStatus.COMPLETED,
                 current_stage="completed",
                 progress_percent=100,
-                message="Completed successfully",
-                completed_at=db_job.completed_at or datetime.now(),
+                message="Обработка завершена",
+                completed_at=db_job.completed_at or datetime.now(timezone.utc),
             )
         elif db_job.status == "failed":
             store.update(
@@ -580,26 +684,32 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
                 status=JobStatus.FAILED,
                 current_stage="failed",
                 progress_percent=job.progress_percent or 0,
-                message=f"Failed: {db_job.error_message}" if db_job.error_message else "Failed",
+                message=f"Ошибка: {db_job.error_message}" if db_job.error_message else "Обработка завершилась с ошибкой",
                 error=db_job.error_message,
-                completed_at=db_job.completed_at or datetime.now(),
+                completed_at=db_job.completed_at or datetime.now(timezone.utc),
             )
         job = store.get(job_id)
 
-    if job is None and db_job:
+    if job is None:
         status = db_job.status
-        current_stage = (
-            "completed" if status == "completed"
-            else "failed" if status == "failed"
-            else "processing"
-        )
-        progress_percent = 100 if status == "completed" else 0
-        message = (
-            "Completed successfully" if status == "completed"
-            else db_job.error_message if status == "failed"
-            else "Processing..."
-        )
         updated_at = db_job.completed_at or db_job.started_at or db_job.created_at
+
+        # If Redis key expired (job=None) but DB still says processing/pending,
+        # the job is dead — mark it as failed so the frontend stops polling.
+        if status in ("processing", "pending"):
+            status = "failed"
+            current_stage = "failed"
+            progress_percent = 0
+            message = "Задача потеряна (данные истекли). Загрузите файл повторно."
+            error = message
+        else:
+            current_stage = "completed" if status == "completed" else "failed"
+            progress_percent = 100 if status == "completed" else 0
+            message = (
+                "Обработка завершена" if status == "completed"
+                else db_job.error_message or "Обработка завершилась с ошибкой"
+            )
+            error = db_job.error_message
 
         return JobStatusResponse(
             job_id=db_job.job_id,
@@ -610,8 +720,10 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
             created_at=db_job.created_at,
             updated_at=updated_at,
             completed_at=db_job.completed_at,
-            error=db_job.error_message,
+            error=error,
         )
+
+    can_retry = _can_retry_reports(job) if job.status == JobStatus.COMPLETED else False
 
     return JobStatusResponse(
         job_id=job.job_id,
@@ -623,7 +735,124 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
         updated_at=job.updated_at,
         completed_at=job.completed_at,
         error=job.error,
+        warnings=job.warnings or [],
+        can_retry_reports=can_retry,
     )
+
+
+@router.post(
+    "/{job_id}/retry-reports",
+    summary="Повторить генерацию отчётов",
+    description="Повторно запускает LLM-генерацию отчётов для завершённой задачи.",
+)
+async def retry_reports(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """
+    ## Повторная генерация отчётов
+
+    Перезапускает LLM-генерацию (tasks, report, risk_brief) для задачи,
+    у которой уже есть pipeline_result.json. GPU-этапы не повторяются.
+    """
+    await _verify_job_access(job_id, db, current_user)
+
+    store = get_store()
+    job = store.get(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="Задача не найдена")
+
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Повтор доступен только для завершённых задач")
+
+    output_dir = OUTPUT_DIR / job_id
+    upload_dir = UPLOAD_DIR / job_id
+
+    # Determine if this is a text job or media job
+    result_json = output_dir / "pipeline_result.json"
+    is_text_job = not result_json.exists()
+
+    # For text jobs, check input file exists
+    if is_text_job:
+        input_files = list(upload_dir.iterdir()) if upload_dir.exists() else []
+        if not input_files:
+            raise HTTPException(
+                status_code=400,
+                detail="Исходный файл не найден (мог быть удалён по истечении 24ч)"
+            )
+        input_file = input_files[0]
+
+    # Build artifact_options — only retry generators whose files are missing
+    existing_files = job.output_files or {}
+    artifact_options = {
+        "generate_transcript": False,  # transcript doesn't need LLM
+        "generate_tasks": job.generate_tasks and "tasks" not in existing_files,
+        "generate_report": job.generate_report and "report" not in existing_files,
+        "generate_risk_brief": job.generate_risk_brief and "risk_brief" not in existing_files,
+        "generate_summary": job.generate_summary and "summary" not in existing_files,
+        "meeting_type": job.meeting_type,
+        "meeting_date": job.meeting_date,
+        "participant_ids": getattr(job, 'participant_ids', []),
+        "project_name": getattr(job, 'project_name', None),
+        "project_code": getattr(job, 'project_code', None),
+    }
+
+    # Nothing to retry
+    if not any([
+        artifact_options.get("generate_tasks"),
+        artifact_options.get("generate_report"),
+        artifact_options.get("generate_risk_brief"),
+        artifact_options.get("generate_summary"),
+    ]):
+        raise HTTPException(
+            status_code=400,
+            detail="Все запрошенные отчёты уже сгенерированы"
+        )
+
+    # Clear old warnings and set status back to processing
+    store.update(
+        job_id,
+        status=JobStatus.PROCESSING,
+        warnings=[],
+        current_stage="retry_reports",
+        progress_percent=90,
+        message="Повторная генерация отчётов...",
+        error=None,
+        completed_at=None,
+    )
+
+    if is_text_job:
+        # Text job — re-run text report generation, preserving existing files
+        from ...tasks.transcription import process_text_task
+        process_text_task.apply_async(
+            kwargs={
+                "job_id": job_id,
+                "input_file": str(input_file),
+                "output_dir": str(output_dir),
+                "artifact_options": artifact_options,
+                "domain_type": job.domain_type,
+                "project_id": job.project_id,
+                "uploader_id": job.uploader_id,
+                "existing_output_files": existing_files,
+            },
+        )
+    else:
+        # Media job — re-run LLM generators only (GPU work already done)
+        from ...tasks.transcription import process_llm_generators
+        process_llm_generators(
+            job_id=job_id,
+            output_dir=str(output_dir),
+            artifact_options=artifact_options,
+            domain_type=job.domain_type,
+            project_id=job.project_id,
+            uploader_id=job.uploader_id,
+            gpu_output_files=existing_files,
+        )
+
+    logger.info(f"Retry reports dispatched for job {job_id} (text_job={is_text_job})")
+    return {"success": True, "message": "Генерация отчётов запущена повторно"}
 
 
 @router.get(
@@ -634,6 +863,7 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
 )
 async def get_job_result(
     job_id: str,
+    db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
     """
@@ -649,11 +879,13 @@ async def get_job_result(
 
     Примечание: risk_brief доступен только для manager/admin ролей.
     """
+    await _verify_job_access(job_id, db, current_user)
+
     store = get_store()
     job = store.get(job_id)
 
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="Задача не найдена")
 
     if job.status == JobStatus.PENDING:
         raise HTTPException(status_code=202, detail="Job is pending")
@@ -681,7 +913,8 @@ async def get_job_result(
         segment_count=job.segment_count or 0,
         language_distribution=job.language_distribution or {},
         output_files=output_files,
-        completed_at=job.completed_at or datetime.now(),
+        completed_at=job.completed_at or datetime.now(timezone.utc),
+        meeting_report=job.meeting_report,
     )
 
 
@@ -693,6 +926,7 @@ async def get_job_result(
 async def download_result(
     job_id: str,
     file_type: str,
+    db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
     """
@@ -709,13 +943,15 @@ async def download_result(
     - **result_json** — сырые данные JSON
     """
     if file_type == "all":
-        return await download_all_results(job_id, current_user)
+        return await download_all_results(job_id, db, current_user)
+
+    await _verify_job_access(job_id, db, current_user)
 
     store = get_store()
     job = store.get(job_id)
 
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="Задача не найдена")
 
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Job not completed")
@@ -735,7 +971,7 @@ async def download_result(
             )
 
     if file_type not in output_files:
-        raise HTTPException(status_code=404, detail=f"File type '{file_type}' not found")
+        raise HTTPException(status_code=404, detail=f"Тип файла '{file_type}' не найден")
 
     # Validate file path is within OUTPUT_DIR (prevents path traversal)
     file_path = validate_file_path(
@@ -758,6 +994,7 @@ async def download_result(
 )
 async def download_all_results(
     job_id: str,
+    db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
 ):
     """Скачать все доступные файлы задачи в zip архиве.
@@ -767,11 +1004,13 @@ async def download_all_results(
     import zipfile
     import tempfile
 
+    await _verify_job_access(job_id, db, current_user)
+
     store = get_store()
     job = store.get(job_id)
 
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="Задача не найдена")
 
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Job not completed")
@@ -798,11 +1037,81 @@ async def download_all_results(
             zf.write(file_path, arcname=file_path.name)
 
     filename = f"{job_id}_files.zip"
+    from starlette.background import BackgroundTask
     return FileResponse(
         path=tmp.name,
         filename=filename,
         media_type="application/zip",
+        background=BackgroundTask(lambda: os.unlink(tmp.name)),
     )
+
+
+def _resolve_meeting_type_name(domain: Optional[str], meeting_type: Optional[str]) -> Optional[str]:
+    """Resolve human-readable meeting type name from domain registry."""
+    if not domain or not meeting_type:
+        return None
+    for t in DOMAIN_MEETING_TYPES.get(domain, []):
+        if t.id == meeting_type:
+            return t.name
+    return None
+
+
+def _transform_jobs_to_response(
+    jobs, store, include_project_code: bool = False
+) -> list[dict]:
+    """Transform DB job records to API response format, merging Redis state."""
+    response_jobs = []
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+
+    for job in jobs:
+        job_state = store.get(job.job_id)
+        status_value = job.status
+        progress_percent = 100 if job.status == "completed" else 0
+        message = None
+        project_code = None
+
+        if job_state:
+            status_value = job_state.status.value if hasattr(job_state.status, "value") else job_state.status
+            progress_percent = job_state.progress_percent
+            message = job_state.message
+            if include_project_code:
+                project_code = getattr(job_state, "project_code", None)
+            if status_value != job.status:
+                _update_job_in_db(job_id=job.job_id, status=status_value)
+        else:
+            # No Redis data — check if job is expired (>24h)
+            created = job.created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if created < cutoff:
+                # Files are gone, skip entirely from history
+                continue
+
+            # Job is recent (<24h) but Redis expired
+            if job.status in ("processing", "pending"):
+                status_value = "failed"
+                message = "Задача потеряна (данные истекли)"
+                _update_job_in_db(job_id=job.job_id, status="failed")
+            elif job.status == "failed":
+                message = job.error_message
+
+        has_warnings = bool(job_state and job_state.warnings)
+
+        response_jobs.append({
+            "job_id": job.job_id,
+            "status": status_value,
+            "created_at": job.created_at.isoformat(),
+            "source_file": job.source_filename or "",
+            "progress_percent": progress_percent,
+            "message": message,
+            "project_code": project_code,
+            "has_warnings": has_warnings,
+            "meeting_type": getattr(job, "meeting_type", None),
+            "meeting_type_name": _resolve_meeting_type_name(
+                getattr(job, "domain", None), getattr(job, "meeting_type", None)
+            ),
+        })
+    return response_jobs
 
 
 @router.get(
@@ -813,7 +1122,7 @@ async def download_all_results(
 async def list_jobs(
     limit: int = Query(default=50, le=100, description="Максимальное количество задач"),
     domain: Optional[str] = Query(default=None, description="Фильтр по домену: construction, hr, it"),
-    x_guest_id: Optional[str] = Header(default=None, alias="X-Guest-ID", description="UUID гостя для фильтрации"),
+    scope: str = Query(default="my", description="Область: my — свои задачи, domain — все задачи домена"),
     current_user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -821,124 +1130,46 @@ async def list_jobs(
     ## История задач
 
     Возвращает список последних задач, отсортированных по дате создания.
+    Требуется авторизация.
 
     **Фильтрация:**
     - Авторизованные пользователи видят свои задачи
-    - Гости (с X-Guest-ID) видят только свои задачи
-    - Без идентификации — пустой список
     - **domain** — фильтр по домену (construction, hr, it)
+    - **scope** — `my` (по умолчанию) только свои, `domain` — все записи домена
 
     Параметры:
     - **limit** — максимальное количество (по умолчанию 50)
     - **domain** — фильтр по домену (опционально)
+    - **scope** — область видимости: my / domain
     """
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Требуется авторизация")
+
     store = get_store()
 
-    # Authenticated users: read history from PostgreSQL
-    if current_user:
+    if scope == "domain":
+        # Domain scope: show all jobs for the domain (no user_id filter)
+        effective_domain = domain or getattr(current_user, "active_domain", None)
+        if not effective_domain:
+            return {"jobs": []}
+        query = select(TranscriptionJob).where(
+            TranscriptionJob.domain == effective_domain,
+            TranscriptionJob.is_private == False,  # noqa: E712
+        )
+    else:
+        # Default "my" scope: only current user's jobs
         query = select(TranscriptionJob).where(TranscriptionJob.user_id == current_user.id)
 
-        # Apply domain filter if specified
-        if domain:
-            query = query.where(TranscriptionJob.domain == domain)
+    # Apply domain filter if specified (for "my" scope with explicit domain)
+    if domain and scope != "domain":
+        query = query.where(TranscriptionJob.domain == domain)
 
-        result = await db.execute(
-            query.order_by(desc(TranscriptionJob.created_at)).limit(limit)
-        )
-        jobs = result.scalars().all()
+    result = await db.execute(
+        query.order_by(desc(TranscriptionJob.created_at)).limit(limit)
+    )
+    jobs = result.scalars().all()
 
-        response_jobs = []
-        for job in jobs:
-            job_state = store.get(job.job_id)
-            status_value = job.status
-            progress_percent = 100 if job.status == "completed" else 0
-            message = None
-            project_code = None
-
-            if job_state:
-                status_value = job_state.status.value if hasattr(job_state.status, "value") else job_state.status
-                progress_percent = job_state.progress_percent
-                message = job_state.message
-                project_code = getattr(job_state, "project_code", None)
-                if status_value != job.status:
-                    _update_job_in_db(job_id=job.job_id, status=status_value)
-            elif job.status == "failed":
-                message = job.error_message
-
-            response_jobs.append({
-                "job_id": job.job_id,
-                "status": status_value,
-                "created_at": job.created_at.isoformat(),
-                "source_file": job.source_filename or "",
-                "progress_percent": progress_percent,
-                "message": message,
-                "project_code": project_code,
-            })
-
-        return {"jobs": response_jobs}
-
-    # Guests: prefer DB history (if guest_uid is stored), fallback to Redis by guest ID
-    if x_guest_id:
-        query = select(TranscriptionJob).where(TranscriptionJob.guest_uid == x_guest_id)
-
-        # Apply domain filter if specified
-        if domain:
-            query = query.where(TranscriptionJob.domain == domain)
-
-        result = await db.execute(
-            query.order_by(desc(TranscriptionJob.created_at)).limit(limit)
-        )
-        jobs = result.scalars().all()
-
-        if jobs:
-            response_jobs = []
-            for job in jobs:
-                job_state = store.get(job.job_id)
-                status_value = job.status
-                progress_percent = 100 if job.status == "completed" else 0
-                message = None
-
-                if job_state:
-                    status_value = job_state.status.value if hasattr(job_state.status, "value") else job_state.status
-                    progress_percent = job_state.progress_percent
-                    message = job_state.message
-                    if status_value != job.status:
-                        _update_job_in_db(job_id=job.job_id, status=status_value)
-                elif job.status == "failed":
-                    message = job.error_message
-
-                response_jobs.append({
-                    "job_id": job.job_id,
-                    "status": status_value,
-                    "created_at": job.created_at.isoformat(),
-                    "source_file": job.source_filename or "",
-                    "progress_percent": progress_percent,
-                    "message": message,
-                    "project_code": None,
-                })
-
-            return {"jobs": response_jobs}
-
-    all_jobs = store.list_jobs(limit=limit * 2)  # Fetch more to filter
-    jobs = [
-        job for job in all_jobs
-        if x_guest_id and getattr(job, 'guest_uid', None) == x_guest_id
-    ][:limit] if x_guest_id else []
-
-    return {
-        "jobs": [
-            {
-                "job_id": job.job_id,
-                "status": job.status,
-                "created_at": job.created_at.isoformat(),
-                "source_file": Path(job.input_file).name,
-                "progress_percent": job.progress_percent,
-                "message": job.message,
-                "project_code": getattr(job, 'project_code', None),
-            }
-            for job in jobs
-        ]
-    }
+    return {"jobs": _transform_jobs_to_response(jobs, store, include_project_code=True)}
 
 
 @router.delete(
@@ -946,7 +1177,11 @@ async def list_jobs(
     summary="Отменить задачу",
     description="Отменяет задачу в статусе pending или processing.",
 )
-async def cancel_job(job_id: str):
+async def cancel_job(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
     """
     ## Отмена задачи
 
@@ -956,11 +1191,13 @@ async def cancel_job(job_id: str):
 
     Завершённые или уже отменённые задачи отменить нельзя.
     """
+    await _verify_job_access(job_id, db, current_user)
+
     store = get_store()
     job = store.get(job_id)
 
     if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=404, detail="Задача не найдена")
 
     if job.status not in [JobStatus.PENDING, JobStatus.PROCESSING]:
         raise HTTPException(
@@ -995,7 +1232,6 @@ async def run_transcription_background(
     artifact_options: dict = None,
     project_id: Optional[int] = None,
     domain_type: Optional[str] = None,
-    guest_uid: Optional[str] = None,
     uploader_id: Optional[int] = None,
     notify_emails: list = None,
 ):
@@ -1030,12 +1266,13 @@ async def run_transcription_background(
         from ...tasks.transcription import _run_domain_generators, _save_domain_report
 
         output_files = {}
-        generated_artifacts, ai_analysis, basic_report_obj, risk_brief_obj = _run_domain_generators(
+        generated_artifacts, basic_report_obj, risk_brief_obj = _run_domain_generators(
             result=result,
             output_path=output_dir,
             artifact_options=artifact_options,
             progress_callback=progress_callback,
             domain_type=domain_type,
+            job_id=job_id,
         )
         output_files.update(generated_artifacts)
 
@@ -1049,9 +1286,7 @@ async def run_transcription_background(
                     project_id=project_id,
                     domain_type=domain_type,
                     output_files=output_files,
-                    guest_uid=guest_uid,
                     uploader_id=uploader_id,
-                    ai_analysis=ai_analysis,
                     artifact_options=artifact_options,
                     basic_report=basic_report_obj,
                     risk_brief=risk_brief_obj,
@@ -1081,7 +1316,7 @@ async def run_transcription_background(
             segment_count=result.segment_count,
             speaker_count=getattr(result, "speaker_count", None),
             language_distribution=result.language_distribution,
-            audio_duration_seconds=getattr(result, "audio_duration_seconds", None),
+            audio_duration_seconds=result.total_duration or None,
             input_tokens=getattr(result, "input_tokens", 0),
             output_tokens=getattr(result, "output_tokens", 0),
         )
@@ -1100,9 +1335,9 @@ async def run_text_report_generation(
     artifact_options: dict = None,
     domain_type: str = None,
     project_id: Optional[int] = None,
-    guest_uid: Optional[str] = None,
     uploader_id: Optional[int] = None,
     notify_emails: list = None,
+    existing_output_files: dict = None,
 ):
     """
     Фоновая задача генерации отчётов из текстовых файлов (.txt, .docx).
@@ -1113,9 +1348,16 @@ async def run_text_report_generation(
     from dataclasses import dataclass, field
     from typing import Dict, List
 
+    import time as _time
+
     store = get_store()
     artifact_options = artifact_options or {}
     progress_callback = _create_progress_callback(store, job_id)
+    _job_start_time = _time.monotonic()
+
+    # Reset token tracker for this job
+    from ...core.llm.token_tracker import reset_tracker, get_tracker
+    reset_tracker()
 
     try:
         _start_job_processing(store, job_id)
@@ -1124,7 +1366,7 @@ async def run_text_report_generation(
         # Extract text from file
         text_content = extract_text_from_file(input_file)
         if not text_content:
-            raise ValueError(f"Failed to extract text from {input_file}")
+            raise ValueError(f"Не удалось извлечь текст из {input_file}")
 
         logger.info(f"Extracted {len(text_content)} characters from {input_file.name}")
         progress_callback("text_extraction", 20, f"Извлечено {len(text_content)} символов")
@@ -1175,9 +1417,11 @@ async def run_text_report_generation(
             language_distribution: Dict[str, int] = field(default_factory=dict)
             speakers: Dict[str, MinimalSpeaker] = field(default_factory=dict)
 
+            _duration: float = 0.0
+
             @property
             def metadata(self) -> MinimalMetadata:
-                return MinimalMetadata(source_file=self.source_file, duration=0.0)
+                return MinimalMetadata(source_file=self.source_file, duration=self._duration)
 
             @property
             def speaker_count(self) -> int:
@@ -1198,18 +1442,46 @@ async def run_text_report_generation(
                     lines.append(f"[{seg.start_formatted}] {seg.speaker}: {seg.text}")
                 return "\n".join(lines)
 
-        # Split text into paragraphs as "segments"
-        paragraphs = [p.strip() for p in text_content.split("\n\n") if p.strip()]
-        if not paragraphs:
-            paragraphs = [text_content]
+        # Try to parse as structured transcript (our docx format with SPEAKER_XX)
+        parsed = parse_transcript(text_content)
 
-        segments = [MinimalSegment(text=p, speaker="Speaker 1") for p in paragraphs]
+        if parsed.is_transcript:
+            logger.info(
+                f"Detected transcript format: {len(parsed.segments)} segments, "
+                f"{len(set(s.speaker for s in parsed.segments))} speakers"
+            )
+            segments = [
+                MinimalSegment(
+                    text=s.text,
+                    speaker=s.speaker,
+                    start=s.start_seconds,
+                    end=s.start_seconds,
+                )
+                for s in parsed.segments
+            ]
+            unique_speakers = {s.speaker for s in parsed.segments}
+            speakers_dict = {
+                sp: MinimalSpeaker(speaker_id=sp)
+                for sp in sorted(unique_speakers)
+            }
+            # Duration = last segment timestamp
+            duration = max((s.start_seconds for s in parsed.segments), default=0.0)
+        else:
+            # Fallback: split text into paragraphs as "segments"
+            paragraphs = [p.strip() for p in text_content.split("\n\n") if p.strip()]
+            if not paragraphs:
+                paragraphs = [text_content]
+            segments = [MinimalSegment(text=p, speaker="Speaker 1") for p in paragraphs]
+            speakers_dict = {"Speaker 1": MinimalSpeaker(speaker_id="Speaker 1")}
+            duration = 0.0
+
         result = MinimalResult(
             source_file=input_file.name,
             segments=segments,
             segment_count=len(segments),
             language_distribution={"ru": len(segments)},
-            speakers={"Speaker 1": MinimalSpeaker(speaker_id="Speaker 1")},
+            speakers=speakers_dict,
+            _duration=duration,
         )
 
         # Check if Gemini is configured
@@ -1223,17 +1495,18 @@ async def run_text_report_generation(
 
         # Import generators based on domain
         domain = domain_type or "construction"
-        ai_analysis = None  # Will be populated if generate_analysis is called (construction only)
         basic_report = None  # Construction domain report data
         risk_brief_obj = None  # Construction domain risk brief data
+        domain_report = None  # Non-construction LLM report
 
         if domain == "construction":
+            import asyncio
             from ...domains.construction.generators import (
                 get_basic_report,
                 generate_tasks,
                 generate_report,
-                generate_analysis,
                 generate_risk_brief,
+                generate_summary,
             )
 
             # Fetch participants once for all generators
@@ -1247,26 +1520,93 @@ async def run_text_report_generation(
                 except Exception as e:
                     logger.warning(f"Failed to fetch participants: {e}")
 
-            # Generate BasicReport ONCE for both tasks.xlsx and report.docx
-            basic_report = None
+            meeting_date = artifact_options.get("meeting_date")
             needs_basic_report = (
                 artifact_options.get("generate_tasks", False) or
                 artifact_options.get("generate_report", False)
             )
-            if needs_basic_report:
-                progress_callback("llm_generation", 40, "Анализ совещания через LLM...")
-                try:
-                    basic_report = get_basic_report(
-                        result,
-                        meeting_date=artifact_options.get("meeting_date"),
+
+            # --- Phase 1: Parallel LLM calls via asyncio.to_thread ---
+            progress_callback("llm_generation", 40, "AI-генерация отчётов (параллельно)...")
+
+            async def _get_basic_report_async():
+                if needs_basic_report:
+                    return await asyncio.to_thread(
+                        get_basic_report, result, meeting_date=meeting_date,
+                        participants=participants,
                     )
-                    logger.info(f"BasicReport generated: {len(basic_report.tasks)} tasks")
-                except Exception as e:
-                    logger.error(f"BasicReport generation failed: {e}")
+                return None
+
+            async def _get_risk_brief_async():
+                if artifact_options.get("generate_risk_brief", False):
+                    return await asyncio.to_thread(
+                        generate_risk_brief, result, output_dir,
+                        meeting_date=meeting_date,
+                        project_name=artifact_options.get("project_name"),
+                        project_code=artifact_options.get("project_code"),
+                        participants=participants,
+                    )
+                return None
+
+            async def _get_summary_async():
+                if artifact_options.get("generate_summary", False):
+                    return await asyncio.to_thread(
+                        generate_summary, result, output_dir,
+                        meeting_date=meeting_date,
+                        participants=participants,
+                    )
+                return None
+
+            basic_report_result, risk_brief_result, summary_result = await asyncio.gather(
+                _get_basic_report_async(),
+                _get_risk_brief_async(),
+                _get_summary_async(),
+                return_exceptions=True,
+            )
+
+            # Process basic_report result
+            basic_report = None
+            if isinstance(basic_report_result, Exception):
+                logger.error(f"BasicReport generation failed: {basic_report_result}")
+            elif basic_report_result is not None:
+                basic_report = basic_report_result
+                logger.info(f"BasicReport generated: {len(basic_report.tasks)} tasks")
+
+            # Process risk_brief result
+            if isinstance(risk_brief_result, Exception):
+                logger.error(f"Risk brief generation failed: {risk_brief_result}", exc_info=True)
+                try:
+                    store.add_warning(job_id, "Часть аналитических отчётов не сформирована. Попробуйте повторить генерацию.")
+                except Exception:
+                    pass
+            elif risk_brief_result is not None:
+                risk_brief_path, risk_brief_obj = risk_brief_result
+                output_files["risk_brief"] = str(risk_brief_path)
+                logger.info(f"Generated risk brief: {risk_brief_path}")
+
+            # Process summary result
+            if isinstance(summary_result, Exception):
+                logger.error(f"Summary generation failed: {summary_result}")
+                try:
+                    store.add_warning(job_id, "Не удалось сгенерировать конспект. Попробуйте повторить генерацию.")
+                except Exception:
+                    pass
+            elif summary_result is not None:
+                output_files["summary"] = str(summary_result)
+                logger.info(f"Generated summary: {summary_result}")
+
+            logger.info(
+                f"Parallel LLM phase complete: "
+                f"basic_report={'ok' if basic_report else 'skip/fail'}, "
+                f"risk_brief={'ok' if 'risk_brief' in output_files else 'skip/fail'}, "
+                f"summary={'ok' if 'summary' in output_files else 'skip/fail'}"
+            )
+
+            # --- Phase 2: File generation (depends on basic_report, no LLM) ---
 
             # Generate tasks - uses pre-generated BasicReport
             if artifact_options.get("generate_tasks", False) and basic_report:
-                progress_callback("llm_generation", 50, "Формирование списка задач...")
+                progress_callback("llm_generation", 80, "Формирование списка задач...")
                 try:
                     tasks_path = generate_tasks(
                         result, output_dir,
@@ -1280,12 +1620,12 @@ async def run_text_report_generation(
 
             # Generate report - uses pre-generated BasicReport
             if artifact_options.get("generate_report", False) and basic_report:
-                progress_callback("llm_generation", 70, "Формирование отчёта...")
+                progress_callback("llm_generation", 90, "Формирование отчёта...")
                 try:
                     report_path = generate_report(
                         result, output_dir,
                         basic_report=basic_report,
-                        meeting_date=artifact_options.get("meeting_date"),
+                        meeting_date=meeting_date,
                         participants=participants,
                     )
                     output_files["report"] = str(report_path)
@@ -1293,98 +1633,71 @@ async def run_text_report_generation(
                 except Exception as e:
                     logger.error(f"Report generation failed: {e}")
 
-            # Generate manager brief - for dashboard only, no file
-            if artifact_options.get("generate_analysis", False):
-                # Silent generation - no progress message for user, no file output
-                try:
-                    ai_analysis = generate_analysis(result)
-                    logger.info("Generated manager brief (AIAnalysis for dashboard)")
-                except Exception as e:
-                    logger.error(f"Manager brief generation failed: {e}")
+        else:
+            # Non-construction domains — unified path via generator registry
+            from ...domains.generator_registry import get_domain_generators
+            gens = get_domain_generators(domain)
+            if not gens:
+                raise ValueError(f"Unknown domain: {domain}")
 
-            # Generate risk brief (optional) - reuses participants fetched above
-            if artifact_options.get("generate_risk_brief", False):
-                try:
-                    # generate_risk_brief returns tuple[Path, RiskBrief]
-                    risk_brief_path, risk_brief_obj = generate_risk_brief(
-                        result,
-                        output_dir,
-                        meeting_date=artifact_options.get("meeting_date"),
-                        project_name=artifact_options.get("project_name"),
-                        project_code=artifact_options.get("project_code"),
-                        participants=participants,
-                    )
-                    output_files["risk_brief"] = str(risk_brief_path)
-                    logger.info(f"Generated risk brief: {risk_brief_path}")
-                except Exception as e:
-                    logger.error(f"Risk brief generation failed: {e}")
-
-        elif domain == "dct":
-            # DCT domain - generate reports via LLM
-            from ...domains.dct.generators import (
-                get_dct_report,
-                generate_tasks as generate_dct_excel,
-                generate_report as generate_dct_docx,
-            )
-            from ...domains.dct.schemas import DCTMeetingType
-
-            meeting_type = artifact_options.get("meeting_type") or "brainstorm"
+            meeting_type = artifact_options.get("meeting_type") or gens.default_meeting_type
             meeting_date = artifact_options.get("meeting_date")
+            _file_prefix = gens.file_prefix
 
-            # Generate DCT Report via LLM
-            dct_report = None
-            needs_dct_report = (
+            # Generate domain report via LLM
+            domain_report = None
+            needs_domain_report = (
                 artifact_options.get("generate_tasks", False) or
                 artifact_options.get("generate_report", False)
             )
-            if needs_dct_report:
-                progress_callback("llm_generation", 40, f"Анализ встречи ДЦТ ({meeting_type})...")
+            if needs_domain_report:
+                progress_callback("llm_generation", 40, f"AI-анализ встречи ({domain})...")
                 try:
-                    dct_report = get_dct_report(
+                    domain_report = gens.get_llm_report(
                         result,
                         meeting_type=meeting_type,
                         meeting_date=meeting_date,
                     )
-                    if dct_report:
-                        logger.info(f"DCT report generated for meeting type: {meeting_type}")
+                    if domain_report:
+                        logger.info(f"{domain} report generated for meeting type: {meeting_type}")
                     else:
-                        logger.warning("DCT report returned None")
+                        logger.warning(f"{domain} report returned None")
                 except Exception as e:
-                    logger.error(f"DCT report generation failed: {e}")
+                    logger.error(f"{domain} report generation failed: {e}")
 
             # Generate Excel report
-            if artifact_options.get("generate_tasks", False) and dct_report:
+            if artifact_options.get("generate_tasks", False) and domain_report:
                 progress_callback("llm_generation", 60, "Формирование Excel отчёта...")
                 try:
-                    excel_path = generate_dct_excel(
-                        DCTMeetingType(meeting_type),
-                        dct_report,
-                        output_dir / f"dct_report_{meeting_type}.xlsx",
+                    excel_path = gens.generate_tasks(
+                        gens.meeting_type_enum(meeting_type),
+                        domain_report,
+                        output_dir / f"{_file_prefix}_report_{meeting_type}.xlsx",
                         meeting_date=meeting_date,
                     )
                     output_files["tasks"] = str(excel_path)
-                    logger.info(f"Generated DCT Excel: {excel_path}")
+                    logger.info(f"Generated {domain} Excel: {excel_path}")
                 except Exception as e:
-                    logger.error(f"DCT Excel generation failed: {e}")
+                    logger.error(f"{domain} Excel generation failed: {e}")
 
             # Generate Word report
-            if artifact_options.get("generate_report", False) and dct_report:
+            if artifact_options.get("generate_report", False) and domain_report:
                 progress_callback("llm_generation", 80, "Формирование Word отчёта...")
                 try:
-                    docx_path = generate_dct_docx(
-                        DCTMeetingType(meeting_type),
-                        dct_report,
-                        output_dir / f"dct_report_{meeting_type}.docx",
+                    docx_path = gens.generate_report(
+                        gens.meeting_type_enum(meeting_type),
+                        domain_report,
+                        output_dir / f"{_file_prefix}_report_{meeting_type}.docx",
                         meeting_date=meeting_date,
                     )
                     output_files["report"] = str(docx_path)
-                    logger.info(f"Generated DCT report: {docx_path}")
+                    logger.info(f"Generated {domain} report: {docx_path}")
                 except Exception as e:
-                    logger.error(f"DCT report generation failed: {e}")
+                    logger.error(f"{domain} report generation failed: {e}")
 
         # Save original text as transcript
         if artifact_options.get("generate_transcript", True):
-            transcript_path = output_dir / f"transcript_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            transcript_path = output_dir / f"transcript_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.txt"
             with open(transcript_path, 'w', encoding='utf-8') as f:
                 f.write(text_content)
             output_files["transcript"] = str(transcript_path)
@@ -1392,7 +1705,7 @@ async def run_text_report_generation(
         # Save domain report to database if project is linked
         logger.info(f"[DOMAIN_SAVE_CHECK] domain_type={domain_type}, project_id={project_id}, risk_brief_obj={risk_brief_obj is not None}")
         if domain_type and project_id:
-            progress_callback("domain_report", 98, "Saving report to database...")
+            progress_callback("domain_report", 98, "Сохранение в базу данных...")
             try:
                 _save_domain_report(
                     job_id=job_id,
@@ -1400,11 +1713,9 @@ async def run_text_report_generation(
                     project_id=project_id,
                     domain_type=domain_type,
                     output_files=output_files,
-                    guest_uid=guest_uid,
                     uploader_id=uploader_id,
-                    ai_analysis=ai_analysis if domain == "construction" else None,
                     artifact_options=artifact_options,
-                    basic_report=basic_report,  # Fixed: was missing!
+                    basic_report=basic_report,
                     risk_brief=risk_brief_obj,
                 )
                 
@@ -1455,20 +1766,46 @@ async def run_text_report_generation(
         else:
             logger.info(f"[DOMAIN_SAVE_SKIP] Skipping domain report save: domain_type={domain_type}, project_id={project_id}")
 
+        # Merge with existing output files (for retry scenarios)
+        if existing_output_files:
+            merged = dict(existing_output_files)
+            merged.update(output_files)
+            output_files = merged
+
         # No need to filter - analysis is no longer a file
         public_output_files = output_files
 
         # Mark completed
+        _processing_time = round(_time.monotonic() - _job_start_time, 1)
+        _token_usage = get_tracker().usage.as_dict()
         _complete_job(
             store=store,
             job_id=job_id,
             output_files=public_output_files,
+            processing_time=_processing_time,
             segment_count=len(segments),
             speaker_count=result.speaker_count,
             language_distribution={"ru": len(segments)},
             all_output_files=output_files,  # Track all artifacts including analysis
+            **_token_usage,
         )
-        logger.info(f"Text report job {job_id} completed successfully")
+
+        # Build meeting_report for CEO dashboard viewer
+        if domain != "construction" and domain_report is not None:
+            try:
+                from ...tasks.transcription import _build_meeting_report
+                mr = _build_meeting_report(
+                    domain_type=domain,
+                    domain_report_json=domain_report.model_dump_json(),
+                    basic_report_json=None,
+                )
+                if mr:
+                    store.update(job_id, meeting_report=mr)
+                    logger.info(f"Stored meeting_report for {domain} job {job_id}")
+            except Exception as e:
+                logger.warning(f"Failed to store meeting_report: {e}")
+
+        logger.info(f"Text report job {job_id} completed in {_processing_time}s")
 
         _send_notification_email(store, job_id, notify_emails, public_output_files)
 

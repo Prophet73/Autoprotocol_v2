@@ -1,5 +1,5 @@
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   FileVideo,
@@ -10,18 +10,20 @@ import {
   Loader2,
   StopCircle,
   RotateCcw,
-  Download
+  Download,
+  AlertTriangle
 } from 'lucide-react';
 import { useJobStatus, useJobResult } from '../hooks/useJob';
 import { ProgressBar } from '../components/ProgressBar';
 import { DownloadCard } from '../components/DownloadCard';
-import { cancelJob } from '../api/client';
+import { cancelJob, retryReports } from '../api/client';
 import type { JobStatusResponse } from '../api/client';
 
 export function JobPage() {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
 
+  const queryClient = useQueryClient();
   const { data: status, isLoading: statusLoading, error: statusError, refetch } = useJobStatus(jobId);
   const { data: result } = useJobResult(jobId, status?.status === 'completed');
 
@@ -29,6 +31,25 @@ export function JobPage() {
     mutationFn: () => cancelJob(jobId!),
     onSuccess: () => {
       refetch();
+    },
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: () => retryReports(jobId!),
+    onSuccess: () => {
+      // Immediately set status to "processing" so UI updates instantly and polling restarts
+      queryClient.setQueryData<JobStatusResponse>(['job-status', jobId], (old) => ({
+        job_id: old?.job_id ?? jobId ?? '',
+        status: 'processing',
+        current_stage: 'report_generation',
+        progress_percent: 0,
+        message: 'Повторная генерация отчётов...',
+        created_at: old?.created_at ?? new Date().toISOString(),
+        warnings: [],
+        can_retry_reports: false,
+      }));
+      // Remove cached result so it's fetched fresh when processing completes
+      queryClient.removeQueries({ queryKey: ['job-result', jobId] });
     },
   });
 
@@ -62,6 +83,7 @@ export function JobPage() {
   const showInitialLoading = statusLoading && !status;
   const isCompleted = status?.status === 'completed';
   const isFailed = status?.status === 'failed';
+  const isExpired = isFailed && !!status?.error?.includes('потеряна');
   const isProcessing = status?.status === 'processing' || status?.status === 'pending' || showInitialLoading;
   const fileName = result?.source_file || status?.message?.split('/').pop() || 'Файл';
   const isVideo = fileName.match(/\.(mp4|mov|avi|mkv)$/i);
@@ -131,10 +153,16 @@ export function JobPage() {
                   Готово
                 </span>
               )}
-              {isFailed && (
+              {isFailed && !isExpired && (
                 <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-red-100 text-red-700 rounded-full text-sm font-medium">
                   <XCircle className="w-4 h-4" />
                   Ошибка
+                </span>
+              )}
+              {isExpired && (
+                <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-100 text-amber-700 rounded-full text-sm font-medium">
+                  <Clock className="w-4 h-4" />
+                  Истекло
                 </span>
               )}
               {isProcessing && !showInitialLoading && (
@@ -155,6 +183,8 @@ export function JobPage() {
               stage={progressStatus.current_stage || undefined}
               message={progressStatus.message || undefined}
               status={progressStatus.status}
+              updatedAt={progressStatus.updated_at}
+              createdAt={progressStatus.created_at}
             />
 
             {/* Cancel button */}
@@ -180,8 +210,31 @@ export function JobPage() {
           </div>
         )}
 
+        {/* Expired task section */}
+        {isFailed && status?.error?.includes('потеряна') && (
+          <div className="p-6 bg-amber-50 border-b border-amber-100">
+            <div className="flex items-start gap-3">
+              <Clock className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-medium text-amber-800 mb-1">Срок хранения истёк</h3>
+                <p className="text-amber-600 text-sm">Файлы хранятся 24 часа после обработки. Загрузите файл повторно.</p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={() => navigate('/')}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Загрузить заново
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Error section */}
-        {isFailed && status?.error && (
+        {isFailed && status?.error && !status.error.includes('потеряна') && (
           <div className="p-6 bg-red-50 border-b border-red-100">
             <div className="flex items-start gap-3">
               <XCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -203,6 +256,42 @@ export function JobPage() {
           </div>
         )}
 
+        {/* Warnings section */}
+        {isCompleted && status?.warnings && status.warnings.length > 0 && (
+          <div className="p-4 bg-amber-50 border-b border-amber-100">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h3 className="font-medium text-amber-800 mb-1">Предупреждения</h3>
+                <ul className="text-amber-700 text-sm space-y-1">
+                  {status.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+                {status.can_retry_reports && (
+                  <button
+                    onClick={() => retryMutation.mutate()}
+                    disabled={retryMutation.isPending}
+                    className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium"
+                  >
+                    {retryMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Запускаем...
+                      </>
+                    ) : (
+                      <>
+                        <RotateCcw className="w-4 h-4" />
+                        Повторить генерацию отчётов
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Download section */}
         {isCompleted && result?.output_files && (
           <div className="p-6">
@@ -220,21 +309,24 @@ export function JobPage() {
             <div className="grid grid-cols-3 gap-6">
               <div className="text-center">
                 <p className="text-3xl font-bold text-slate-800">
-                  {result.segment_count}
+                  {Object.keys(result.output_files).length}
                 </p>
-                <p className="text-sm text-slate-500 mt-1">Сегментов</p>
+                <p className="text-sm text-slate-500 mt-1">Документов</p>
               </div>
               <div className="text-center">
                 <p className="text-3xl font-bold text-slate-800">
-                  {Object.keys(result.language_distribution).join(', ').toUpperCase() || '-'}
+                  {Object.keys(result.language_distribution).map(l => l.toUpperCase()).filter(l => l !== 'UNKNOWN').join(', ') || '-'}
                 </p>
                 <p className="text-sm text-slate-500 mt-1">Языки</p>
               </div>
               <div className="text-center">
                 <p className="text-3xl font-bold text-slate-800">
-                  {Math.round(result.processing_time_seconds)}с
+                  {result.processing_time_seconds >= 60
+                    ? `${Math.floor(result.processing_time_seconds / 60)}м ${Math.round(result.processing_time_seconds % 60)}с`
+                    : `${Math.round(result.processing_time_seconds)}с`
+                  }
                 </p>
-                <p className="text-sm text-slate-500 mt-1">Время</p>
+                <p className="text-sm text-slate-500 mt-1">Время обработки</p>
               </div>
             </div>
           </div>

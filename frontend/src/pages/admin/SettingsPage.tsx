@@ -1,118 +1,220 @@
 import { useEffect, useState } from 'react';
 import { settingsApi } from '../../api/adminApi';
+import { getApiErrorMessage } from '../../utils/errorMessage';
+import { useConfirm } from '../../hooks/useConfirm';
 import type { SystemSetting } from '../../api/adminApi';
 
-interface SettingModalProps {
-  isOpen: boolean;
-  setting: SystemSetting | null;
-  onClose: () => void;
-  onSave: (key: string, value: string, description?: string) => void;
+const CATEGORY_META: Record<string, { label: string; icon: string; order: number }> = {
+  llm: { label: 'Модели ИИ', icon: '🤖', order: 0 },
+  limits: { label: 'Лимиты', icon: '📏', order: 1 },
+  retention: { label: 'Хранение данных', icon: '🗄️', order: 2 },
+  custom: { label: 'Пользовательские', icon: '⚙️', order: 3 },
+  other: { label: 'Прочее', icon: '📋', order: 4 },
+};
+
+function SettingInput({
+  setting,
+  value,
+  onChange,
+}: {
+  setting: SystemSetting;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  if (setting.input_type === 'select' && setting.options) {
+    return (
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent transition"
+      >
+        {setting.options.map((opt) => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+        {/* If current value is not in options (custom), still show it */}
+        {!setting.options.includes(value) && (
+          <option value={value}>{value} (custom)</option>
+        )}
+      </select>
+    );
+  }
+
+  if (setting.input_type === 'number') {
+    return (
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        min={0}
+        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent transition"
+      />
+    );
+  }
+
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red focus:border-transparent transition"
+    />
+  );
 }
 
-function SettingModal({ isOpen, setting, onClose, onSave }: SettingModalProps) {
-  const [key, setKey] = useState('');
-  const [value, setValue] = useState('');
-  const [description, setDescription] = useState('');
+function SettingCard({
+  setting,
+  onSaved,
+  onReset,
+  onDelete,
+}: {
+  setting: SystemSetting;
+  onSaved: () => void;
+  onReset: (key: string) => void;
+  onDelete: (key: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(setting.value);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (setting) {
-      setKey(setting.key);
-      setValue(setting.value);
-      setDescription(setting.description || '');
-    } else {
-      setKey('');
-      setValue('');
-      setDescription('');
-    }
-  }, [setting]);
+    setValue(setting.value);
+    setEditing(false);
+  }, [setting.value]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const hasChanges = value !== setting.value;
+  const isCustom = setting.category === 'custom';
+
+  const handleSave = async () => {
+    if (!hasChanges) return;
     setSaving(true);
+    setError(null);
     try {
-      await onSave(key, value, description || undefined);
-      onClose();
+      await settingsApi.update(setting.key, value);
+      onSaved();
+      setEditing(false);
+    } catch (err) {
+      setError(getApiErrorMessage(err));
     } finally {
       setSaving(false);
     }
   };
 
-  if (!isOpen) return null;
+  const handleCancel = () => {
+    setValue(setting.value);
+    setEditing(false);
+    setError(null);
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
-      <div className="relative bg-white rounded-lg p-6 w-full max-w-md shadow-xl border border-slate-200 mx-4">
-        <h2 className="text-xl font-bold text-slate-800 mb-6">
-          {setting ? 'Редактировать настройку' : 'Создать настройку'}
-        </h2>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1">Ключ</label>
-            <input
-              type="text"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              required
-              disabled={!!setting}
-              placeholder="например: max_file_size_mb"
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red disabled:opacity-50"
-            />
+    <div className="px-5 py-4 hover:bg-slate-50/50 transition-colors">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          {/* Header row */}
+          <div className="flex items-center gap-2 mb-1">
+            <code className="text-sm font-mono font-semibold text-slate-700">{setting.key}</code>
+            {setting.is_default ? (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-500">
+                default
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                изменено
+              </span>
+            )}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1">Значение</label>
-            <textarea
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              required
-              rows={3}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
-            />
-          </div>
+          {/* Description */}
+          {setting.description && (
+            <p className="text-sm text-slate-500 mb-3">{setting.description}</p>
+          )}
 
-          <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1">Описание</label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Опциональное описание"
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-severin-red"
-            />
-          </div>
-
-          <div className="flex justify-end space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-300 text-slate-800 rounded-lg transition"
+          {/* Value display / edit */}
+          {editing ? (
+            <div className="space-y-2">
+              <SettingInput setting={setting} value={value} onChange={setValue} />
+              {error && <p className="text-sm text-red-600">{error}</p>}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSave}
+                  disabled={saving || !hasChanges}
+                  className="px-3 py-1.5 text-sm bg-severin-red hover:bg-severin-red-dark disabled:opacity-50 text-white rounded-lg transition"
+                >
+                  {saving ? 'Сохранение...' : 'Сохранить'}
+                </button>
+                <button
+                  onClick={handleCancel}
+                  className="px-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition"
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              onClick={() => setEditing(true)}
+              className="inline-block px-3 py-1.5 bg-slate-100 rounded-lg font-mono text-sm text-slate-700 cursor-pointer hover:bg-slate-200 transition"
+              title="Нажмите для редактирования"
             >
-              Отмена
-            </button>
+              {setting.value}
+            </div>
+          )}
+
+          {/* Meta info */}
+          {setting.updated_at && (
+            <p className="text-xs text-slate-400 mt-2">
+              Обновлено: {new Date(setting.updated_at).toLocaleString('ru-RU')}
+              {setting.updated_by && <> · {setting.updated_by}</>}
+            </p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          {!editing && (
             <button
-              type="submit"
-              disabled={saving}
-              className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark disabled:bg-blue-800 text-slate-800 rounded-lg transition"
+              onClick={() => setEditing(true)}
+              className="p-2 text-slate-400 hover:text-severin-red hover:bg-slate-100 rounded-lg transition"
+              title="Редактировать"
             >
-              {saving ? 'Сохранение...' : 'Сохранить'}
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
             </button>
-          </div>
-        </form>
+          )}
+          {!setting.is_default && setting.default_value != null && (
+            <button
+              onClick={() => onReset(setting.key)}
+              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+              title={`Сбросить к дефолту (${setting.default_value})`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          )}
+          {isCustom && (
+            <button
+              onClick={() => onDelete(setting.key)}
+              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+              title="Удалить"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
 export default function SettingsPage() {
+  const { confirm, alert, ConfirmDialog } = useConfirm();
   const [settings, setSettings] = useState<SystemSetting[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingSetting, setEditingSetting] = useState<SystemSetting | null>(null);
-  const [initializing, setInitializing] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -124,65 +226,52 @@ export default function SettingsPage() {
       const response = await settingsApi.list();
       setSettings(response.settings);
       setError('');
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Ошибка загрузки настроек');
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Ошибка загрузки настроек'));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCreate = () => {
-    setEditingSetting(null);
-    setModalOpen(true);
-  };
-
-  const handleEdit = (setting: SystemSetting) => {
-    setEditingSetting(setting);
-    setModalOpen(true);
-  };
-
-  const handleDelete = async (setting: SystemSetting) => {
-    if (!confirm(`Удалить настройку "${setting.key}"?`)) return;
+  const handleReset = async (key: string) => {
+    const setting = settings.find((s) => s.key === key);
+    if (!setting) return;
+    if (!(await confirm(
+      `Сбросить "${key}" к значению по умолчанию (${setting.default_value})?`
+    ))) return;
 
     try {
-      await settingsApi.delete(setting.key);
+      await settingsApi.reset(key);
       await loadSettings();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Ошибка удаления');
+    } catch (err) {
+      await alert(getApiErrorMessage(err, 'Ошибка сброса'));
     }
   };
 
-  const handleSave = async (key: string, value: string, description?: string) => {
-    if (editingSetting) {
-      await settingsApi.update(key, value, description);
-    } else {
-      await settingsApi.create(key, value, description);
-    }
-    await loadSettings();
-  };
-
-  const handleInitialize = async () => {
-    if (!confirm('Инициализировать настройки по умолчанию? Существующие значения не будут перезаписаны.')) return;
+  const handleDelete = async (key: string) => {
+    if (!(await confirm(`Удалить настройку "${key}"?`, { variant: 'danger' }))) return;
 
     try {
-      setInitializing(true);
-      const result = await settingsApi.initialize();
-      alert(`Создано настроек: ${result.created}`);
+      await settingsApi.delete(key);
       await loadSettings();
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Ошибка инициализации');
-    } finally {
-      setInitializing(false);
+    } catch (err) {
+      await alert(getApiErrorMessage(err, 'Ошибка удаления'));
     }
   };
 
-  // Group settings by category
-  const groupedSettings = settings.reduce((acc, setting) => {
-    const category = setting.key.split('_')[0];
-    if (!acc[category]) acc[category] = [];
-    acc[category].push(setting);
+  // Group by category
+  const grouped = settings.reduce((acc, s) => {
+    const cat = s.category || 'other';
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(s);
     return acc;
   }, {} as Record<string, SystemSetting[]>);
+
+  const sortedCategories = Object.keys(grouped).sort(
+    (a, b) => (CATEGORY_META[a]?.order ?? 99) - (CATEGORY_META[b]?.order ?? 99)
+  );
+
+  const customizedCount = settings.filter((s) => !s.is_default).length;
 
   return (
     <div className="space-y-6">
@@ -190,37 +279,12 @@ export default function SettingsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Настройки системы</h1>
-          <p className="text-slate-500 mt-1">Конфигурация SeverinAutoprotocol ({settings.length})</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleInitialize}
-            disabled={initializing}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-300 disabled:bg-slate-50 text-slate-800 rounded-lg transition flex items-center"
-          >
-            {initializing ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                Инициализация...
-              </>
-            ) : (
-              <>
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Инициализировать
-              </>
+          <p className="text-slate-500 mt-1">
+            {settings.length} настроек
+            {customizedCount > 0 && (
+              <> · <span className="text-amber-600">{customizedCount} изменено</span></>
             )}
-          </button>
-          <button
-            onClick={handleCreate}
-            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-slate-800 rounded-lg transition flex items-center"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Создать
-          </button>
+          </p>
         </div>
       </div>
 
@@ -231,87 +295,47 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Settings */}
+      {/* Loading */}
       {loading ? (
         <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-        </div>
-      ) : settings.length === 0 ? (
-        <div className="bg-white rounded-lg p-12 text-center shadow-sm border border-slate-200">
-          <svg className="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <p className="text-slate-500 mb-4">Настройки не найдены</p>
-          <button
-            onClick={handleInitialize}
-            className="px-4 py-2 bg-severin-red hover:bg-severin-red-dark text-slate-800 rounded-lg transition"
-          >
-            Инициализировать настройки по умолчанию
-          </button>
+          <div className="animate-spin rounded-full h-10 w-10 border-2 border-slate-300 border-t-severin-red"></div>
         </div>
       ) : (
-        <div className="space-y-6">
-          {Object.entries(groupedSettings).map(([category, categorySettings]) => (
-            <div key={category} className="bg-white rounded-lg overflow-hidden shadow-sm border border-slate-200">
-              <div className="bg-slate-50 px-6 py-3">
-                <h3 className="text-sm font-medium text-slate-600 uppercase">{category}</h3>
+        <div className="space-y-5">
+          {sortedCategories.map((category) => {
+            const meta = CATEGORY_META[category] || { label: category, icon: '📋', order: 99 };
+            const items = grouped[category];
+
+            return (
+              <div key={category} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                {/* Category header */}
+                <div className="px-5 py-3 bg-slate-50 border-b border-slate-200">
+                  <h3 className="text-sm font-semibold text-slate-600 flex items-center gap-2">
+                    <span>{meta.icon}</span>
+                    {meta.label}
+                    <span className="text-xs font-normal text-slate-400">({items.length})</span>
+                  </h3>
+                </div>
+
+                {/* Settings */}
+                <div className="divide-y divide-slate-100">
+                  {items.map((setting) => (
+                    <SettingCard
+                      key={setting.key}
+                      setting={setting}
+                      onSaved={loadSettings}
+                      onReset={handleReset}
+                      onDelete={handleDelete}
+                    />
+                  ))}
+                </div>
               </div>
-              <div className="divide-y divide-slate-200">
-                {categorySettings.map((setting) => (
-                  <div key={setting.key} className="px-6 py-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center">
-                          <code className="text-sm font-mono text-severin-red">{setting.key}</code>
-                        </div>
-                        {setting.description && (
-                          <p className="text-sm text-slate-500 mt-1">{setting.description}</p>
-                        )}
-                        <div className="mt-2 p-2 bg-slate-100 rounded font-mono text-sm text-slate-600 break-all">
-                          {setting.value}
-                        </div>
-                        <p className="text-xs text-slate-400 mt-2">
-                          Обновлено: {new Date(setting.updated_at).toLocaleString('ru-RU')}
-                          {setting.updated_by && ` пользователем ${setting.updated_by}`}
-                        </p>
-                      </div>
-                      <div className="flex space-x-2 ml-4">
-                        <button
-                          onClick={() => handleEdit(setting)}
-                          className="p-2 text-slate-500 hover:text-severin-red hover:bg-slate-50 rounded transition"
-                          title="Редактировать"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                        </button>
-                        <button
-                          onClick={() => handleDelete(setting)}
-                          className="p-2 text-slate-500 hover:text-red-600 hover:bg-slate-50 rounded transition"
-                          title="Удалить"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
-      {/* Modal */}
-      <SettingModal
-        isOpen={modalOpen}
-        setting={editingSetting}
-        onClose={() => setModalOpen(false)}
-        onSave={handleSave}
-      />
+      {ConfirmDialog}
     </div>
   );
 }

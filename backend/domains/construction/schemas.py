@@ -6,7 +6,9 @@ Pydantic схемы для домена Construction (Стройконтроль
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from enum import Enum
-from datetime import date, datetime
+from datetime import date
+
+from backend.domains.base_schemas import Priority
 
 
 # === ENUMS ===
@@ -172,116 +174,128 @@ class BasicReport(BaseModel):
     )
 
 
-# === ИИ АНАЛИЗ (для Gemini structured output) ===
+# === КОНСПЕКТ (тематический разбор совещания) ===
 
-class Indicator(BaseModel):
-    """Показатель здоровья проекта"""
-    name: str = Field(description="Название показателя")
-    status: Literal["ok", "risk", "critical"] = Field(description="Статус")
-    comment: str = Field(description="Краткий комментарий")
+class TopicDisagreement(BaseModel):
+    """Разногласие по теме"""
+    parties: str = Field(
+        description=(
+            "Стороны разногласия: ФИО и/или организации через ' vs '. "
+            "Пример: 'Генподрядчик (Скорик) vs Заказчик (Гусев)'. "
+            "Только из стенограммы."
+        )
+    )
+    essence: str = Field(
+        description=(
+            "Суть разногласия: в чём конкретно не сошлись. "
+            "Конкретные аргументы сторон, не общие слова."
+        )
+    )
+    outcome: Optional[str] = Field(
+        None,
+        description=(
+            "Чем закончилось: компромисс, эскалация, отложено. "
+            "null если исход не прозвучал в стенограмме."
+        )
+    )
 
-    @property
-    def emoji(self) -> str:
-        emojis = {"ok": "✅", "risk": "⚠️", "critical": "🔴"}
-        return emojis.get(self.status, "⚪")
+
+class SummaryTopic(BaseModel):
+    """Тема совещания — полный тематический блок конспекта"""
+    title: str = Field(
+        description=(
+            "Предметная область обсуждения (3-7 слов). "
+            "Пример: 'Кабеленесущие системы', 'Вентиляционное оборудование'. "
+            "Запрещено: 'Разное', 'Обсуждение', 'Вопросы'."
+        )
+    )
+    time_codes: List[str] = Field(
+        default_factory=list,
+        description="Тайм-коды всех фрагментов обсуждения темы. Формат: '04:09' или '07:21-08:09'."
+    )
+    context: str = Field(
+        description=(
+            "Предыстория: почему тема поднята, текущая ситуация. "
+            "2-4 предложения. Только факты из стенограммы."
+        )
+    )
+    discussion: str = Field(
+        description=(
+            "ПОДРОБНОЕ описание обсуждения: кто что сказал, позиции сторон, "
+            "аргументы, конкретные цифры, даты, технические детали. "
+            "Это главная ценность конспекта — не экономь на тексте. "
+            "Указывай организацию/роль говорящего."
+        )
+    )
+    decisions: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Конкретные принятые решения. Формат: '[Кто] [что делает] [когда]'. "
+            "Только решения, ЯВНО озвученные на совещании. "
+            "Пустой список если решений не было."
+        )
+    )
+    unresolved: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Вопросы без решения: отложенные, без ответственного, без срока. "
+            "Пустой список если всё решено."
+        )
+    )
+    disagreements: List[TopicDisagreement] = Field(
+        default_factory=list,
+        description=(
+            "Разногласия между участниками. ТОЛЬКО реальные споры из стенограммы. "
+            "Пустой список если разногласий не было. Запрещено домысливать конфликты."
+        )
+    )
+    responsible: List[str] = Field(
+        default_factory=list,
+        description=(
+            "ФИО или организации, ответственные по теме. "
+            "Только явно назначенные в стенограмме. Пустой список если не назначены."
+        )
+    )
 
 
-class Challenge(BaseModel):
-    """Проблема + рекомендация"""
-    problem: str = Field(description="Суть проблемы")
-    recommendation: str = Field(description="Что делать руководителю")
-    responsible: Optional[str] = Field(None, description="Кто должен решить")
-
-
-class AIAnalysis(BaseModel):
+class SummaryReport(BaseModel):
     """
-    Глубокий ИИ-анализ совещания.
-    Используется для analysis.docx
+    Конспект совещания — тематический разбор.
+
+    В отличие от задачного отчёта (BasicReport), конспект группирует
+    обсуждение по ТЕМАМ, а не по задачам. Для каждой темы даётся
+    полный обзор: контекст, ход обсуждения, решения, открытые вопросы
+    и разногласия.
     """
-
-    # Общая оценка
-    overall_status: OverallStatus = Field(
-        description="Общий статус: stable/attention/critical"
+    meeting_summary: str = Field(
+        description=(
+            "Суть совещания в 2-4 предложениях: основные темы, ключевые решения, общий итог. "
+            "Только факты из стенограммы, без оценок и домыслов."
+        )
     )
-
-    executive_summary: str = Field(
-        description="Выжимка для руководителя — 2-3 предложения"
-    )
-
-    # Показатели
-    indicators: List[Indicator] = Field(
+    topics: List[SummaryTopic] = Field(
         default_factory=list,
-        description="3-5 ключевых показателей проекта"
+        description="Темы совещания (3-8 тем), отсортированные по важности (критичные первыми)."
     )
-
-    # Проблемы
-    challenges: List[Challenge] = Field(
+    key_takeaways: List[str] = Field(
         default_factory=list,
-        description="Главные проблемы с рекомендациями (2-4 шт)"
+        description=(
+            "3-5 главных выводов для руководителя: что самое важное произошло, "
+            "что требует внимания, какие решения приняты. Конкретика, не общие слова."
+        )
     )
-
-    # Позитив
-    achievements: List[str] = Field(
-        default_factory=list,
-        description="Достижения и позитивные моменты (1-3 шт)"
-    )
-
-    # Атмосфера
-    atmosphere: Atmosphere = Field(
-        description="Атмосфера совещания"
-    )
-    atmosphere_comment: str = Field(
-        default="",
-        description="Комментарий об атмосфере"
-    )
-
-
-# === ПОЛНЫЙ РЕЗУЛЬТАТ ОБРАБОТКИ ===
-
-class ProcessingResult(BaseModel):
-    """Полный результат обработки совещания"""
-
-    # Метаданные
-    source_file: str = Field(description="Исходный файл")
-    meeting_date: Optional[date] = Field(None, description="Дата совещания")
-    duration_seconds: Optional[float] = Field(None, description="Длительность в секундах")
-    speakers_count: int = Field(default=0, description="Количество спикеров")
-    generated_at: datetime = Field(default_factory=datetime.now)
-
-    # Результаты LLM
-    basic_report: Optional[BasicReport] = Field(None, description="Базовый отчёт от LLM")
-    ai_analysis: Optional[AIAnalysis] = Field(None, description="Глубокий анализ от LLM")
-
-    # Пути к артефактам
-    transcript_path: Optional[str] = Field(None, description="Путь к transcript.docx")
-    tasks_path: Optional[str] = Field(None, description="Путь к tasks.xlsx")
-    report_path: Optional[str] = Field(None, description="Путь к report.docx")
-    # analysis_path: deprecated - analysis is now generated for dashboard only, no file
-
-    @property
-    def duration_formatted(self) -> str:
-        """Длительность в формате HH:MM:SS"""
-        if not self.duration_seconds:
-            return "00:00:00"
-        hours = int(self.duration_seconds // 3600)
-        minutes = int((self.duration_seconds % 3600) // 60)
-        seconds = int(self.duration_seconds % 60)
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 # === ENUMS для service.py ===
 
-class Priority(str, Enum):
-    """Приоритет задачи"""
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
+# Priority imported from backend.domains.base_schemas
 
 
 class IssueSeverity(str, Enum):
     """Серьёзность проблемы"""
     CRITICAL = "critical"
     MAJOR = "major"
+    MEDIUM = "medium"
     MINOR = "minor"
 
 
@@ -588,6 +602,13 @@ class Abbreviation(BaseModel):
     definition: str = Field(description="Расшифровка")
 
 
+class ParticipantGroup(BaseModel):
+    """Группа участников от одной организации"""
+    role: str = Field(default="", description="Роль организации")
+    organization: str = Field(default="", description="Название организации")
+    people: List[str] = Field(default_factory=list, description="Список людей")
+
+
 class RiskBrief(BaseModel):
     """
     Risk Brief — Executive-отчёт для заказчика.
@@ -661,9 +682,9 @@ class RiskBrief(BaseModel):
     )
 
     # === УЧАСТНИКИ ===
-    participants: List[dict] = Field(
+    participants: List[ParticipantGroup] = Field(
         default_factory=list,
-        description="Участники совещания сгруппированные по организациям"
+        description="Участники совещания сгруппированные по организациям (заполняется из БД, не LLM)"
     )
 
     # === COMPUTED PROPERTIES ===

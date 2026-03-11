@@ -5,13 +5,13 @@ Receives pre-generated BasicReport (from shared LLM call) and formats as Word do
 
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from backend.core.transcription.models import TranscriptionResult
-from backend.domains.construction.schemas import BasicReport, TaskCategory, TaskPriority
+from backend.domains.construction.schemas import BasicReport, TaskCategory
 
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ def generate_report(
     ]
     if meeting_date_formatted:
         meta_data.append(("Дата встречи", meeting_date_formatted))
-    meta_data.append(("Дата обработки", datetime.now().strftime("%d.%m.%Y %H:%M")))
+    meta_data.append(("Дата обработки", datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M")))
     meta_data.append(("Тип совещания", effective_meeting_type))
 
     for i, (label, value) in enumerate(meta_data):
@@ -162,7 +162,7 @@ def generate_report(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if filename is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"report_{timestamp}.docx"
 
     output_path = output_dir / filename

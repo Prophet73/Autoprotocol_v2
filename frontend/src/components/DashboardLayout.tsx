@@ -1,5 +1,7 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Building2, Sparkles } from 'lucide-react';
+import { DomainSwitcher } from './DomainSwitcher';
+import { TourOverlay } from './tour/TourOverlay';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -9,11 +11,13 @@ interface DashboardLayoutProps {
  * Full-screen layout for Dashboard with top bar like admin.
  */
 export function DashboardLayout({ children }: DashboardLayoutProps) {
+  const navigate = useNavigate();
+
   return (
     <div className="h-screen flex flex-col bg-slate-100 overflow-hidden">
       {/* Top bar */}
       <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 flex-shrink-0 z-50">
-        {/* Left: Back + Logo + Title */}
+        {/* Left: Back + Logo + Title + Domain */}
         <div className="flex items-center gap-4">
           <Link
             to="/"
@@ -25,16 +29,21 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="w-px h-6 bg-slate-200" />
           <div className="flex items-center gap-2.5">
             <img src="/severin-logo.png" alt="Autoprotocol" className="w-7 h-7" />
-            <span className="text-lg font-bold text-slate-800">Autoprotocol</span>
+            <div className="flex flex-col leading-tight">
+              <span className="text-lg font-bold text-slate-800">Autoprotocol</span>
+              <span className="text-[10px] text-slate-400 -mt-0.5">Severin Development</span>
+            </div>
           </div>
           <div className="w-px h-5 bg-slate-200 hidden sm:block" />
           <span className="text-sm text-slate-500 hidden sm:inline">Дашборд</span>
+          <div className="w-px h-5 bg-slate-200 hidden sm:block" />
+          <DomainSwitcher />
         </div>
 
         {/* Right: External links */}
         <div className="flex items-center gap-3 text-sm">
           <a
-            href="https://portal.svrd.ru"
+            href="https://cp.svrd.ru/"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-all"
@@ -55,9 +64,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       </header>
 
       {/* Main content - full width, full height */}
-      <main className="flex-1 overflow-hidden bg-slate-50">
+      <main className="flex-1 overflow-auto bg-slate-50">
         {children}
       </main>
+
+      <TourOverlay navigate={navigate} />
     </div>
   );
 }

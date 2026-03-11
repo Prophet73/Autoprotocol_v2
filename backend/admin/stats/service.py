@@ -10,7 +10,7 @@ Provides aggregated statistics for:
 """
 import os
 import logging
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -57,13 +57,9 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 OUTPUT_DIR = DATA_DIR / "output"
 
-# Domain display names
-DOMAIN_DISPLAY_NAMES = {
-    "construction": "Строительство",
-    "hr": "HR",
-    "it": "IT",
-    "general": "Общий",
-}
+from backend.domains.registry import get_display_names as _get_display_names
+
+DOMAIN_DISPLAY_NAMES = _get_display_names()
 
 
 class StatsService:
@@ -92,7 +88,7 @@ class StatsService:
             artifacts=await self.get_artifacts_stats(filters),
             errors=await self.get_error_stats(filters),
             filters_applied=filters,
-            generated_at=datetime.now(),
+            generated_at=datetime.now(timezone.utc),
         )
 
     async def get_overview_stats(
@@ -108,7 +104,7 @@ class StatsService:
             timeline=await self.get_timeline_stats(filters),
             artifacts=await self.get_artifacts_stats(filters),
             filters_applied=filters,
-            generated_at=datetime.now(),
+            generated_at=datetime.now(timezone.utc),
         )
 
     async def get_kpi_stats(self, filters: StatsFilters) -> KPIStats:
@@ -304,7 +300,7 @@ class StatsService:
             timeline=await self.get_timeline_stats(filters),
             errors=await self.get_error_stats(filters),
             filters_applied=filters,
-            generated_at=datetime.now(),
+            generated_at=datetime.now(timezone.utc),
         )
 
     async def _get_projects_breakdown(self, filters: StatsFilters) -> ProjectsBreakdown:
@@ -325,7 +321,7 @@ class StatsService:
                 func.max(TranscriptionJob.created_at).label("last_activity"),
             )
             .outerjoin(TranscriptionJob, TranscriptionJob.project_id == ConstructionProject.id)
-            .where(ConstructionProject.is_active == True)
+            .where(ConstructionProject.is_active)
             .group_by(ConstructionProject.id)
             .order_by(func.count(TranscriptionJob.id).desc())
         )
@@ -438,15 +434,19 @@ class StatsService:
         self,
         filters: Optional[StatsFilters] = None
     ) -> CostStats:
-        """Get AI cost statistics."""
+        """Get AI cost statistics with per-model breakdown."""
         filters = filters or StatsFilters()
         query = self._build_base_query(filters)
 
-        # Total tokens
+        # Total tokens (including per-model breakdown)
         result = await self.db.execute(
             select(
                 func.sum(TranscriptionJob.input_tokens).label("input"),
                 func.sum(TranscriptionJob.output_tokens).label("output"),
+                func.sum(TranscriptionJob.flash_input_tokens).label("flash_in"),
+                func.sum(TranscriptionJob.flash_output_tokens).label("flash_out"),
+                func.sum(TranscriptionJob.pro_input_tokens).label("pro_in"),
+                func.sum(TranscriptionJob.pro_output_tokens).label("pro_out"),
                 func.count(TranscriptionJob.id).label("count"),
             ).where(and_(query, TranscriptionJob.status == "completed"))
         )
@@ -454,15 +454,31 @@ class StatsService:
 
         total_input = row.input or 0 if row else 0
         total_output = row.output or 0 if row else 0
+        flash_in = row.flash_in or 0 if row else 0
+        flash_out = row.flash_out or 0 if row else 0
+        pro_in = row.pro_in or 0 if row else 0
+        pro_out = row.pro_out or 0 if row else 0
         count = row.count or 0 if row else 0
 
-        total_cost = GeminiPricing.calculate_cost(total_input, total_output)
+        # Calculate precise cost per model
+        flash_cost = GeminiPricing.calculate_cost_precise(flash_input=flash_in, flash_output=flash_out)
+        pro_cost = GeminiPricing.calculate_cost_precise(pro_input=pro_in, pro_output=pro_out)
+        total_cost = flash_cost + pro_cost
+
+        # Fallback: if per-model not tracked, use total tokens with Flash rate
+        if total_cost == 0 and (total_input > 0 or total_output > 0):
+            total_cost = GeminiPricing.calculate_cost(total_input, total_output)
+
         avg_cost = total_cost / count if count > 0 else 0
 
         # Cost by domain
         domain_result = await self.db.execute(
             select(
                 TranscriptionJob.domain,
+                func.sum(TranscriptionJob.flash_input_tokens).label("flash_in"),
+                func.sum(TranscriptionJob.flash_output_tokens).label("flash_out"),
+                func.sum(TranscriptionJob.pro_input_tokens).label("pro_in"),
+                func.sum(TranscriptionJob.pro_output_tokens).label("pro_out"),
                 func.sum(TranscriptionJob.input_tokens).label("input"),
                 func.sum(TranscriptionJob.output_tokens).label("output"),
             )
@@ -473,8 +489,13 @@ class StatsService:
         by_domain = {}
         for row in domain_result.fetchall():
             if row.domain:
-                cost = GeminiPricing.calculate_cost(row.input or 0, row.output or 0)
-                by_domain[row.domain] = round(cost, 4)
+                dcost = GeminiPricing.calculate_cost_precise(
+                    flash_input=row.flash_in or 0, flash_output=row.flash_out or 0,
+                    pro_input=row.pro_in or 0, pro_output=row.pro_out or 0,
+                )
+                if dcost == 0 and ((row.input or 0) > 0 or (row.output or 0) > 0):
+                    dcost = GeminiPricing.calculate_cost(row.input or 0, row.output or 0)
+                by_domain[row.domain] = round(dcost, 4)
 
         return CostStats(
             total_input_tokens=total_input,
@@ -482,6 +503,12 @@ class StatsService:
             total_cost_usd=round(total_cost, 4),
             avg_cost_per_job=round(avg_cost, 4),
             by_domain=by_domain,
+            flash_input_tokens=flash_in,
+            flash_output_tokens=flash_out,
+            pro_input_tokens=pro_in,
+            pro_output_tokens=pro_out,
+            flash_cost_usd=round(flash_cost, 4),
+            pro_cost_usd=round(pro_cost, 4),
         )
 
     async def get_timeline_stats(
@@ -510,20 +537,34 @@ class StatsService:
                 func.count(TranscriptionJob.id).label("jobs"),
                 func.sum(case((TranscriptionJob.status == "completed", 1), else_=0)).label("completed"),
                 func.sum(case((TranscriptionJob.status == "failed", 1), else_=0)).label("failed"),
+                func.count(distinct(TranscriptionJob.user_id)).label("unique_users"),
             )
             .where(query)
             .group_by(func.date(TranscriptionJob.created_at))
             .order_by(func.date(TranscriptionJob.created_at))
         )
 
-        points = []
+        # Build a map of existing data points by date string
+        points_by_date: dict[str, TimelinePoint] = {}
         for row in result.fetchall():
-            points.append(TimelinePoint(
-                date=str(row.date),
+            date_str = str(row.date)
+            points_by_date[date_str] = TimelinePoint(
+                date=date_str,
                 jobs=row.jobs or 0,
                 completed=row.completed or 0,
                 failed=row.failed or 0,
-            ))
+                unique_users=row.unique_users or 0,
+            )
+
+        # Fill every day in the range (including zeros)
+        points: list[TimelinePoint] = []
+        current = start_date
+        while current <= end_date:
+            date_str = str(current)
+            points.append(points_by_date.get(date_str, TimelinePoint(
+                date=date_str, jobs=0, completed=0, failed=0, unique_users=0,
+            )))
+            current += timedelta(days=1)
 
         return TimelineStats(
             points=points,
@@ -657,9 +698,9 @@ class StatsService:
         conditions = []
 
         if filters.date_from:
-            conditions.append(TranscriptionJob.created_at >= datetime.combine(filters.date_from, datetime.min.time()))
+            conditions.append(TranscriptionJob.created_at >= datetime.combine(filters.date_from, datetime.min.time(), tzinfo=timezone.utc))
         if filters.date_to:
-            conditions.append(TranscriptionJob.created_at <= datetime.combine(filters.date_to, datetime.max.time()))
+            conditions.append(TranscriptionJob.created_at <= datetime.combine(filters.date_to, datetime.max.time(), tzinfo=timezone.utc))
         if filters.domain:
             conditions.append(TranscriptionJob.domain == filters.domain)
         if filters.meeting_type:
@@ -685,12 +726,12 @@ class StatsService:
         total = total_result.scalar() or 0
 
         active_result = await self.db.execute(
-            select(func.count(User.id)).where(User.is_active == True)
+            select(func.count(User.id)).where(User.is_active)
         )
         active = active_result.scalar() or 0
 
         super_result = await self.db.execute(
-            select(func.count(User.id)).where(User.is_superuser == True)
+            select(func.count(User.id)).where(User.is_superuser)
         )
         superusers = super_result.scalar() or 0
 
@@ -797,7 +838,7 @@ class StatsService:
             domains=domain_stats,
             redis_connected=redis_connected,
             gpu_available=gpu_available,
-            generated_at=datetime.now(),
+            generated_at=datetime.now(timezone.utc),
         )
 
     def _check_gpu(self) -> bool:

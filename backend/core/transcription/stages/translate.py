@@ -11,7 +11,7 @@ import logging
 from typing import List, Dict, Optional
 from collections import defaultdict
 
-from google import genai
+from backend.core.llm.client import get_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +49,19 @@ class GeminiTranslator:
         self.target_language = target_language
         self.context_window = context_window
         self.rate_limit_seconds = rate_limit_seconds
-        self.model_name = model_name or os.getenv("GEMINI_TRANSLATE_MODEL", "gemini-2.5-flash")
+        if model_name:
+            self.model_name = model_name
+        else:
+            from backend.admin.settings.service import get_setting_value
+            from backend.shared.config import TRANSLATE_MODEL
+            self.model_name = get_setting_value("gemini_translate_model", TRANSLATE_MODEL)
 
         # Set API key in env if provided
         if api_key:
             os.environ["GOOGLE_API_KEY"] = api_key
 
-        self.client = genai.Client()
-        logger.info(f"Gemini translator initialized: {self.model_name}")
+        self.client = get_llm_client()
+        logger.info(f"Translator initialized: {self.model_name}")
 
     def translate(
         self,
@@ -170,10 +175,15 @@ class GeminiTranslator:
 
 ПЕРЕВОД НА РУССКИЙ:"""
 
-        response = self.client.models.generate_content(
+        response = self.client.generate_content(
             model=self.model_name,
             contents=prompt,
         )
+
+        # Track token usage
+        from backend.core.llm.token_tracker import get_tracker
+        get_tracker().add(response, self.model_name)
+
         translation = response.text.strip()
 
         # Clean artifacts
@@ -232,10 +242,12 @@ class GeminiTranslator:
 {numbered}"""
 
                 try:
-                    response = self.client.models.generate_content(
+                    response = self.client.generate_content(
                         model=self.model_name,
                         contents=prompt,
                     )
+                    from backend.core.llm.token_tracker import get_tracker
+                    get_tracker().add(response, self.model_name)
                     translations = response.text.strip().split("\n")
 
                     for j, seg in enumerate(batch):

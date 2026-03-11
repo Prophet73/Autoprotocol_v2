@@ -8,6 +8,12 @@
 # Architecture:
 #   https://test1.dev.svrd.ru/ --> Nginx PM --> frontend:3001 --> api:8000 (internal)
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
 services:
   # Frontend (Nginx + React build)
   frontend:
@@ -22,7 +28,7 @@ services:
     ports:
       - "3001:80"  # External port for Nginx Proxy Manager
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:80/health"]
       interval: 30s
       timeout: 10s
       start_period: 10s
@@ -30,6 +36,7 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - whisperx-net
@@ -52,10 +59,10 @@ services:
     env_file:
       - .env.production
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - DATABASE_URL=postgresql+asyncpg://whisperx:${POSTGRES_PASSWORD:-whisperx_prod}@postgres:5432/whisperx
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-}@redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://whisperx:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/whisperx
       - WHISPER_MODEL=large-v3
       - COMPUTE_TYPE=float16
       - DEVICE=cuda
@@ -63,10 +70,11 @@ services:
     volumes:
       - uploads:/data/uploads
       - output:/data/output
-      - models:/data/models
-      - ../backend:/opt/whisperx/backend:ro  # Hot-reload backend code without rebuild
+      - models:/data/models:ro
     deploy:
       resources:
+        limits:
+          memory: 4G
         reservations:
           devices:
             - driver: nvidia
@@ -77,6 +85,7 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - whisperx-net
@@ -89,7 +98,7 @@ services:
       dockerfile: docker/Dockerfile
     command: celery -A backend.tasks.celery_app worker -Q transcription_gpu -c 1 --loglevel=info -n gpu@%h
     healthcheck:
-      test: ["CMD-SHELL", "celery -A backend.tasks.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      test: ["CMD-SHELL", "celery -A backend.tasks.celery_app inspect ping -d gpu@$$HOSTNAME || exit 1"]
       interval: 60s
       timeout: 30s
       start_period: 120s
@@ -97,10 +106,10 @@ services:
     env_file:
       - .env.production
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - DATABASE_URL=postgresql+asyncpg://whisperx:${POSTGRES_PASSWORD:-whisperx_prod}@postgres:5432/whisperx
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-}@redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://whisperx:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/whisperx
       - WHISPER_MODEL=large-v3
       - COMPUTE_TYPE=float16
       - DEVICE=cuda
@@ -108,9 +117,10 @@ services:
       - uploads:/data/uploads
       - output:/data/output
       - models:/data/models
-      - ../backend:/opt/whisperx/backend:ro  # Hot-reload backend code without rebuild
     deploy:
       resources:
+        limits:
+          memory: 8G
         reservations:
           devices:
             - driver: nvidia
@@ -121,6 +131,7 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - whisperx-net
@@ -133,7 +144,7 @@ services:
       dockerfile: docker/Dockerfile
     command: celery -A backend.tasks.celery_app worker -Q transcription_llm -c 3 --loglevel=info -n llm@%h
     healthcheck:
-      test: ["CMD-SHELL", "celery -A backend.tasks.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      test: ["CMD-SHELL", "celery -A backend.tasks.celery_app inspect ping -d llm@$$HOSTNAME || exit 1"]
       interval: 60s
       timeout: 30s
       start_period: 60s
@@ -141,19 +152,51 @@ services:
     env_file:
       - .env.production
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
-      - DATABASE_URL=postgresql+asyncpg://whisperx:${POSTGRES_PASSWORD:-whisperx_prod}@postgres:5432/whisperx
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-}@redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://whisperx:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/whisperx
     volumes:
       - uploads:/data/uploads
       - output:/data/output
-      - ../backend:/opt/whisperx/backend:ro  # Hot-reload backend code without rebuild
+    deploy:
+      resources:
+        limits:
+          memory: 2G
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    logging: *default-logging
+    restart: unless-stopped
+    networks:
+      - whisperx-net
+
+  # Celery Beat (Periodic Task Scheduler)
+  celery-beat:
+    container_name: whisperx-celery-beat
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: celery -A backend.tasks.celery_app beat --loglevel=info
+    env_file:
+      - .env.production
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-}@redis:6379/2
+      - DATABASE_URL=postgresql+asyncpg://whisperx:${POSTGRES_PASSWORD}@postgres:5432/whisperx
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    logging: *default-logging
     restart: unless-stopped
     networks:
       - whisperx-net
@@ -167,9 +210,9 @@ services:
       - "6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -181,12 +224,13 @@ services:
   postgres:
     container_name: whisperx-postgres
     image: postgres:15-alpine
+    shm_size: 256m
     # No external ports in production
     expose:
       - "5432"
     environment:
       - POSTGRES_USER=whisperx
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-whisperx_prod}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       - POSTGRES_DB=whisperx
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -205,9 +249,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    command: celery -A backend.tasks.celery_app flower --port=5555 --basic_auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-admin}
+    command: celery -A backend.tasks.celery_app flower --port=5555 --basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}
     ports:
-      - "5555:5555"
+      - "127.0.0.1:5555:5555"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5555/healthcheck"]
       interval: 30s
@@ -217,9 +261,9 @@ services:
     env_file:
       - .env.production
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
-      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-}@redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-}@redis:6379/2
     depends_on:
       - redis
       - worker-gpu

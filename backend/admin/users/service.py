@@ -235,8 +235,9 @@ class UserService:
             await self.db.delete(da)
 
         # Add new domain assignments
+        from backend.domains.registry import DOMAINS as _DOMAINS
         for domain in domains:
-            if domain in [d.value for d in Domain]:
+            if domain in _DOMAINS:
                 assignment = UserDomainAssignment(
                     user_id=user_id,
                     domain=domain,
@@ -325,7 +326,7 @@ class UserService:
                 granted_by=granted_by_id
             )
         )
-        await self.db.commit()
+        await self.db.flush()
         return True
 
     async def revoke_project_access(self, user_id: int, project_id: int) -> bool:
@@ -345,7 +346,7 @@ class UserService:
                 user_project_access.c.project_id == project_id
             )
         )
-        await self.db.commit()
+        await self.db.flush()
         return result.rowcount > 0
 
     async def get_user_project_ids(self, user_id: int) -> List[int]:
@@ -409,7 +410,7 @@ class UserService:
                 ]
             )
 
-        await self.db.commit()
+        await self.db.flush()
 
         return {
             "granted": len(to_grant),

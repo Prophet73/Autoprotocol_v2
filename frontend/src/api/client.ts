@@ -1,7 +1,7 @@
 import axios from 'axios';
-import { getGuestId } from '../utils/guestId';
 import { useAuthStore } from '../stores/authStore';
 import { API_BASE_URL, getApiBaseUrl } from '../config/api';
+import { triggerSSOReauth } from '../utils/tokenExpiry';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -10,20 +10,82 @@ export const api = axios.create({
   },
 });
 
-// Add interceptor to include auth token or guest ID
+// Add interceptor to include auth token
 api.interceptors.request.use((config) => {
   const { token } = useAuthStore.getState();
 
   if (token) {
-    // Authenticated user - use Bearer token
     config.headers.Authorization = `Bearer ${token}`;
-  } else {
-    // Anonymous user - use guest ID
-    config.headers['X-Guest-ID'] = getGuestId();
   }
 
   return config;
 });
+
+// Handle 401 responses — try refresh token, then SSO re-auth, then login redirect
+let isRefreshing = false;
+let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: unknown) => void }> = [];
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      const { refreshToken } = useAuthStore.getState();
+
+      // Try refresh token if available
+      if (refreshToken) {
+        if (isRefreshing) {
+          // Queue this request while refresh is in progress
+          return new Promise((resolve, reject) => {
+            refreshQueue.push({
+              resolve: (token: string) => {
+                originalRequest.headers.Authorization = `Bearer ${token}`;
+                resolve(api(originalRequest));
+              },
+              reject,
+            });
+          });
+        }
+
+        originalRequest._retry = true;
+        isRefreshing = true;
+
+        try {
+          const resp = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+            refresh_token: refreshToken,
+          });
+          const { access_token, refresh_token: newRefresh } = resp.data;
+          useAuthStore.getState().setTokens(access_token, newRefresh);
+
+          // Retry queued requests
+          refreshQueue.forEach((q) => q.resolve(access_token));
+          refreshQueue = [];
+
+          // Retry original request
+          originalRequest.headers.Authorization = `Bearer ${access_token}`;
+          return api(originalRequest);
+        } catch {
+          refreshQueue.forEach((q) => q.reject(error));
+          refreshQueue = [];
+          // Refresh failed — fall through to logout
+        } finally {
+          isRefreshing = false;
+        }
+      }
+
+      // No refresh token or refresh failed — logout
+      useAuthStore.getState().logout();
+
+      if (import.meta.env.VITE_SSO_HUB_ENABLED === 'true') {
+        triggerSSOReauth();
+      } else {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Types
 export interface JobResponse {
@@ -43,6 +105,39 @@ export interface JobStatusResponse {
   updated_at?: string;
   completed_at?: string;
   error?: string;
+  warnings?: string[];
+  can_retry_reports?: boolean;
+}
+
+// Meeting report topic (CEO/NOTECH domain)
+export interface MeetingReportTopic {
+  id: number;
+  title: string;
+  timecodes?: string[];
+  problem?: string;
+  decision?: string;
+  risks?: string[];
+  value_points?: string[];
+  discussion_details?: string[];
+}
+
+// Meeting report task
+export interface MeetingReportTask {
+  description: string;
+  responsible?: string;
+  priority?: 'high' | 'medium' | 'low';
+}
+
+// Structured meeting report (domain-specific)
+export interface MeetingReport {
+  executive_summary?: string;
+  meeting_date?: string;
+  meeting_location?: string;
+  meeting_type?: string;
+  meeting_topic?: string;
+  attendees?: string[];
+  topics?: MeetingReportTopic[];
+  tasks?: MeetingReportTask[];
 }
 
 export interface JobResultResponse {
@@ -54,6 +149,7 @@ export interface JobResultResponse {
   language_distribution: Record<string, number>;
   output_files: Record<string, string>;
   completed_at: string;
+  meeting_report?: MeetingReport;
 }
 
 export interface TranscribeOptions {
@@ -65,6 +161,7 @@ export interface TranscribeOptions {
   generate_tasks?: boolean;
   generate_report?: boolean;
   generate_risk_brief?: boolean;
+  generate_summary?: boolean;
   // Project linkage for Drop Box workflow
   project_code?: string;
   // Meeting type for domain-specific processing
@@ -77,12 +174,15 @@ export interface TranscribeOptions {
   participant_ids?: number[];
   // Domain for domain-specific processing (construction, hr, dct)
   domain?: string;
+  // Private job (hidden from department calendar)
+  is_private?: boolean;
 }
 
 // Meeting type info from backend
 export interface MeetingTypeInfo {
   id: string;
   name: string;
+  description?: string;
   default?: boolean;
 }
 
@@ -99,7 +199,8 @@ export interface ProjectCodeValidation {
 // API functions
 export async function createTranscription(
   file: File,
-  options: TranscribeOptions = {}
+  options: TranscribeOptions = {},
+  onProgress?: (percent: number) => void,
 ): Promise<JobResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -113,6 +214,7 @@ export async function createTranscription(
   if (options.generate_tasks) formData.append('generate_tasks', 'true');
   if (options.generate_report) formData.append('generate_report', 'true');
   if (options.generate_risk_brief) formData.append('generate_risk_brief', 'true');
+  if (options.generate_summary) formData.append('generate_summary', 'true');
   // Project code for Drop Box workflow
   if (options.project_code) formData.append('project_code', options.project_code);
   // Domain for domain-specific processing
@@ -123,6 +225,7 @@ export async function createTranscription(
   if (options.meeting_date) formData.append('meeting_date', options.meeting_date);
   // Email notification
   if (options.notify_emails) formData.append('notify_emails', options.notify_emails);
+  if (options.is_private) formData.append('is_private', 'true');
   // Meeting participants
   if (options.participant_ids && options.participant_ids.length > 0) {
     formData.append('participant_ids', options.participant_ids.join(','));
@@ -130,6 +233,12 @@ export async function createTranscription(
 
   const response = await api.post<JobResponse>('/transcribe', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: onProgress
+      ? (e) => {
+          const percent = e.total ? Math.round((e.loaded * 100) / e.total) : 0;
+          onProgress(percent);
+        }
+      : undefined,
   });
   return response.data;
 }
@@ -160,8 +269,6 @@ export async function downloadJobFile(jobId: string, fileType: string): Promise<
   const headers: Record<string, string> = {};
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
-  } else {
-    headers['X-Guest-ID'] = getGuestId();
   }
 
   const response = await fetch(url, { headers });
@@ -201,8 +308,6 @@ export async function downloadJobFileAll(jobId: string): Promise<void> {
   const headers: Record<string, string> = {};
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
-  } else {
-    headers['X-Guest-ID'] = getGuestId();
   }
 
   const response = await fetch(url, { headers });
@@ -240,16 +345,22 @@ export interface JobListItem {
   source_file: string;
   progress_percent: number;
   message?: string;
+  has_warnings?: boolean;
+  meeting_type?: string;
+  meeting_type_name?: string;
 }
 
 export interface JobListResponse {
   jobs: JobListItem[];
 }
 
-export async function getJobs(limit: number = 50, domain?: string): Promise<JobListResponse> {
+export async function getJobs(limit: number = 50, domain?: string, scope?: 'my' | 'domain'): Promise<JobListResponse> {
   const params = new URLSearchParams({ limit: limit.toString() });
   if (domain) {
     params.append('domain', domain);
+  }
+  if (scope) {
+    params.append('scope', scope);
   }
   const response = await api.get<JobListResponse>(`/transcribe?${params.toString()}`);
   return response.data;
@@ -258,6 +369,23 @@ export async function getJobs(limit: number = 50, domain?: string): Promise<JobL
 export async function cancelJob(jobId: string): Promise<{ success: boolean }> {
   const response = await api.delete(`/transcribe/${jobId}`);
   return response.data;
+}
+
+export async function retryReports(jobId: string): Promise<{ success: boolean }> {
+  const response = await api.post(`/transcribe/${jobId}/retry-reports`);
+  return response.data;
+}
+
+// Get available domains from backend
+export interface DomainInfo {
+  id: string;
+  name: string;
+  meeting_types_count: number;
+}
+
+export async function getDomains(): Promise<DomainInfo[]> {
+  const response = await api.get<{ domains: DomainInfo[] }>('/api/domains/');
+  return response.data.domains;
 }
 
 // Get meeting types for a domain
@@ -277,61 +405,9 @@ export async function validateProjectCode(code: string): Promise<ProjectCodeVali
     // Handle 404 or other errors
     return {
       valid: false,
-      message: 'Project code not found',
+      message: 'Не удалось проверить код проекта. Попробуйте позже.',
     };
   }
-}
-
-// Manager dashboard API
-export interface ProjectSummary {
-  id: number;
-  name: string;
-  project_code: string;
-  is_active: boolean;
-  total_reports: number;
-  completed_reports: number;
-  pending_reports: number;
-  failed_reports: number;
-  open_risks: number;
-  last_report_date: string | null;
-}
-
-export interface DashboardData {
-  total_reports: number;
-  by_project: Record<number, { total: number; reports: Array<{ id: number; title: string; created_at: string }> }>;
-  timeline: Array<{
-    id: number;
-    project_id: number;
-    title: string;
-    meeting_date: string | null;
-    created_at: string | null;
-  }>;
-  speaker_stats: Record<string, {
-    total_time: number;
-    appearances: number;
-    emotions: Record<string, number>;
-  }>;
-}
-
-export async function getMyProjects(): Promise<ProjectSummary[]> {
-  const response = await api.get<ProjectSummary[]>('/api/domains/construction/my-projects');
-  return response.data;
-}
-
-export async function getProjectDashboard(
-  projectId: number,
-  dateFrom?: string,
-  dateTo?: string
-): Promise<DashboardData> {
-  const params = new URLSearchParams();
-  if (dateFrom) params.append('date_from', dateFrom);
-  if (dateTo) params.append('date_to', dateTo);
-
-  const query = params.toString() ? `?${params.toString()}` : '';
-  const response = await api.get<DashboardData>(
-    `/api/domains/construction/projects/${projectId}/dashboard${query}`
-  );
-  return response.data;
 }
 
 // Manager Dashboard API (Autoprotokol style)
@@ -481,6 +557,7 @@ export interface AnalyticsDetail {
   has_transcript: boolean;
   has_tasks: boolean;
   has_risk_brief: boolean;
+  has_summary: boolean;
   filename: string;
   // Risk brief JSON for interactive display
   risk_brief_json?: RiskBriefData;
@@ -543,19 +620,12 @@ export async function updateProblemStatus(
   return response.data;
 }
 
-export function getAnalyticsReportUrl(
-  analyticsId: number,
-  type: 'main' | 'detailed' | 'transcript' | 'tasks' | 'risk_brief'
-): string {
-  return `${getApiBaseUrl()}/api/manager/analytics/${analyticsId}/report/${type}`;
-}
-
 // Download analytics report with authentication
 export async function downloadAnalyticsReport(
   analyticsId: number,
-  type: 'main' | 'detailed' | 'transcript' | 'tasks' | 'risk_brief'
+  type: 'main' | 'detailed' | 'transcript' | 'tasks' | 'risk_brief' | 'summary'
 ): Promise<void> {
-  const url = getAnalyticsReportUrl(analyticsId, type);
+  const url = `${getApiBaseUrl()}/api/manager/analytics/${analyticsId}/report/${type}`;
   const token = useAuthStore.getState().token;
 
   const response = await fetch(url, {
@@ -570,15 +640,15 @@ export async function downloadAnalyticsReport(
 
   // Get filename from Content-Disposition header or use default
   const contentDisposition = response.headers.get('Content-Disposition');
-  let filename = type === 'main'
-    ? 'report.docx'
-    : type === 'detailed'
-    ? 'detailed_report.docx'
-    : type === 'transcript'
-    ? 'transcript.docx'
-    : type === 'risk_brief'
-    ? 'risk_brief.pdf'
-    : 'tasks.xlsx';
+  const defaultFilenames: Record<string, string> = {
+    main: 'report.docx',
+    detailed: 'detailed_report.docx',
+    transcript: 'transcript.docx',
+    risk_brief: 'risk_brief.pdf',
+    summary: 'summary.docx',
+    tasks: 'tasks.xlsx',
+  };
+  let filename = defaultFilenames[type] || 'report.docx';
   if (contentDisposition) {
     const match = contentDisposition.match(/filename="?([^"]+)"?/);
     if (match) {
@@ -587,40 +657,6 @@ export async function downloadAnalyticsReport(
   }
 
   // Create blob and trigger download
-  const blob = await response.blob();
-  const blobUrl = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = blobUrl;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.URL.revokeObjectURL(blobUrl);
-}
-
-export async function downloadAnalyticsReportAll(analyticsId: number): Promise<void> {
-  const url = `${getApiBaseUrl()}/api/manager/analytics/${analyticsId}/report/all`;
-  const token = useAuthStore.getState().token;
-
-  const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Download failed: ${response.status}`);
-  }
-
-  const contentDisposition = response.headers.get('Content-Disposition');
-  let filename = `analytics_${analyticsId}_files.zip`;
-  if (contentDisposition) {
-    const match = contentDisposition.match(/filename="?([^"]+)"?/);
-    if (match) {
-      filename = match[1];
-    }
-  }
-
   const blob = await response.blob();
   const blobUrl = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -700,30 +736,36 @@ export async function addPersonToOrganization(
   return response.data;
 }
 
-// =============================================================================
-// Artifact editing (manager+ only)
-// =============================================================================
-
-// Update risk brief JSON and regenerate PDF
-export async function updateRiskBrief(
-  analyticsId: number,
-  riskBriefJson: RiskBriefData
-): Promise<{ success: boolean; message: string }> {
-  const response = await api.patch<{ success: boolean; message: string }>(
-    `/api/manager/analytics/${analyticsId}/risk_brief`,
-    { risk_brief_json: riskBriefJson }
+// Update a person's name and/or position
+export async function updatePerson(
+  personId: number,
+  data: { full_name?: string; position?: string }
+): Promise<Person> {
+  const response = await api.patch<Person>(
+    `/api/manager/persons/${personId}`,
+    data
   );
   return response.data;
 }
 
-// Update basic report JSON (tasks) and regenerate XLSX
-export async function updateTasks(
-  analyticsId: number,
-  basicReportJson: BasicReportData
-): Promise<{ success: boolean; message: string }> {
-  const response = await api.patch<{ success: boolean; message: string }>(
-    `/api/manager/analytics/${analyticsId}/tasks`,
-    { basic_report_json: basicReportJson }
-  );
-  return response.data;
+// Delete (soft) a person
+export async function deletePerson(personId: number): Promise<void> {
+  await api.delete(`/api/manager/persons/${personId}`);
 }
+
+// Update organization name
+export async function updateOrganization(
+  orgId: number,
+  data: { name?: string; short_name?: string }
+): Promise<void> {
+  await api.patch(`/api/manager/organizations/${orgId}`, data);
+}
+
+// Delete a contractor from project
+export async function deleteContractor(
+  projectCode: string,
+  contractorId: number
+): Promise<void> {
+  await api.delete(`/api/manager/projects/${projectCode}/contractors/${contractorId}`);
+}
+

@@ -36,6 +36,8 @@ class JobStatusResponse(BaseModel):
     updated_at: Optional[datetime] = Field(None, description="Время последнего обновления")
     completed_at: Optional[datetime] = Field(None, description="Время завершения")
     error: Optional[str] = Field(None, description="Текст ошибки (если есть)")
+    warnings: List[str] = Field(default_factory=list, description="Предупреждения (не критичные ошибки)")
+    can_retry_reports: bool = Field(default=False, description="Можно ли повторить генерацию отчётов")
 
 
 class JobResultResponse(BaseModel):
@@ -48,6 +50,7 @@ class JobResultResponse(BaseModel):
     language_distribution: Dict[str, int] = Field(..., description="Распределение по языкам")
     output_files: Dict[str, str] = Field(..., description="Выходные файлы (тип -> путь)")
     completed_at: datetime = Field(..., description="Время завершения")
+    meeting_report: Optional[Dict] = Field(None, description="Структурированный отчёт по совещанию")
 
 
 class HealthResponse(BaseModel):

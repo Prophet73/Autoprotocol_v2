@@ -15,10 +15,11 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from pathlib import Path
-from typing import List, Optional, Tuple, Dict, Any
-from datetime import datetime
+from typing import List, Optional, Tuple, Dict
+from datetime import datetime, timezone
 
 from .config import email_config
+from backend.shared.async_utils import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,6 @@ class EmailService:
         Returns:
             Dict mapping email -> role (or None if user not found)
         """
-        import asyncio
         from sqlalchemy import select
         from backend.shared.database import get_celery_session_factory
         from backend.shared.models import User
@@ -81,20 +81,13 @@ class EmailService:
             session_factory = get_celery_session_factory()
             async with session_factory() as db:
                 for email in emails:
-                    query = select(User).where(User.email == email, User.is_active == True)
+                    query = select(User).where(User.email == email, User.is_active)
                     db_result = await db.execute(query)
                     user = db_result.scalar_one_or_none()
                     result[email] = user.role if user else None
             return result
 
-        try:
-            return asyncio.run(_fetch())
-        except RuntimeError:
-            # Already in event loop - run in thread
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, _fetch())
-                return future.result()
+        return run_async(_fetch())
 
     def _filter_recipients_for_risk_brief(
         self, 
@@ -271,7 +264,6 @@ class EmailService:
         Returns:
             True if at least one email was sent successfully
         """
-        import asyncio
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
         from backend.shared.database import get_celery_session_factory
@@ -341,7 +333,7 @@ class EmailService:
                     select(User)
                     .join(user_project_access, User.id == user_project_access.c.user_id)
                     .where(user_project_access.c.project_id == project_id)
-                    .where(User.is_active == True)
+                    .where(User.is_active)
                     .where(User.role.in_(RISK_BRIEF_ALLOWED_ROLES))
                 )
                 access_users = access_result.scalars().all()
@@ -359,14 +351,7 @@ class EmailService:
         
         try:
             # Run async function in sync context
-            try:
-                db_project_name, manager_emails = asyncio.run(_fetch_managers())
-            except RuntimeError:
-                # Already in event loop - run in thread
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _fetch_managers())
-                    db_project_name, manager_emails = future.result()
+            db_project_name, manager_emails = run_async(_fetch_managers())
             
             if db_project_name is None:
                 return False
@@ -413,6 +398,73 @@ class EmailService:
             logger.exception(f"Error sending critical risk brief notification: {e}")
             return False
 
+    def send_admin_alert(self, subject: str, message: str) -> bool:
+        """
+        Send an alert email to configured admin recipients.
+
+        Args:
+            subject: Email subject line.
+            message: HTML body content for the alert.
+
+        Returns:
+            True if sent successfully, False otherwise.
+        """
+        admin_emails_str = self.config.admin_emails
+        if not admin_emails_str:
+            logger.debug("ADMIN_ALERT_EMAILS not configured, skipping admin alert")
+            return False
+
+        if not self.config.password:
+            logger.warning("Email password not configured, skipping admin alert")
+            return False
+
+        recipients = [e.strip() for e in admin_emails_str.split(",") if e.strip()]
+        if not recipients:
+            return False
+
+        try:
+            now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+            msg = MIMEMultipart()
+            msg['From'] = self.config.default_sender
+            msg['To'] = ', '.join(recipients)
+            msg['Subject'] = subject
+
+            html_body = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;font-size:14px;color:#333;background:#f5f5f5;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:20px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:8px;overflow:hidden;">
+<tr><td style="background:#dc3545;padding:20px 30px;">
+<span style="color:#fff;font-size:20px;font-weight:bold;">Severin</span><span style="color:#ffc107;font-size:20px;font-weight:bold;">Autoprotocol</span>
+<span style="color:#fff;font-size:14px;margin-left:12px;">System Alert</span>
+</td></tr>
+<tr><td style="padding:30px;">
+<p style="margin:0 0 10px;color:#666;font-size:12px;">{now}</p>
+{message}
+</td></tr>
+<tr><td style="background:#f8f8f8;padding:15px 30px;border-top:1px solid #eee;">
+<p style="margin:0;color:#999;font-size:11px;">Автоматическое уведомление от SeverinAutoprotocol Watchdog.</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>"""
+
+            msg.attach(MIMEText(html_body, 'html', 'utf-8'))
+
+            success, error = self._send_email_with_retry(msg, recipients)
+            if success:
+                logger.info(f"Admin alert sent to {recipients}: {subject}")
+                return True
+            else:
+                logger.error(f"Failed to send admin alert: {error}")
+                return False
+
+        except Exception as e:
+            logger.exception(f"Error sending admin alert: {e}")
+            return False
+
     def _create_email_body(
         self,
         job_id: str,
@@ -435,7 +487,6 @@ class EmailService:
             files_list = "<ul style='margin: 10px 0; padding-left: 20px;'>"
             for file_type, file_path in output_files.items():
                 label = file_labels.get(file_type, file_type)
-                file_name = Path(file_path).name if file_path else file_type
                 files_list += f"<li style='margin: 5px 0;'>{label}</li>"
             files_list += "</ul>"
 
@@ -516,7 +567,7 @@ class EmailService:
             "stable": {"bg": "#28a745", "label": "Стабильный"},
         }
         status_info = status_colors.get(status, status_colors["critical"])
-        now = datetime.now().strftime("%d.%m.%Y %H:%M")
+        now = datetime.now(timezone.utc).strftime("%d.%m.%Y %H:%M")
 
         return f"""<!DOCTYPE html>
 <html>

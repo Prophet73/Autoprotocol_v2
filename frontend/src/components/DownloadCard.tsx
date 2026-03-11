@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, FileText, FileSpreadsheet, Brain, FileCode, Archive, Shield, Loader2 } from 'lucide-react';
+import { Download, FileText, FileSpreadsheet, Brain, FileCode, Archive, Shield, BookOpen, Loader2 } from 'lucide-react';
 import { downloadJobFile, downloadJobFileAll } from '../api/client';
 
 interface DownloadCardProps {
@@ -37,6 +37,12 @@ const fileConfig: Record<string, { label: string; icon: typeof FileText; color: 
     icon: Shield,
     color: 'border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100',
     desc: 'Матрица рисков (PDF)',
+  },
+  summary: {
+    label: 'Конспект',
+    icon: BookOpen,
+    color: 'border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100',
+    desc: 'Тематический разбор встречи',
   },
   protocol_docx: {
     label: 'Протокол (Word)',

@@ -8,11 +8,11 @@ git clone <repo-url> whisperx
 cd whisperx
 
 # 2. Configure environment
-cp docker/.env.production.example docker/.env.production
+cp docker/.env.example docker/.env.production
 nano docker/.env.production  # Fill in real values
 
 # 3. Deploy
-./deploy.sh
+./deploy/deploy-prod.sh
 ```
 
 ## Architecture
@@ -89,7 +89,7 @@ docker run --rm --gpus all nvidia/cuda:12.1-base nvidia-smi
 Copy and edit the production environment file:
 
 ```bash
-cp docker/.env.production.example docker/.env.production
+cp docker/.env.example docker/.env.production
 ```
 
 **Required variables:**
@@ -129,23 +129,23 @@ cp docker/.env.production.example docker/.env.production
 ### Initial Deploy
 
 ```bash
-./deploy.sh
+./deploy/deploy-prod.sh
 ```
 
 ### Deploy with Options
 
 ```bash
 # Rebuild images (no cache)
-./deploy.sh --rebuild
+./deploy/deploy-prod.sh --rebuild
 
 # Show logs after deploy
-./deploy.sh --logs
+./deploy/deploy-prod.sh --logs
 
 # Enable Flower monitoring
-./deploy.sh --monitoring
+./deploy/deploy-prod.sh --monitoring
 
 # Run database seeds
-./deploy.sh --seed
+./deploy/deploy-prod.sh --seed
 ```
 
 ### Manual Deploy
@@ -203,13 +203,47 @@ docker run --rm \
 
 ## Updating
 
+### Безопасное обновление системы
+
+**Всегда** делайте бэкап перед обновлением — откатить будет значительно проще.
+
 ```bash
-# Pull latest code
+# 1. Бэкап базы данных и файлов
+./scripts/prod-backup.sh
+
+# 2. Убедиться, что бэкап создан
+ls -lh backups/
+
+# 3. Получить последний код
 git pull
 
-# Rebuild and redeploy
-./deploy.sh --rebuild
+# 4. Пересобрать и перезапустить
+./deploy/deploy-prod.sh --rebuild
 ```
+
+### Быстрое обновление (без пересборки образов)
+
+Если изменились только конфиги или промпты (без изменений в `requirements.txt` / `Dockerfile`):
+
+```bash
+./scripts/prod-backup.sh
+git pull
+./deploy/deploy-prod.sh
+```
+
+### Откат при проблемах
+
+```bash
+# Откатить код
+git checkout <previous-commit>
+./deploy/deploy-prod.sh --rebuild
+
+# Восстановить БД из бэкапа (если нужно)
+gunzip -c backups/backup_*/database.sql.gz | \
+    docker-compose -f docker/docker-compose.prod.yml exec -T postgres psql -U whisperx whisperx
+```
+
+> **Важно:** Если обновление включает миграции БД, откат может потребовать ручного вмешательства. Проверяйте release notes перед обновлением.
 
 ## Monitoring
 
@@ -217,7 +251,7 @@ git pull
 
 ```bash
 # Deploy with Flower
-./deploy.sh --monitoring
+./deploy/deploy-prod.sh --monitoring
 
 # Access at http://localhost:5555
 # Credentials: FLOWER_USER / FLOWER_PASSWORD from .env.production

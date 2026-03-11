@@ -8,7 +8,7 @@ API роуты дашборда менеджера.
 - Скачивание отчётов
 """
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional, List
 from pathlib import Path
 
@@ -130,6 +130,7 @@ class ReportFiles(BaseModel):
     transcript: Optional[str] = None
     tasks: Optional[str] = None
     risk_brief: Optional[str] = None
+    summary: Optional[str] = None
 
 
 class ParticipantGroup(BaseModel):
@@ -155,6 +156,7 @@ class AnalyticsDetailResponse(BaseModel):
     has_transcript: bool = False
     has_tasks: bool = False
     has_risk_brief: bool = False
+    has_summary: bool = False
     filename: str = ""  # Оригинальное имя файла для отображения
     # JSON данные для интерактивного отображения
     risk_brief_json: Optional[dict] = None  # RiskBrief JSON для аккордеонов
@@ -311,7 +313,7 @@ async def get_dashboard_view(
             id=report.id,
             analytics_id=analytics.id if analytics else None,
             title=report.title or f"Отчёт {report.job_id[:8]}",
-            date=event_date.date().isoformat() if event_date else datetime.now().date().isoformat(),
+            date=event_date.date().isoformat() if event_date else datetime.now(timezone.utc).date().isoformat(),
             status=health,
             project_id=report.project_id or 0,
             project_code=report.project.project_code if report.project else "",
@@ -411,16 +413,16 @@ async def get_dashboard_view(
 
     # Пульс-график (последние 7 дней)
     pulse_chart = PulseChartResponse(labels=[], critical=[], attention=[], stable=[])
-    today = datetime.now().date()
+    today = datetime.now(timezone.utc).date()
     for i in range(6, -1, -1):
         day = today - timedelta(days=i)
         pulse_chart.labels.append(day.strftime('%d.%m'))
 
         # Подсчёт отчётов по здоровью за этот день
-        day_start = datetime.combine(day, datetime.min.time())
-        day_end = datetime.combine(day, datetime.max.time())
+        day_start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+        day_end = datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc)
 
-        day_reports = [r for r in reports if day_start <= r.created_at.replace(tzinfo=None) <= day_end]
+        day_reports = [r for r in reports if day_start <= r.created_at <= day_end]
 
         critical_count = sum(1 for r in day_reports if analytics_map.get(r.id) and analytics_map[r.id].health_status == 'critical')
         attention_count = sum(1 for r in day_reports if analytics_map.get(r.id) and analytics_map[r.id].health_status == 'attention')
@@ -514,6 +516,7 @@ async def get_analytics_detail(
     has_transcript = False
     has_tasks = False
     has_risk_brief = False
+    has_summary = False
     filename = ""
 
     if report:
@@ -531,6 +534,9 @@ async def get_analytics_detail(
         if report.risk_brief_path:
             report_files.risk_brief = report.risk_brief_path
             has_risk_brief = Path(report.risk_brief_path).exists() if report.risk_brief_path else False
+        if getattr(report, 'summary_path', None):
+            report_files.summary = report.summary_path
+            has_summary = Path(report.summary_path).exists() if report.summary_path else False
         # Оригинальное имя файла
         filename = report.title or report.audio_file_path or f"Отчёт {report.job_id[:8]}"
 
@@ -599,6 +605,7 @@ async def get_analytics_detail(
         has_transcript=has_transcript,
         has_tasks=has_tasks,
         has_risk_brief=has_risk_brief,
+        has_summary=has_summary,
         filename=filename,
         risk_brief_json=risk_brief_json,
         basic_report_json=basic_report_json,
@@ -655,7 +662,7 @@ async def update_problem_status(
     problem.status = data.status
     if data.status == 'done':
         problem.resolved_by_id = current_user.id
-        problem.resolved_at = datetime.utcnow()
+        problem.resolved_at = datetime.now(timezone.utc)
     else:
         problem.resolved_by_id = None
         problem.resolved_at = None
@@ -670,90 +677,8 @@ async def update_problem_status(
 # Эндпоинт скачивания отчётов
 # =============================================================================
 
-@router.get(
-    "/analytics/{analytics_id}/report/{report_type}",
-    summary="Скачать отчёт аналитики",
-    description="Скачать файл отчёта по типу."
-)
-async def download_analytics_report(
-    analytics_id: int,
-    report_type: str,
-    current_user: CurrentUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    """Скачать файл отчёта для аналитики."""
-
-    if report_type not in ('main', 'detailed', 'transcript', 'tasks', 'risk_brief'):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="report_type must be 'main', 'detailed', 'transcript', 'tasks', or 'risk_brief'"
-        )
-    if report_type == "detailed":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Detailed report is not available"
-        )
-
-    # Получение аналитики
-    query = (
-        select(ReportAnalytics)
-        .options(selectinload(ReportAnalytics.report))
-        .where(ReportAnalytics.id == analytics_id)
-    )
-    result = await db.execute(query)
-    analytics = result.scalar_one_or_none()
-
-    if not analytics or not analytics.report:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Analytics with id {analytics_id} not found"
-        )
-
-    # Проверка доступа
-    if analytics.report.project_id:
-        project_ids = await get_user_project_ids(db, current_user)
-        if analytics.report.project_id not in project_ids:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this report"
-            )
-
-    # Получение пути к файлу
-    report = analytics.report
-    file_path_str = {
-        "main": report.report_path,
-        "transcript": report.transcript_path,
-        "tasks": report.tasks_path,
-        "risk_brief": report.risk_brief_path,
-    }.get(report_type)
-
-    if not file_path_str:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No {report_type} file available"
-        )
-
-    # Валидация что путь к файлу внутри DATA_DIR (защита от path traversal)
-    path = validate_file_path(
-        file_path=file_path_str,
-        allowed_dir=DATA_DIR,
-        must_exist=True
-    )
-
-    # Возврат файла
-    filename = path.name
-    media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    if path.suffix == '.txt':
-        media_type = "text/plain"
-    elif path.suffix == '.pdf':
-        media_type = "application/pdf"
-
-    return FileResponse(
-        path=str(path),
-        filename=filename,
-        media_type=media_type
-    )
-
+# NOTE: /report/all MUST be registered before /report/{report_type}
+# to prevent FastAPI from matching "all" as a report_type parameter.
 
 @router.get(
     "/analytics/{analytics_id}/report/all",
@@ -798,6 +723,7 @@ async def download_analytics_report_all(
         "report.docx": report.report_path,
         "tasks.xlsx": report.tasks_path,
         "risk_brief.pdf": report.risk_brief_path,
+        "summary.docx": getattr(report, 'summary_path', None),
     }
 
     files = []
@@ -824,10 +750,98 @@ async def download_analytics_report_all(
             zf.write(path, arcname=arcname)
 
     filename = f"analytics_{analytics_id}_files.zip"
+    from starlette.background import BackgroundTask
     return FileResponse(
         path=tmp.name,
         filename=filename,
-        media_type="application/zip"
+        media_type="application/zip",
+        background=BackgroundTask(lambda: os.unlink(tmp.name)),
+    )
+
+
+@router.get(
+    "/analytics/{analytics_id}/report/{report_type}",
+    summary="Скачать отчёт аналитики",
+    description="Скачать файл отчёта по типу."
+)
+async def download_analytics_report(
+    analytics_id: int,
+    report_type: str,
+    current_user: CurrentUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Скачать файл отчёта для аналитики."""
+
+    if report_type not in ('main', 'detailed', 'transcript', 'tasks', 'risk_brief', 'summary'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="report_type must be 'main', 'detailed', 'transcript', 'tasks', 'risk_brief', or 'summary'"
+        )
+    if report_type == "detailed":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Detailed report is not available"
+        )
+
+    # Получение аналитики
+    query = (
+        select(ReportAnalytics)
+        .options(selectinload(ReportAnalytics.report))
+        .where(ReportAnalytics.id == analytics_id)
+    )
+    result = await db.execute(query)
+    analytics = result.scalar_one_or_none()
+
+    if not analytics or not analytics.report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analytics with id {analytics_id} not found"
+        )
+
+    # Проверка доступа
+    if analytics.report.project_id:
+        project_ids = await get_user_project_ids(db, current_user)
+        if analytics.report.project_id not in project_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this report"
+            )
+
+    # Получение пути к файлу
+    report = analytics.report
+    file_path_str = {
+        "main": report.report_path,
+        "transcript": report.transcript_path,
+        "tasks": report.tasks_path,
+        "risk_brief": report.risk_brief_path,
+        "summary": getattr(report, 'summary_path', None),
+    }.get(report_type)
+
+    if not file_path_str:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No {report_type} file available"
+        )
+
+    # Валидация что путь к файлу внутри DATA_DIR (защита от path traversal)
+    path = validate_file_path(
+        file_path=file_path_str,
+        allowed_dir=DATA_DIR,
+        must_exist=True
+    )
+
+    # Возврат файла
+    filename = path.name
+    media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if path.suffix == '.txt':
+        media_type = "text/plain"
+    elif path.suffix == '.pdf':
+        media_type = "application/pdf"
+
+    return FileResponse(
+        path=str(path),
+        filename=filename,
+        media_type=media_type
     )
 
 
@@ -843,6 +857,55 @@ class UpdateRiskBriefRequest(BaseModel):
 class UpdateTasksRequest(BaseModel):
     """Запрос на обновление задач."""
     basic_report_json: dict  # Full BasicReport JSON (only tasks will be used)
+
+
+async def _get_analytics_for_update(
+    analytics_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession,
+    load_project: bool = False,
+) -> tuple:
+    """
+    Common checks for analytics update endpoints:
+    1. Verify manager+ role
+    2. Load analytics with report (optionally with project)
+    3. Check project access
+
+    Returns (analytics, report) tuple.
+    """
+    if not current_user.is_superuser and current_user.role not in ('manager', 'admin'):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only manager+ can edit reports"
+        )
+
+    report_load = selectinload(ReportAnalytics.report)
+    if load_project:
+        report_load = report_load.selectinload(ConstructionReportDB.project)
+
+    query = (
+        select(ReportAnalytics)
+        .options(report_load)
+        .where(ReportAnalytics.id == analytics_id)
+    )
+    result = await db.execute(query)
+    analytics = result.scalar_one_or_none()
+
+    if not analytics or not analytics.report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Analytics with id {analytics_id} not found"
+        )
+
+    if analytics.report.project_id:
+        project_ids = await get_user_project_ids(db, current_user)
+        if analytics.report.project_id not in project_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this report"
+            )
+
+    return analytics, analytics.report
 
 
 @router.patch(
@@ -861,42 +924,10 @@ async def update_risk_brief(
     from backend.domains.construction.schemas import RiskBrief
     from backend.domains.construction.generators.risk_brief import regenerate_risk_brief_pdf
 
-    # Check manager+ role
-    if not current_user.is_superuser and current_user.role not in ('manager', 'admin'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only manager+ can edit risk brief"
-        )
-
-    # Get analytics with report
-    query = (
-        select(ReportAnalytics)
-        .options(
-            selectinload(ReportAnalytics.report).selectinload(ConstructionReportDB.project)
-        )
-        .where(ReportAnalytics.id == analytics_id)
+    _analytics, report = await _get_analytics_for_update(
+        analytics_id, current_user, db, load_project=True
     )
-    result = await db.execute(query)
-    analytics = result.scalar_one_or_none()
 
-    if not analytics or not analytics.report:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Analytics with id {analytics_id} not found"
-        )
-
-    # Check project access
-    if analytics.report.project_id:
-        project_ids = await get_user_project_ids(db, current_user)
-        if analytics.report.project_id not in project_ids:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this report"
-            )
-
-    report = analytics.report
-
-    # Validate and update JSON
     try:
         risk_brief = RiskBrief.model_validate(data.risk_brief_json)
     except Exception as e:
@@ -905,19 +936,15 @@ async def update_risk_brief(
             detail=f"Invalid risk_brief_json: {e}"
         )
 
-    # Update JSON in DB
     report.risk_brief_json = data.risk_brief_json
     await db.commit()
 
-    # Regenerate PDF if path exists
     if report.risk_brief_path:
         try:
-            risk_brief_path = Path(report.risk_brief_path)
             project = report.project
-
             regenerate_risk_brief_pdf(
                 risk_brief=risk_brief,
-                output_path=risk_brief_path,
+                output_path=Path(report.risk_brief_path),
                 source_file=report.title or report.audio_file_path or "N/A",
                 duration="N/A",
                 speakers_count=report.speaker_count or 0,
@@ -926,7 +953,6 @@ async def update_risk_brief(
                 project_code=project.project_code if project else None,
             )
         except Exception as e:
-            # Log error but don't fail - JSON is already saved
             import logging
             logging.getLogger(__name__).error(f"Failed to regenerate risk_brief PDF: {e}")
 
@@ -949,40 +975,8 @@ async def update_tasks(
     from backend.domains.construction.schemas import BasicReport
     from backend.domains.construction.generators.tasks import regenerate_tasks_xlsx
 
-    # Check manager+ role
-    if not current_user.is_superuser and current_user.role not in ('manager', 'admin'):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only manager+ can edit tasks"
-        )
+    _analytics, report = await _get_analytics_for_update(analytics_id, current_user, db)
 
-    # Get analytics with report
-    query = (
-        select(ReportAnalytics)
-        .options(selectinload(ReportAnalytics.report))
-        .where(ReportAnalytics.id == analytics_id)
-    )
-    result = await db.execute(query)
-    analytics = result.scalar_one_or_none()
-
-    if not analytics or not analytics.report:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Analytics with id {analytics_id} not found"
-        )
-
-    # Check project access
-    if analytics.report.project_id:
-        project_ids = await get_user_project_ids(db, current_user)
-        if analytics.report.project_id not in project_ids:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this report"
-            )
-
-    report = analytics.report
-
-    # Validate and update JSON
     try:
         basic_report = BasicReport.model_validate(data.basic_report_json)
     except Exception as e:
@@ -991,23 +985,19 @@ async def update_tasks(
             detail=f"Invalid basic_report_json: {e}"
         )
 
-    # Update JSON in DB
     report.basic_report_json = data.basic_report_json
     await db.commit()
 
-    # Regenerate XLSX if path exists
     if report.tasks_path:
         try:
-            tasks_path = Path(report.tasks_path)
-
             regenerate_tasks_xlsx(
                 basic_report=basic_report,
-                output_path=tasks_path,
+                output_path=Path(report.tasks_path),
                 source_file=report.title or report.audio_file_path or "N/A",
                 duration="N/A",
+                meeting_date=report.meeting_date.strftime("%Y-%m-%d") if report.meeting_date else None,
             )
         except Exception as e:
-            # Log error but don't fail - JSON is already saved
             import logging
             logging.getLogger(__name__).error(f"Failed to regenerate tasks XLSX: {e}")
 
@@ -1062,7 +1052,7 @@ async def get_project_contractors(
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project with code {project_code} not found"
+            detail=f"Проект с кодом {project_code} не найден"
         )
 
     contractors = await service.get_project_contractors(project.id)
@@ -1122,7 +1112,7 @@ async def create_project_contractor(
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Project with code {project_code} not found"
+            detail=f"Проект с кодом {project_code} не найден"
         )
 
     # Создание подрядчика
@@ -1209,3 +1199,139 @@ async def create_person(
         position=person.position,
         email=person.email,
     )
+
+
+# =============================================================================
+# CRUD endpoints for persons, organizations, contractors
+# =============================================================================
+
+class UpdatePersonRequest(BaseModel):
+    """Запрос на обновление сотрудника."""
+    full_name: Optional[str] = None
+    position: Optional[str] = None
+
+
+class UpdateOrganizationRequest(BaseModel):
+    """Запрос на переименование организации."""
+    name: Optional[str] = None
+    short_name: Optional[str] = None
+
+
+@router.patch(
+    "/persons/{person_id}",
+    response_model=PersonResponse,
+    summary="Обновить сотрудника",
+    description="Обновить ФИО и/или должность сотрудника."
+)
+async def update_person(
+    person_id: int,
+    request: UpdatePersonRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PersonResponse:
+    """Обновить сотрудника."""
+    from backend.domains.construction.project_service import ProjectService
+
+    service = ProjectService(db)
+    person = await service.update_person(
+        person_id=person_id,
+        full_name=request.full_name,
+        position=request.position,
+    )
+    if not person:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Person with id {person_id} not found"
+        )
+
+    await db.commit()
+    return PersonResponse(
+        id=person.id,
+        full_name=person.full_name,
+        position=person.position,
+        email=person.email,
+    )
+
+
+@router.delete(
+    "/persons/{person_id}",
+    summary="Удалить сотрудника",
+    description="Мягкое удаление сотрудника (is_active=False)."
+)
+async def delete_person(
+    person_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Удалить сотрудника (мягкое удаление)."""
+    from backend.domains.construction.project_service import ProjectService
+
+    service = ProjectService(db)
+    success = await service.delete_person(person_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Person with id {person_id} not found"
+        )
+
+    await db.commit()
+    return {"success": True}
+
+
+@router.patch(
+    "/organizations/{organization_id}",
+    summary="Переименовать организацию",
+    description="Обновить название организации."
+)
+async def update_organization(
+    organization_id: int,
+    request: UpdateOrganizationRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Обновить организацию."""
+    from backend.domains.construction.project_service import ProjectService
+
+    service = ProjectService(db)
+    org = await service.update_organization(
+        organization_id=organization_id,
+        name=request.name,
+        short_name=request.short_name,
+    )
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Organization with id {organization_id} not found"
+        )
+
+    await db.commit()
+    return {"success": True, "name": org.name}
+
+
+@router.delete(
+    "/projects/{project_code}/contractors/{contractor_id}",
+    summary="Удалить подрядчика из проекта",
+    description="Удалить подрядчика (организацию) из проекта."
+)
+async def delete_project_contractor(
+    project_code: str,
+    contractor_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Удалить подрядчика из проекта."""
+    from backend.domains.construction.project_service import ProjectService
+
+    service = ProjectService(db)
+    project = await service.get_project_by_code(project_code)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Проект с кодом {project_code} не найден"
+        )
+
+    success = await service.remove_contractor(project.id, contractor_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Contractor with id {contractor_id} not found in project"
+        )
+
+    await db.commit()
+    return {"success": True}

@@ -11,8 +11,13 @@ class SettingResponse(BaseModel):
     key: str = Field(..., description="Ключ настройки")
     value: str = Field(..., description="Значение")
     description: Optional[str] = Field(None, description="Описание")
-    updated_at: datetime = Field(..., description="Дата обновления")
+    updated_at: Optional[datetime] = Field(None, description="Дата обновления")
     updated_by: Optional[str] = Field(None, description="Кем обновлено")
+    is_default: bool = Field(False, description="Используется значение по умолчанию")
+    default_value: Optional[str] = Field(None, description="Значение по умолчанию из конфигурации")
+    input_type: str = Field("text", description="Тип ввода: text, number, select")
+    options: Optional[List[str]] = Field(None, description="Варианты для select")
+    category: str = Field("other", description="Категория настройки")
 
     class Config:
         from_attributes = True

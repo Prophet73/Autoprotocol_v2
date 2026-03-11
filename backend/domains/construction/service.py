@@ -5,7 +5,7 @@
 
 import logging
 from typing import Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -25,8 +25,8 @@ from .schemas import (
     Priority,
     IssueSeverity,
     IssueStatus,
-    AIAnalysis,
     Atmosphere,
+    RiskBrief,
 )
 from .prompts import CONSTRUCTION_PROMPTS
 
@@ -48,11 +48,11 @@ class ConstructionService(BaseDomainService):
     def __init__(self, llm_client: Optional[Any] = None):
         super().__init__(llm_client)
 
-    def get_system_prompt(self) -> str:
+    def get_system_prompt(self, meeting_type: Optional[str] = None) -> str:
         """Возвращает системный промпт для стройконтроля"""
         return CONSTRUCTION_PROMPTS["system"]
 
-    def get_report_prompt(self, report_type: str, transcript_text: str) -> str:
+    def get_report_prompt(self, report_type: str, transcript_text: str, **kwargs) -> str:
         """Возвращает промпт для конкретного типа отчёта"""
         if report_type not in CONSTRUCTION_PROMPTS["reports"]:
             report_type = "weekly_summary"
@@ -352,7 +352,6 @@ class ConstructionService(BaseDomainService):
         project_id: int,
         report: ConstructionReport,
         output_files: Optional[dict] = None,
-        guest_uid: Optional[str] = None,
         uploader_id: Optional[int] = None,
         basic_report: Optional[object] = None,
         risk_brief: Optional[object] = None,
@@ -366,7 +365,6 @@ class ConstructionService(BaseDomainService):
             job_id: ID задачи транскрипции
             project_id: ID проекта
             report: Результат генерации отчёта
-            guest_uid: UUID гостя (для анонимных загрузок)
             uploader_id: ID пользователя-загрузчика
             basic_report: BasicReport объект для сохранения JSON (перегенерация файлов)
             risk_brief: RiskBrief объект для сохранения JSON (перегенерация файлов)
@@ -406,29 +404,68 @@ class ConstructionService(BaseDomainService):
                 except Exception as e2:
                     logger.error(f"RiskBrief serialization completely failed: {e2}")
 
-        db_report = ConstructionReportDB(
-            job_id=job_id,
-            project_id=project_id,
-            guest_uid=guest_uid,
-            uploaded_by_id=uploader_id,
-            report_type=report.report_type,
-            title=report.title,
-            summary=report.summary,
-            status=ReportStatus.COMPLETED,
-            meeting_date=report.meeting_date,
-            result_json=report.model_dump(mode="json"),
-            basic_report_json=basic_report_json,
-            risk_brief_json=risk_brief_json,
-            participant_ids=participant_ids,
-            transcript_path=output_files.get("transcript"),
-            tasks_path=output_files.get("tasks"),
-            report_path=output_files.get("report"),
-            analysis_path=output_files.get("analysis"),
-            risk_brief_path=output_files.get("risk_brief"),
-            completed_at=datetime.now()
+        # Upsert: check if report for this job already exists (retry scenario)
+        existing = await db.execute(
+            select(ConstructionReportDB).where(ConstructionReportDB.job_id == job_id)
         )
+        db_report = existing.scalar_one_or_none()
 
-        db.add(db_report)
+        if db_report:
+            # Update existing record (partial retry: only overwrite non-None values)
+            logger.info(f"Updating existing report for job_id={job_id} (id={db_report.id})")
+            db_report.project_id = project_id
+            db_report.uploaded_by_id = uploader_id
+            db_report.report_type = report.report_type
+            db_report.title = report.title
+            db_report.summary = report.summary
+            db_report.status = ReportStatus.COMPLETED
+            db_report.meeting_date = report.meeting_date
+            db_report.result_json = report.model_dump(mode="json")
+            # Only overwrite LLM artifacts if they were actually regenerated
+            if basic_report_json is not None:
+                db_report.basic_report_json = basic_report_json
+            if risk_brief_json is not None:
+                db_report.risk_brief_json = risk_brief_json
+            if participant_ids is not None:
+                db_report.participant_ids = participant_ids
+            # File paths: only overwrite if present in output_files
+            if output_files.get("transcript"):
+                db_report.transcript_path = output_files["transcript"]
+            if output_files.get("tasks"):
+                db_report.tasks_path = output_files["tasks"]
+            if output_files.get("report"):
+                db_report.report_path = output_files["report"]
+            if output_files.get("analysis"):
+                db_report.analysis_path = output_files["analysis"]
+            if output_files.get("risk_brief"):
+                db_report.risk_brief_path = output_files["risk_brief"]
+            if output_files.get("summary"):
+                db_report.summary_path = output_files["summary"]
+            db_report.completed_at = datetime.now(timezone.utc)
+        else:
+            db_report = ConstructionReportDB(
+                job_id=job_id,
+                project_id=project_id,
+                uploaded_by_id=uploader_id,
+                report_type=report.report_type,
+                title=report.title,
+                summary=report.summary,
+                status=ReportStatus.COMPLETED,
+                meeting_date=report.meeting_date,
+                result_json=report.model_dump(mode="json"),
+                basic_report_json=basic_report_json,
+                risk_brief_json=risk_brief_json,
+                participant_ids=participant_ids,
+                transcript_path=output_files.get("transcript"),
+                tasks_path=output_files.get("tasks"),
+                report_path=output_files.get("report"),
+                analysis_path=output_files.get("analysis"),
+                risk_brief_path=output_files.get("risk_brief"),
+                summary_path=output_files.get("summary"),
+                completed_at=datetime.now(timezone.utc)
+            )
+            db.add(db_report)
+
         await db.flush()
         await db.refresh(db_report)
 
@@ -438,10 +475,10 @@ class ConstructionService(BaseDomainService):
         self,
         db: AsyncSession,
         report_id: int,
-        ai_analysis: AIAnalysis,
+        risk_brief: RiskBrief,
     ) -> ReportAnalytics:
         """
-        Save AIAnalysis to ReportAnalytics and ReportProblem tables.
+        Save RiskBrief data to ReportAnalytics and ReportProblem tables.
 
         This enables the manager dashboard to show:
         - Calendar events with health status colors
@@ -451,7 +488,7 @@ class ConstructionService(BaseDomainService):
         Args:
             db: Database session
             report_id: ID of the ConstructionReportDB record
-            ai_analysis: AIAnalysis object from generate_analysis()
+            risk_brief: RiskBrief object from generate_risk_brief()
 
         Returns:
             Created ReportAnalytics record
@@ -463,54 +500,54 @@ class ConstructionService(BaseDomainService):
             Atmosphere.TENSE: 60,
             Atmosphere.CONFLICT: 90,
         }
-        toxicity_level = atmosphere_to_toxicity.get(ai_analysis.atmosphere, 30)
+        toxicity_level = atmosphere_to_toxicity.get(risk_brief.atmosphere, 30)
 
         # Format toxicity details
-        toxicity_details = f"{ai_analysis.atmosphere.label_ru}\n\n{ai_analysis.atmosphere_comment}"
+        toxicity_details = f"{risk_brief.atmosphere.label_ru}\n\n{risk_brief.atmosphere_comment}"
 
-        # Convert indicators to dict format expected by frontend
-        key_indicators = [
-            {
-                "indicator_name": ind.name,
-                "status": "Критический" if ind.status == "critical" else "Есть риски" if ind.status == "risk" else "В норме",
-                "comment": ind.comment,
-            }
-            for ind in ai_analysis.indicators
-        ]
-
-        # Convert challenges to dict format expected by frontend
-        challenges = [
-            {
-                "text": ch.problem,
-                "recommendation": ch.recommendation,
-            }
-            for ch in ai_analysis.challenges
-        ]
-
-        # Create ReportAnalytics record
-        analytics = ReportAnalytics(
-            report_id=report_id,
-            health_status=ai_analysis.overall_status.value,
-            summary=ai_analysis.executive_summary,
-            key_indicators=key_indicators,
-            challenges=challenges,
-            achievements=ai_analysis.achievements,
-            toxicity_level=toxicity_level,
-            toxicity_details=toxicity_details,
+        # Upsert: check if analytics for this report already exists (retry scenario)
+        existing = await db.execute(
+            select(ReportAnalytics).where(ReportAnalytics.report_id == report_id)
         )
-        db.add(analytics)
-        await db.flush()
-        await db.refresh(analytics)
+        analytics = existing.scalar_one_or_none()
 
-        # Create ReportProblem records for each challenge
-        for challenge in ai_analysis.challenges:
-            # Determine severity based on overall status
-            severity = "critical" if ai_analysis.overall_status.value == "critical" else "attention"
+        if analytics:
+            # Update existing record
+            logger.info(f"Updating existing analytics for report_id={report_id} (id={analytics.id})")
+            analytics.health_status = risk_brief.overall_status.value
+            analytics.summary = risk_brief.executive_summary
+            analytics.key_indicators = []
+            analytics.challenges = []
+            analytics.achievements = []
+            analytics.toxicity_level = toxicity_level
+            analytics.toxicity_details = toxicity_details
+
+            # Clear old problems (cascade="all, delete-orphan" handles deletion)
+            analytics.problems.clear()
+            await db.flush()
+        else:
+            analytics = ReportAnalytics(
+                report_id=report_id,
+                health_status=risk_brief.overall_status.value,
+                summary=risk_brief.executive_summary,
+                key_indicators=[],
+                challenges=[],
+                achievements=[],
+                toxicity_level=toxicity_level,
+                toxicity_details=toxicity_details,
+            )
+            db.add(analytics)
+            await db.flush()
+            await db.refresh(analytics)
+
+        # Create ReportProblem records from RiskBrief concerns
+        for concern in risk_brief.concerns:
+            severity = "critical" if risk_brief.overall_status.value == "critical" else "attention"
 
             problem = ReportProblem(
                 analytics_id=analytics.id,
-                problem_text=challenge.problem,
-                recommendation=challenge.recommendation,
+                problem_text=concern.title,
+                recommendation=concern.recommendation,
                 severity=severity,
                 status="new",
             )

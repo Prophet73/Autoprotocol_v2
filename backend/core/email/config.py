@@ -20,6 +20,9 @@ class EmailConfig(BaseModel):
     server_name: str = os.getenv("SERVER_NAME", "localhost:8000")
     url_scheme: str = os.getenv("URL_SCHEME", "http")
 
+    # Admin alert recipients (comma-separated emails)
+    admin_emails: str = os.getenv("ADMIN_ALERT_EMAILS", "")
+
 
 # Global config instance
 email_config = EmailConfig()

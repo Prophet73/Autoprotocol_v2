@@ -14,3 +14,19 @@
 body {
   font-family: 'Geologica', system-ui, -apple-system, sans-serif;
 }
+
+/* Tour animations */
+@keyframes tourOverlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes tourPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.03); }
+}
+
+@keyframes tourStepTransition {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

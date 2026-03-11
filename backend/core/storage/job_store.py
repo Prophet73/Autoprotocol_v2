@@ -6,12 +6,13 @@ and supports multiple API replicas.
 """
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, List
 
 from redis import Redis
 from pydantic import BaseModel
 
+from backend.shared.config import JOB_TTL_HOURS
 from ..transcription.models import JobStatus
 
 logger = logging.getLogger(__name__)
@@ -35,9 +36,12 @@ class JobData(BaseModel):
     tenant_id: Optional[int] = None
     domain_type: Optional[str] = None  # 'construction', 'hr', etc.
 
-    # User/Guest identity
-    guest_uid: Optional[str] = None  # UUID for anonymous users
+    # User identity
     uploader_id: Optional[int] = None  # User ID for authenticated users
+
+    # Meeting info (for non-construction domains)
+    meeting_type: Optional[str] = None
+    meeting_date: Optional[str] = None
 
     # Processing options
     skip_diarization: bool = False
@@ -48,8 +52,8 @@ class JobData(BaseModel):
     generate_transcript: bool = True
     generate_tasks: bool = False
     generate_report: bool = False
-    generate_analysis: bool = False
     generate_risk_brief: bool = False
+    generate_summary: bool = False
 
     # Email notification
     notify_emails: List[str] = []
@@ -57,12 +61,15 @@ class JobData(BaseModel):
     # Progress
     current_stage: Optional[str] = None
     progress_percent: int = 0
-    message: str = "Job queued"
+    message: str = "Задача добавлена в очередь"
 
     # Retry tracking
     retry_count: int = 0
     max_retries: int = 3
     last_failed_stage: Optional[str] = None
+
+    # Warnings (non-fatal errors shown to user)
+    warnings: List[str] = []
 
     # Results
     output_files: Optional[Dict[str, str]] = None
@@ -70,6 +77,9 @@ class JobData(BaseModel):
     segment_count: Optional[int] = None
     language_distribution: Optional[Dict[str, int]] = None
     error: Optional[str] = None
+
+    # Structured report data (domain-specific, e.g. NOTECH protocol)
+    meeting_report: Optional[Dict] = None
 
     class Config:
         use_enum_values = True
@@ -88,8 +98,8 @@ class JobStore:
 
     # Redis key prefix
     KEY_PREFIX = "whisperx:job:"
-    # Default TTL: 24 hours
-    DEFAULT_TTL = 86400
+    # Default TTL: from shared config
+    DEFAULT_TTL = JOB_TTL_HOURS * 3600
 
     def __init__(self, redis_url: str = None, ttl: int = None):
         """
@@ -100,7 +110,12 @@ class JobStore:
             ttl: Time-to-live for job records in seconds
         """
         self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        self.ttl = ttl or self.DEFAULT_TTL
+        if ttl is not None:
+            self.ttl = ttl
+        else:
+            from backend.admin.settings.service import get_setting_value
+            hours = int(get_setting_value("job_ttl_hours", str(JOB_TTL_HOURS)))
+            self.ttl = hours * 3600
         self._redis: Optional[Redis] = None
 
     @property
@@ -157,7 +172,7 @@ class JobStore:
 
     def update(self, job_id: str, **updates) -> Optional[JobData]:
         """
-        Update job fields.
+        Update job fields with optimistic locking (WATCH/MULTI/EXEC).
 
         Args:
             job_id: Job identifier
@@ -166,22 +181,37 @@ class JobStore:
         Returns:
             Updated job data or None if not found
         """
-        job = self.get(job_id)
-        if job is None:
-            logger.warning(f"Job not found for update: {job_id}")
-            return None
-
-        # Apply updates
-        updates["updated_at"] = datetime.now()
-        for field, value in updates.items():
-            if hasattr(job, field):
-                setattr(job, field, value)
-
-        # Save
         key = self._key(job_id)
-        self.redis.setex(key, self.ttl, job.model_dump_json())
+        max_retries = 3
 
-        return job
+        for attempt in range(max_retries):
+            try:
+                with self.redis.pipeline() as pipe:
+                    pipe.watch(key)
+                    data = pipe.get(key)
+                    if data is None:
+                        logger.warning(f"Job not found for update: {job_id}")
+                        return None
+
+                    job = JobData.model_validate_json(data)
+
+                    # Apply updates
+                    updates["updated_at"] = datetime.now(timezone.utc)
+                    for field, value in updates.items():
+                        if hasattr(job, field):
+                            setattr(job, field, value)
+
+                    # Atomic write
+                    pipe.multi()
+                    pipe.setex(key, self.ttl, job.model_dump_json())
+                    pipe.execute()
+                    return job
+            except Exception:
+                if attempt == max_retries - 1:
+                    raise
+                continue
+
+        return None
 
     def update_progress(
         self,
@@ -210,6 +240,25 @@ class JobStore:
             message=message,
         )
 
+    def add_warning(self, job_id: str, warning: str) -> Optional[JobData]:
+        """
+        Add a warning message to the job.
+
+        Args:
+            job_id: Job identifier
+            warning: Warning message
+
+        Returns:
+            Updated job data or None if not found
+        """
+        job = self.get(job_id)
+        if job is None:
+            return None
+        job.warnings.append(warning)
+        key = self._key(job_id)
+        self.redis.setex(key, self.ttl, job.model_dump_json())
+        return job
+
     def complete(
         self,
         job_id: str,
@@ -234,13 +283,13 @@ class JobStore:
         return self.update(
             job_id,
             status=JobStatus.COMPLETED,
-            completed_at=datetime.now(),
+            completed_at=datetime.now(timezone.utc),
             output_files=output_files,
             processing_time=processing_time,
             segment_count=segment_count,
             language_distribution=language_distribution,
             progress_percent=100,
-            message="Completed successfully",
+            message="Обработка завершена",
         )
 
     def fail(self, job_id: str, error: str) -> Optional[JobData]:
@@ -258,7 +307,7 @@ class JobStore:
             job_id,
             status=JobStatus.FAILED,
             error=error,
-            message=f"Failed: {error}",
+            message=f"Ошибка: {error}",
         )
 
     def delete(self, job_id: str) -> bool:
@@ -320,11 +369,12 @@ class JobStore:
         dry_run: bool = False,
     ) -> Dict[str, any]:
         """
-        Find and recover jobs stuck in 'processing' state.
+        Find and recover jobs stuck in 'processing' or 'pending' state.
 
         Jobs are considered stuck if:
-        - status == 'processing'
-        - updated_at is older than stale_threshold_minutes
+        - status == 'processing' and updated_at older than stale_threshold_minutes
+        - status == 'pending' and updated_at older than stale_threshold_minutes * 2
+          (longer threshold because pending jobs may legitimately wait in queue)
 
         Recovery strategy:
         - If retry_count < max_retries: requeue the job
@@ -348,10 +398,12 @@ class JobStore:
             "threshold_minutes": stale_threshold_minutes,
         }
 
-        cutoff = datetime.now() - timedelta(minutes=stale_threshold_minutes)
+        processing_cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_threshold_minutes)
+        pending_cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_threshold_minutes * 2)
         logger.info(
             f"Recovering stuck jobs: threshold={stale_threshold_minutes}min, "
-            f"cutoff={cutoff.isoformat()}, dry_run={dry_run}"
+            f"processing_cutoff={processing_cutoff.isoformat()}, "
+            f"pending_cutoff={pending_cutoff.isoformat()}, dry_run={dry_run}"
         )
 
         try:
@@ -365,17 +417,21 @@ class JobStore:
 
                     job = JobData.model_validate_json(data)
 
-                    # Check if stuck
-                    if job.status != JobStatus.PROCESSING:
-                        continue
-
-                    if job.updated_at >= cutoff:
-                        continue  # Recently updated, still working
+                    # Check if stuck based on status
+                    if job.status == JobStatus.PROCESSING:
+                        if job.updated_at >= processing_cutoff:
+                            continue  # Recently updated, still working
+                    elif job.status == JobStatus.PENDING:
+                        if job.updated_at >= pending_cutoff:
+                            continue  # May still be waiting in queue
+                    else:
+                        continue  # Not a recoverable status
 
                     # Found stuck job
-                    age_minutes = int((datetime.now() - job.updated_at).total_seconds() / 60)
+                    age_minutes = int((datetime.now(timezone.utc) - job.updated_at).total_seconds() / 60)
                     job_info = {
                         "job_id": job.job_id,
+                        "status": job.status,
                         "stage": job.current_stage,
                         "progress": job.progress_percent,
                         "updated_at": job.updated_at.isoformat(),
@@ -393,7 +449,8 @@ class JobStore:
                             stats["requeued"] += 1
                             logger.warning(
                                 f"Requeued stuck job {job.job_id}: "
-                                f"stage={job.current_stage}, age={age_minutes}min, "
+                                f"status={job.status}, stage={job.current_stage}, "
+                                f"age={age_minutes}min, "
                                 f"retry={job.retry_count + 1}/{job.max_retries}"
                             )
                         else:
@@ -401,9 +458,9 @@ class JobStore:
                             job_info["action"] = "failed"
                             self.fail(
                                 job.job_id,
-                                error=f"Max retries ({job.max_retries}) exceeded. "
-                                      f"Last failure during '{job.current_stage}' stage. "
-                                      "Please contact support or retry manually."
+                                error=f"Превышено кол-во попыток ({job.max_retries}). "
+                                      f"Последний сбой на этапе '{job.current_stage}'. "
+                                      "Загрузите файл повторно или обратитесь в поддержку."
                             )
                             stats["failed"] += 1
                             logger.error(
@@ -427,13 +484,29 @@ class JobStore:
 
         return stats
 
+    # Stages where the GPU pipeline is already done and only LLM work remains
+    LLM_STAGES = frozenset({
+        "llm_generators", "llm_generation", "domain_generators",
+        "domain_report", "report_generation", "retry_reports",
+    })
+
     def _requeue_job(self, job: JobData) -> None:
         """
         Requeue a stuck job for retry.
 
         Updates job state and sends new Celery task.
+        Routes intelligently:
+        - If stuck in an LLM stage and pipeline_result.json exists → replay LLM only
+        - Text files → transcription_llm queue
+        - Audio/video → transcription_gpu queue
         """
-        from backend.tasks.transcription import process_transcription_task, process_text_task
+        from pathlib import Path
+        from backend.tasks.transcription import (
+            process_transcription_task, process_text_task, process_llm_generators,
+        )
+
+        DATA_DIR = os.getenv("DATA_DIR", "/data")
+        output_dir = str(Path(DATA_DIR) / "output" / job.job_id)
 
         # Update job state for retry
         self.update(
@@ -447,40 +520,53 @@ class JobStore:
             error=None,
         )
 
-        # Determine task type and requeue
-        # Check if this is a text file (docx/txt) or audio/video
-        input_file = job.input_file
-        is_text_file = input_file.lower().endswith(('.docx', '.txt', '.doc'))
-
         # Build artifact options from job data
         artifact_options = {
             "generate_transcript": job.generate_transcript,
             "generate_tasks": job.generate_tasks,
             "generate_report": job.generate_report,
-            "generate_analysis": job.generate_analysis,
             "generate_risk_brief": job.generate_risk_brief,
+            "generate_summary": job.generate_summary,
             "notify_emails": job.notify_emails,
         }
 
-        if is_text_file:
+        input_file = job.input_file
+        is_text_file = input_file.lower().endswith(('.docx', '.txt', '.doc'))
+
+        # Smart LLM-phase recovery: if GPU work is done, only re-run LLM generators
+        pipeline_result_path = Path(output_dir) / "pipeline_result.json"
+        if (
+            job.current_stage in self.LLM_STAGES
+            and not is_text_file
+            and pipeline_result_path.exists()
+        ):
+            process_llm_generators(
+                job_id=job.job_id,
+                output_dir=output_dir,
+                artifact_options=artifact_options,
+                domain_type=job.domain_type,
+                project_id=job.project_id,
+                uploader_id=job.uploader_id,
+            )
+            logger.info(
+                f"Requeued job {job.job_id} for LLM-only retry "
+                f"(stuck at stage '{job.current_stage}')"
+            )
+        elif is_text_file:
             process_text_task.apply_async(
                 kwargs={
                     "job_id": job.job_id,
                     "input_file": input_file,
+                    "output_dir": output_dir,
                     "project_id": job.project_id,
                     "domain_type": job.domain_type,
-                    "guest_uid": job.guest_uid,
                     "uploader_id": job.uploader_id,
                     "artifact_options": artifact_options,
                 },
-                queue="transcription",
+                queue="transcription_llm",
             )
+            logger.info(f"Requeued job {job.job_id} as text task")
         else:
-            # Determine output directory from input file
-            from pathlib import Path
-            import os
-            output_dir = str(Path(os.getenv("DATA_DIR", "/data")) / "output" / job.job_id)
-
             process_transcription_task.apply_async(
                 kwargs={
                     "job_id": job.job_id,
@@ -493,13 +579,11 @@ class JobStore:
                     "artifact_options": artifact_options,
                     "project_id": job.project_id,
                     "domain_type": job.domain_type,
-                    "guest_uid": job.guest_uid,
                     "uploader_id": job.uploader_id,
                 },
-                queue="transcription",
+                queue="transcription_gpu",
             )
-
-        logger.info(f"Requeued job {job.job_id} as {'text' if is_text_file else 'transcription'} task")
+            logger.info(f"Requeued job {job.job_id} as transcription task")
 
 
 # Global instance (singleton pattern)
