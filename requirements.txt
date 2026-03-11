@@ -38,6 +38,7 @@ python-multipart
 # Database
 # =============================================================================
 sqlalchemy[asyncio]>=2.0.0
+alembic>=1.13.0  # Database migrations
 asyncpg  # PostgreSQL async driver
 passlib[bcrypt]  # Password hashing
 python-jose[cryptography]  # JWT tokens

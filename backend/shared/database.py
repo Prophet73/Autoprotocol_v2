@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
     async_sessionmaker,
 )
-from sqlalchemy import text
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
@@ -201,42 +200,12 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     """
     Initialize database (create all tables).
-    Should be called on application startup.
+
+    Creates tables from scratch for new environments and tests.
+    Production migrations: alembic upgrade head
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-        # Lightweight column migrations (create_all doesn't add columns to existing tables)
-        # NOTE: DDL identifiers (table/column names) cannot use SQL parameters —
-        # all values below are hardcoded constants, not user input.
-        add_columns = [
-            ("construction_reports", "summary_path", "VARCHAR(1000)"),
-            ("transcription_jobs", "report_json", "JSON"),
-        ]
-        for table, column, col_type in add_columns:
-            try:
-                await conn.execute(
-                    text(
-                        f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_type}"
-                    )
-                )
-            except Exception:
-                pass  # Column already exists or table doesn't exist yet
-
-        # Drop deprecated columns
-        drop_columns = [
-            ("transcription_jobs", "guest_uid"),
-            ("construction_reports", "guest_uid"),
-        ]
-        for table, column in drop_columns:
-            try:
-                await conn.execute(
-                    text(
-                        f"ALTER TABLE {table} DROP COLUMN IF EXISTS {column}"
-                    )
-                )
-            except Exception:
-                pass  # Column doesn't exist or table doesn't exist
 
 
 async def close_db() -> None:
