@@ -244,7 +244,7 @@ export function UploadPage() {
   // Project code is only required for construction domain
   const isCodeValid = showProjectCodeRequired ? codeValidation?.valid === true : true;
   const isMeetingTypeValid = !showMeetingTypeSelector || meetingType !== '';
-  const canSubmit = file && hasAnyArtifact && isCodeValid && isMeetingTypeValid && !mutation.isPending;
+  const canSubmit = file && hasAnyArtifact && isCodeValid && isMeetingTypeValid && !mutation.isPending && !isValidating;
 
   // Show login prompt for unauthenticated users (after all hooks)
   if (!isAuthenticated) {

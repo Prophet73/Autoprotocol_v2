@@ -229,10 +229,11 @@ async def export_stats_excel(
     filters = StatsFilters(date_from=date_from, date_to=date_to, domain=domain)
     xlsx_bytes, filename = await generate_stats_xlsx(db, filters)
 
+    from backend.core.utils.file_security import make_content_disposition
     return StreamingResponse(
         xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": make_content_disposition(filename)},
     )
 
 

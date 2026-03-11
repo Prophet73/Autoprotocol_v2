@@ -8,6 +8,7 @@ Provides:
 """
 
 import os
+import random
 import re
 import logging
 import time
@@ -170,7 +171,7 @@ def _try_with_retries(
                             "retrying in %ss with %ss timeout...",
                             attempt, max_attempts, model_name, retry_delay, current_timeout,
                         )
-                        time.sleep(retry_delay)
+                        time.sleep(retry_delay + random.uniform(0, 2.0))
                     elif _is_network_error(exc):
                         retry_delay = DEFAULT_503_RETRY_BASE * attempt
                         logger.warning(
@@ -178,7 +179,7 @@ def _try_with_retries(
                             "retrying in %ss...",
                             attempt, max_attempts, model_name, exc, retry_delay,
                         )
-                        time.sleep(retry_delay)
+                        time.sleep(retry_delay + random.uniform(0, 2.0))
                     else:
                         logger.warning(
                             "LLM call failed (attempt %s/%s, model=%s), retrying...",

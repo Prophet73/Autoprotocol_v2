@@ -459,8 +459,13 @@ export const comprehensiveStatsApi = {
       responseType: 'blob',
     });
     const contentDisposition = response.headers['content-disposition'] || '';
-    const match = contentDisposition.match(/filename="?([^"]+)"?/);
-    const filename = match ? match[1] : `autoprotocol_stats_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const utf8Match = contentDisposition.match(/filename\*=utf-8''([^;]+)/i);
+    const asciiMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+    const filename = utf8Match
+      ? decodeURIComponent(utf8Match[1])
+      : asciiMatch
+        ? asciiMatch[1]
+        : `autoprotocol_stats_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');

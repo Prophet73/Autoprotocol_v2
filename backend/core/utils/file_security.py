@@ -7,6 +7,7 @@ import os
 import re
 from pathlib import Path
 from typing import Union
+from urllib.parse import quote
 
 from fastapi import HTTPException
 
@@ -146,3 +147,20 @@ def is_safe_path(file_path: Union[str, Path], allowed_dir: Union[str, Path]) -> 
         return True
     except (ValueError, OSError):
         return False
+
+
+def make_content_disposition(filename: str, disposition: str = "attachment") -> str:
+    """Build Content-Disposition header with RFC 5987 encoding for non-ASCII filenames.
+
+    Always includes both plain `filename` (ASCII fallback) and `filename*` (UTF-8)
+    so all browsers can pick the best option.
+
+    Example:
+        >>> make_content_disposition("Отчёт.docx")
+        'attachment; filename="Otchyot.docx"; filename*=UTF-8\'\'%D0%9E%D1%82%D1%87%D1%91%D1%82.docx'
+    """
+    # ASCII-safe fallback: replace non-ASCII chars with underscores
+    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    # RFC 5987 UTF-8 encoded version
+    utf8_name = quote(filename, safe="")
+    return f'{disposition}; filename="{ascii_name}"; filename*=UTF-8\'\'{utf8_name}'

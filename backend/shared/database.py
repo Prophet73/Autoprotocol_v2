@@ -211,6 +211,7 @@ async def init_db() -> None:
         # all values below are hardcoded constants, not user input.
         add_columns = [
             ("construction_reports", "summary_path", "VARCHAR(1000)"),
+            ("transcription_jobs", "report_json", "JSON"),
         ]
         for table, column, col_type in add_columns:
             try:

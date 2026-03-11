@@ -177,91 +177,6 @@ def _get_role_label(role: str) -> str:
     return role_labels.get(role, role)
 
 
-def _build_meeting_report(
-    domain_type: Optional[str],
-    domain_report_json: Optional[str],
-    basic_report_json: Optional[str],
-) -> Optional[Dict]:
-    """
-    Convert domain LLM report to MeetingReport format for Redis/frontend.
-
-    MeetingReport: {executive_summary, topics: [{title, problem, decision, risks}], tasks: [{description, responsible, priority}]}
-    """
-    import json
-
-    # CEO domain: NotechResult → MeetingReport
-    if domain_type == "ceo" and domain_report_json:
-        try:
-            raw = json.loads(domain_report_json)
-            # CEOReport wraps meeting_type + result based on type
-            # For notech: raw has meeting_summary, key_points, action_items, participants_summary
-            # plus notech-specific fields via the LLM output
-
-            # Try to find notech result data
-            notech = raw  # flat structure from BaseMeetingReport + CEOReport
-
-            topics = []
-            for i, q in enumerate(notech.get("questions", [])):
-                topics.append({
-                    "id": i,
-                    "title": q.get("title", f"Вопрос {i + 1}"),
-                    "problem": q.get("description", ""),
-                    "decision": q.get("decision"),
-                    "risks": q.get("risks", []),
-                    "value_points": q.get("value_points", []),
-                    "discussion_details": q.get("discussion_details", []),
-                    "timecodes": [],
-                })
-
-            tasks = []
-            for item in notech.get("action_items", []):
-                if isinstance(item, str):
-                    tasks.append({"description": item})
-                elif isinstance(item, dict):
-                    tasks.append({
-                        "description": item.get("description", str(item)),
-                        "responsible": item.get("responsible"),
-                        "priority": item.get("priority", "medium"),
-                    })
-
-            return {
-                "executive_summary": notech.get("meeting_summary") or notech.get("summary", ""),
-                "meeting_type": notech.get("meeting_type", "notech"),
-                "meeting_topic": notech.get("meeting_topic"),
-                "attendees": notech.get("attendees", []),
-                "topics": topics,
-                "tasks": tasks,
-            }
-        except Exception as e:
-            logger.warning(f"Failed to build meeting_report for CEO: {e}")
-            return None
-
-    # Other non-construction domains: generic conversion
-    if domain_report_json and domain_type not in ("construction", None):
-        try:
-            raw = json.loads(domain_report_json)
-            tasks = []
-            for item in raw.get("action_items", []):
-                if isinstance(item, str):
-                    tasks.append({"description": item})
-                elif isinstance(item, dict):
-                    tasks.append({
-                        "description": item.get("description", str(item)),
-                        "responsible": item.get("responsible"),
-                        "priority": item.get("priority", "medium"),
-                    })
-            return {
-                "executive_summary": raw.get("meeting_summary", ""),
-                "meeting_type": raw.get("meeting_type", domain_type),
-                "topics": [],
-                "tasks": tasks,
-            }
-        except Exception as e:
-            logger.warning(f"Failed to build meeting_report for {domain_type}: {e}")
-            return None
-
-    return None
-
 
 def _run_domain_generators(
     result,
@@ -591,6 +506,7 @@ def _update_job_in_db(
     artifacts: Optional[dict] = None,
     error_message: Optional[str] = None,
     error_stage: Optional[str] = None,
+    report_json: Optional[dict] = None,
 ) -> None:
     """
     Update TranscriptionJob record in PostgreSQL after processing completes.
@@ -621,6 +537,7 @@ def _update_job_in_db(
         "artifacts": json.dumps(artifacts) if artifacts is not None else None,
         "error_message": error_message,
         "error_stage": error_stage,
+        "report_json": json.dumps(report_json, ensure_ascii=False) if report_json is not None else None,
     }
 
     if status == "completed":
@@ -1259,14 +1176,17 @@ def save_reports_to_db_task(
             except Exception as e:
                 logger.error(f"Domain report save failed (non-fatal): {e}")
 
-        # Build meeting_report for Redis (used by CEO dashboard viewer)
-        meeting_report_dict = _build_meeting_report(
-            domain_type=domain_type,
-            domain_report_json=llm_result.get("domain_report_json"),
-            basic_report_json=basic_report_json,
-        )
+        # Parse domain report JSON for DB storage
+        domain_report_json_str = llm_result.get("domain_report_json")
+        domain_report_dict = None
+        if domain_report_json_str:
+            import json as _json
+            try:
+                domain_report_dict = _json.loads(domain_report_json_str)
+            except Exception:
+                pass
 
-        # Mark completed in Redis
+        # Mark completed in Redis (no more meeting_report in Redis)
         store.complete(
             job_id=job_id,
             output_files=output_files,
@@ -1274,10 +1194,6 @@ def save_reports_to_db_task(
             segment_count=segment_count,
             language_distribution=language_distribution,
         )
-
-        # Store meeting_report separately (complete() doesn't accept it)
-        if meeting_report_dict:
-            store.update(job_id, meeting_report=meeting_report_dict)
 
         # Combine GPU + LLM token usage
         combined_tokens = {
@@ -1299,6 +1215,7 @@ def save_reports_to_db_task(
                 "report": "report" in output_files,
                 "risk_brief": "risk_brief" in output_files,
             },
+            report_json=domain_report_dict,
         )
 
         logger.info(f"[Step 2/3] Reports saved for job: {job_id}")

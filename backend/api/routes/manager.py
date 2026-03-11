@@ -751,10 +751,11 @@ async def download_analytics_report_all(
 
     filename = f"analytics_{analytics_id}_files.zip"
     from starlette.background import BackgroundTask
+    from backend.core.utils.file_security import make_content_disposition
     return FileResponse(
         path=tmp.name,
-        filename=filename,
         media_type="application/zip",
+        headers={"Content-Disposition": make_content_disposition(filename)},
         background=BackgroundTask(lambda: os.unlink(tmp.name)),
     )
 
@@ -838,10 +839,11 @@ async def download_analytics_report(
     elif path.suffix == '.pdf':
         media_type = "application/pdf"
 
+    from backend.core.utils.file_security import make_content_disposition
     return FileResponse(
         path=str(path),
-        filename=filename,
-        media_type=media_type
+        media_type=media_type,
+        headers={"Content-Disposition": make_content_disposition(filename)},
     )
 
 

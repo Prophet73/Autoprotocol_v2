@@ -6,6 +6,12 @@ import {
   Download,
   FileDown,
   AlertTriangle,
+  CheckCircle2,
+  CircleAlert,
+  Building2,
+  AlignLeft,
+  Users,
+  CheckSquare,
 } from 'lucide-react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import {
@@ -14,7 +20,8 @@ import {
   downloadJobFileAll,
   type JobListItem,
   type JobResultResponse,
-  type MeetingReport,
+  type DomainReportJSON,
+  type NotechQuestion,
 } from '../../api/client';
 import { FILE_TYPE_CONFIG } from './constants';
 
@@ -24,6 +31,58 @@ interface CEODetailModalProps {
 }
 
 type SectionId = 'summary' | `topic-${number}` | 'tasks';
+
+/* ── Decision status inference ── */
+function getDecisionStatus(q: NotechQuestion): 'resolved' | 'conflict' | 'unresolved' {
+  if (!q.decision) return 'conflict';
+  const lower = q.decision.toLowerCase();
+  if (
+    lower.includes('не найдено') ||
+    lower.includes('не принято') ||
+    lower.includes('не достигнут')
+  ) {
+    return 'conflict';
+  }
+  return 'resolved';
+}
+
+const DECISION_CONFIG = {
+  resolved: {
+    bg: 'bg-green-50',
+    border: 'border-l-green-500',
+    titleColor: 'text-green-600',
+    label: 'Принятое решение',
+    Icon: CheckCircle2,
+  },
+  unresolved: {
+    bg: 'bg-yellow-50',
+    border: 'border-l-yellow-500',
+    titleColor: 'text-yellow-600',
+    label: 'Требует решения',
+    Icon: CircleAlert,
+  },
+  conflict: {
+    bg: 'bg-red-50',
+    border: 'border-l-red-500',
+    titleColor: 'text-red-600',
+    label: 'Решение не найдено',
+    Icon: CircleAlert,
+  },
+} as const;
+
+/* ── Highlight dates like "до 15.01.2026" in action items ── */
+function renderActionText(text: string) {
+  const parts = text.split(/(до \d{1,2}\.\d{2}\.\d{4})/gi);
+  return parts.map((part, i) =>
+    /до \d{1,2}\.\d{2}\.\d{4}/i.test(part) ? (
+      <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-semibold whitespace-nowrap ml-1">
+        {part}
+      </span>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  );
+}
 
 export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
@@ -40,11 +99,11 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
 
   const outputFiles = jobResult?.output_files || {};
   const fileTypes = Object.keys(outputFiles);
-  const report = jobResult?.meeting_report as MeetingReport | undefined;
+  const report = jobResult?.meeting_report as DomainReportJSON | undefined;
+  const questions = report?.questions || [];
+  const actionItems = report?.action_items || [];
 
-  const meetingDate = report?.meeting_date
-    ? new Date(report.meeting_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
-    : new Date(job.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+  const meetingDate = new Date(job.created_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 
   // Scroll spy
   const handleScroll = useCallback(() => {
@@ -82,32 +141,20 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
 
   // Build ToC items
   const tocItems: { id: SectionId; label: string }[] = [];
-  if (report?.executive_summary) {
+  if (report?.summary) {
     tocItems.push({ id: 'summary', label: 'Резюме' });
   }
-  if (report?.topics) {
-    report.topics.forEach((topic, idx) => {
+  if (questions.length > 0) {
+    questions.forEach((q, idx) => {
       tocItems.push({
         id: `topic-${idx}`,
-        label: topic.title.length > 40 ? topic.title.slice(0, 40) + '...' : topic.title,
+        label: q.title || `Вопрос ${idx + 1}`,
       });
     });
   }
-  if (report?.tasks && report.tasks.length > 0) {
-    tocItems.push({ id: 'tasks', label: 'Поручения' });
+  if (actionItems.length > 0) {
+    tocItems.push({ id: 'tasks', label: 'Поручения и задачи' });
   }
-
-  const priorityDot = (priority?: string) => {
-    if (priority === 'high') return 'bg-red-500';
-    if (priority === 'medium') return 'bg-amber-400';
-    return 'bg-slate-300';
-  };
-
-  const priorityLabel = (priority?: string) => {
-    if (priority === 'high') return 'Высокий';
-    if (priority === 'medium') return 'Средний';
-    return 'Низкий';
-  };
 
   // Non-report states (loading, processing, failed, empty)
   const renderCenteredState = () => {
@@ -122,7 +169,7 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
       return (
         <div className="flex flex-col items-center justify-center h-full">
           <Loader2 className="w-8 h-8 text-slate-300 animate-spin mb-3" />
-          <p className="text-slate-400 font-serif">Идёт обработка...</p>
+          <p className="text-slate-400">Идёт обработка...</p>
         </div>
       );
     }
@@ -130,14 +177,14 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
       return (
         <div className="flex flex-col items-center justify-center h-full">
           <AlertTriangle className="w-8 h-8 text-red-400 mb-3" />
-          <p className="text-red-500 font-serif">Ошибка обработки. Попробуйте загрузить файл повторно.</p>
+          <p className="text-red-500">Ошибка обработки. Попробуйте загрузить файл повторно.</p>
         </div>
       );
     }
-    if (job.status === 'completed' && !report && fileTypes.length === 0) {
+    if (job.status === 'completed' && !report && fileTypes.length === 0 && !isLoading) {
       return (
         <div className="flex items-center justify-center h-full">
-          <p className="text-slate-400 font-serif">Данные отчёта недоступны</p>
+          <p className="text-slate-400">Данные отчёта недоступны</p>
         </div>
       );
     }
@@ -155,9 +202,12 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
         <aside className="hidden md:flex flex-col w-80 bg-slate-50 border-r border-slate-200 flex-shrink-0">
           {/* Document info */}
           <div className="px-6 pt-8 pb-4">
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Протокол</p>
+            <div className="inline-flex items-center gap-1.5 bg-purple-100 text-purple-800 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide mb-3">
+              <Building2 className="w-3.5 h-3.5" />
+              CEO / Протокол НОТЕХ
+            </div>
             <h2 className="text-lg font-bold text-slate-900 leading-snug">
-              {report?.meeting_topic || report?.meeting_type || job.meeting_type_name || 'НОТЕХ'}
+              {report?.meeting_topic || job.meeting_type_name || 'НОТЕХ'}
             </h2>
             <p className="text-sm text-slate-500 mt-1">{meetingDate}</p>
             <p className="text-xs text-slate-400 mt-1 truncate" title={job.source_file}>
@@ -176,7 +226,7 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
                   <li key={item.id}>
                     <button
                       onClick={() => scrollToSection(item.id)}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
+                      className={`w-full text-left px-3 py-2 rounded-lg text-sm leading-snug transition-colors cursor-pointer ${
                         activeSection === item.id
                           ? 'bg-white text-slate-900 font-medium shadow-sm'
                           : 'text-slate-500 hover:text-slate-700 hover:bg-white/60'
@@ -214,7 +264,7 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
         </aside>
 
         {/* Right Main Area */}
-        <main className="flex-1 bg-white relative flex flex-col">
+        <main className="flex-1 bg-slate-50 relative flex flex-col">
           {/* Close button */}
           <button
             onClick={onClose}
@@ -224,10 +274,14 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
             <X className="w-5 h-5" />
           </button>
 
-          {/* Mobile header (visible on small screens) */}
-          <div className="md:hidden px-6 pt-5 pb-3 border-b border-slate-100 flex items-center justify-between">
+          {/* Mobile header */}
+          <div className="md:hidden px-6 pt-5 pb-3 border-b border-slate-200 bg-white flex items-center justify-between">
             <div>
-              <p className="font-semibold text-slate-900">{report?.meeting_type || job.meeting_type_name || 'НОТЕХ'}</p>
+              <div className="inline-flex items-center gap-1.5 bg-purple-100 text-purple-800 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide mb-1">
+                <Building2 className="w-3 h-3" />
+                CEO / НОТЕХ
+              </div>
+              <p className="font-semibold text-slate-900">{report?.meeting_topic || job.meeting_type_name || 'НОТЕХ'}</p>
               <p className="text-xs text-slate-400">{meetingDate}</p>
             </div>
             {fileTypes.length > 0 && (
@@ -245,177 +299,209 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
             {centeredState ? (
               centeredState
             ) : (
-              <div className="max-w-3xl mx-auto px-8 sm:px-12 py-16">
+              <div className="max-w-4xl mx-auto px-6 sm:px-10 py-10">
 
-                {/* Meeting Topic & Attendees */}
+                {/* ─── Header ─── */}
                 {report?.meeting_topic && (
-                  <div className="mb-8">
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Тема совещания</p>
-                    <h1 className="font-extrabold text-2xl text-slate-900">{report.meeting_topic}</h1>
-                  </div>
-                )}
-
-                {report?.attendees && report.attendees.length > 0 && (
-                  <div className="mb-12">
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Участники</p>
-                    <div className="flex flex-wrap gap-2">
-                      {report.attendees.map((name, idx) => (
-                        <span key={idx} className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-slate-100 text-slate-700">
-                          {name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Executive Summary */}
-                {report?.executive_summary && (
-                  <section data-section="summary" className="mb-16">
-                    <h1 className="font-extrabold text-3xl text-slate-900 mb-6">Резюме</h1>
-                    <p className="font-serif text-lg text-slate-700 leading-relaxed whitespace-pre-line">
-                      {report.executive_summary}
+                  <header className="mb-8">
+                    <h1 className="text-2xl font-extrabold text-slate-900 leading-tight">
+                      {report.meeting_topic}
+                    </h1>
+                    <p className="text-sm text-slate-500 mt-2">
+                      Дата: <span className="font-semibold text-slate-700">{meetingDate}</span>
                     </p>
+                  </header>
+                )}
+
+                {/* ─── Summary & Attendees Card ─── */}
+                {(report?.summary || (report?.attendees && report.attendees.length > 0)) && (
+                  <div
+                    data-section="summary"
+                    className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-8 overflow-hidden"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr] divide-y md:divide-y-0 md:divide-x divide-slate-200">
+                      {/* Summary */}
+                      {report?.summary && (
+                        <div className="p-6">
+                          <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                            <AlignLeft className="w-4 h-4" />
+                            Краткое саммари
+                          </div>
+                          <p className="text-base text-slate-700 leading-relaxed whitespace-pre-line">
+                            {report.summary}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Attendees */}
+                      {report?.attendees && report.attendees.length > 0 && (
+                        <div className="p-6">
+                          <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                            <Users className="w-4 h-4" />
+                            Участники
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            {report.attendees.map((name, idx) => (
+                              <div
+                                key={idx}
+                                className="bg-slate-50 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200"
+                              >
+                                {name}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ─── Questions ─── */}
+                {questions.length > 0 && (
+                  <section className="mb-10">
+                    <h2 className="text-xl font-bold text-slate-900 mb-5">Вопросы повестки</h2>
+
+                    <div className="space-y-6">
+                      {questions.map((q, idx) => {
+                        const status = getDecisionStatus(q);
+                        const cfg = DECISION_CONFIG[status];
+                        const isConflict = status === 'conflict';
+
+                        return (
+                          <div
+                            key={idx}
+                            data-section={`topic-${idx}`}
+                            className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
+                          >
+                            {/* Question header */}
+                            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-start gap-4">
+                              <div
+                                className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-base flex-shrink-0 mt-0.5 ${
+                                  isConflict ? 'bg-red-500' : 'bg-purple-700'
+                                }`}
+                              >
+                                {idx + 1}
+                              </div>
+                              <h3 className="text-lg font-bold text-slate-900 leading-snug">
+                                {q.title}
+                              </h3>
+                            </div>
+
+                            {/* Question body */}
+                            <div className="p-6">
+                              {/* Description */}
+                              {q.description && (
+                                <p className="text-sm text-slate-500 leading-relaxed mb-5">
+                                  {q.description}
+                                </p>
+                              )}
+
+                              {/* Decision box */}
+                              {q.decision && (
+                                <div
+                                  className={`p-4 rounded-xl border-l-4 mb-6 ${cfg.bg} ${cfg.border}`}
+                                >
+                                  <div className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider mb-1.5 ${cfg.titleColor}`}>
+                                    <cfg.Icon className="w-4 h-4" />
+                                    {cfg.label}
+                                  </div>
+                                  <p className="text-sm font-semibold text-slate-800 leading-relaxed">
+                                    {q.decision}
+                                  </p>
+                                </div>
+                              )}
+
+                              {/* Two-column grid: left = value + details, right = risks */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div>
+                                  {/* Value points */}
+                                  {q.value_points && q.value_points.length > 0 && (
+                                    <div className="mb-5">
+                                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                        Ценность решения
+                                      </p>
+                                      <ul className="space-y-1.5">
+                                        {q.value_points.map((vp, vpIdx) => (
+                                          <li key={vpIdx} className="text-sm text-slate-500 flex items-start gap-2">
+                                            <span className="text-purple-500 font-bold mt-px flex-shrink-0">&bull;</span>
+                                            {vp}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+
+                                  {/* Discussion details */}
+                                  {q.discussion_details && q.discussion_details.length > 0 && (
+                                    <div>
+                                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                        Детали обсуждения
+                                      </p>
+                                      <ul className="space-y-1.5">
+                                        {q.discussion_details.map((dd, ddIdx) => (
+                                          <li key={ddIdx} className="text-sm text-slate-500 flex items-start gap-2">
+                                            <span className="text-purple-500 font-bold mt-px flex-shrink-0">&bull;</span>
+                                            {dd}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Risks */}
+                                {q.risks && q.risks.length > 0 && (
+                                  <div className="bg-slate-50 border border-red-200 rounded-xl p-4">
+                                    <p className="text-xs font-bold text-red-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                      <AlertTriangle className="w-3.5 h-3.5" />
+                                      Риски и возражения
+                                    </p>
+                                    <ul className="space-y-1.5">
+                                      {q.risks.map((risk, rIdx) => (
+                                        <li key={rIdx} className="text-sm text-slate-500 flex items-start gap-2">
+                                          <span className="text-red-400 font-bold mt-px flex-shrink-0">&bull;</span>
+                                          {risk}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </section>
                 )}
 
-                {/* Topics */}
-                {report?.topics && report.topics.length > 0 && (
-                  <section className="mb-16">
-                    <h1 className="font-extrabold text-3xl text-slate-900 mb-10">Повестка</h1>
-                    <div className="space-y-12">
-                      {report.topics.map((topic, idx) => (
-                        <article key={topic.id ?? idx} data-section={`topic-${idx}`}>
-                          {/* Topic header */}
-                          <div className="flex items-baseline gap-4 mb-4">
-                            <span className="text-4xl font-extrabold text-slate-200">
-                              {String(idx + 1).padStart(2, '0')}
-                            </span>
-                            <h2 className="text-xl font-bold text-slate-900 leading-snug">
-                              {topic.title}
-                            </h2>
+                {/* ─── Action Items ─── */}
+                {actionItems.length > 0 && (
+                  <section data-section="tasks" className="mb-10">
+                    <h2 className="text-xl font-bold text-slate-900 mb-5">Поручения и задачи по итогам</h2>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden divide-y divide-slate-200">
+                      {actionItems.map((item, tIdx) => (
+                        <div
+                          key={tIdx}
+                          className="flex items-start gap-4 px-6 py-4 hover:bg-slate-50 transition-colors"
+                        >
+                          <div className="w-6 h-6 rounded-md bg-purple-100 text-purple-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <CheckSquare className="w-3.5 h-3.5" />
                           </div>
-
-                          {topic.timecodes && topic.timecodes.length > 0 && (
-                            <p className="text-xs text-slate-400 mb-4 ml-14">
-                              {topic.timecodes.join(' \u2022 ')}
-                            </p>
-                          )}
-
-                          {/* Problem / essence */}
-                          {topic.problem && (
-                            <p className="font-serif text-lg text-slate-600 leading-relaxed mb-6 ml-14">
-                              {topic.problem}
-                            </p>
-                          )}
-
-                          {/* Value points */}
-                          {topic.value_points && topic.value_points.length > 0 && (
-                            <div className="bg-emerald-50 border-l-4 border-emerald-400 rounded-r-lg px-6 py-4 mb-6 ml-14">
-                              <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-2">
-                                Ценность
-                              </p>
-                              <ul className="space-y-1.5">
-                                {topic.value_points.map((vp, vpIdx) => (
-                                  <li key={vpIdx} className="text-emerald-900 text-sm flex items-start gap-2">
-                                    <span className="text-emerald-400 mt-0.5 flex-shrink-0">•</span>
-                                    {vp}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          {/* Discussion details */}
-                          {topic.discussion_details && topic.discussion_details.length > 0 && (
-                            <div className="bg-blue-50 border-l-4 border-blue-400 rounded-r-lg px-6 py-4 mb-6 ml-14">
-                              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-2">
-                                Детали обсуждения
-                              </p>
-                              <ul className="space-y-1.5">
-                                {topic.discussion_details.map((dd, ddIdx) => (
-                                  <li key={ddIdx} className="text-blue-900 text-sm flex items-start gap-2">
-                                    <span className="text-blue-400 mt-0.5 flex-shrink-0">•</span>
-                                    {dd}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          {/* Decision */}
-                          {topic.decision && (
-                            <div className="bg-purple-50 border-l-4 border-purple-500 rounded-r-lg px-6 py-4 mb-6 ml-14">
-                              <p className="text-xs font-semibold text-purple-600 uppercase tracking-wider mb-1">
-                                Решение
-                              </p>
-                              <p className="text-slate-800 leading-relaxed">
-                                {topic.decision}
-                              </p>
-                            </div>
-                          )}
-
-                          {/* Risks */}
-                          {topic.risks && topic.risks.length > 0 && (
-                            <div className="bg-orange-50 border border-orange-100 rounded-lg px-6 py-4 ml-14">
-                              <p className="text-xs font-semibold text-orange-600 uppercase tracking-wider mb-2">
-                                Риски
-                              </p>
-                              <ul className="space-y-1.5">
-                                {topic.risks.map((risk, rIdx) => (
-                                  <li key={rIdx} className="text-orange-900 text-sm flex items-start gap-2">
-                                    <AlertTriangle className="w-3.5 h-3.5 text-orange-400 mt-0.5 flex-shrink-0" />
-                                    {risk}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                        </article>
+                          <p className="text-sm text-slate-700 leading-relaxed flex-1">
+                            {renderActionText(item)}
+                          </p>
+                        </div>
                       ))}
                     </div>
                   </section>
                 )}
 
-                {/* Tasks */}
-                {report?.tasks && report.tasks.length > 0 && (
-                  <section data-section="tasks" className="mb-16">
-                    <h1 className="font-extrabold text-3xl text-slate-900 mb-8">Поручения</h1>
-                    <ul className="space-y-4">
-                      {report.tasks.map((task, tIdx) => (
-                        <li key={tIdx} className="flex items-start gap-3">
-                          <span
-                            className={`w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0 ${priorityDot(task.priority)}`}
-                            title={priorityLabel(task.priority)}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-slate-800 leading-relaxed">{task.description}</p>
-                            <div className="flex items-center gap-3 mt-1">
-                              {task.responsible && (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
-                                  @{task.responsible}
-                                </span>
-                              )}
-                              {task.priority && (
-                                <span className={`text-xs ${
-                                  task.priority === 'high' ? 'text-red-500' :
-                                  task.priority === 'medium' ? 'text-amber-500' :
-                                  'text-slate-400'
-                                }`}>
-                                  {priorityLabel(task.priority)}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
-
-                {/* Documents (inline for mobile, since sidebar is hidden) */}
+                {/* Documents (mobile only) */}
                 <div className="md:hidden">
                   {fileTypes.length > 0 && (
-                    <section className="border-t border-slate-100 pt-8">
+                    <section className="border-t border-slate-200 pt-8">
                       <h2 className="text-lg font-bold text-slate-900 mb-4">Документы</h2>
                       <div className="flex flex-wrap gap-2">
                         {fileTypes.map((fileType) => {

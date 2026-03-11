@@ -110,34 +110,31 @@ export interface JobStatusResponse {
 }
 
 // Meeting report topic (CEO/NOTECH domain)
-export interface MeetingReportTopic {
-  id: number;
+// NotechQuestion from CEO domain (raw from DB report_json)
+export interface NotechQuestion {
   title: string;
-  timecodes?: string[];
-  problem?: string;
-  decision?: string;
-  risks?: string[];
-  value_points?: string[];
-  discussion_details?: string[];
-}
-
-// Meeting report task
-export interface MeetingReportTask {
   description: string;
-  responsible?: string;
-  priority?: 'high' | 'medium' | 'low';
+  value_points?: string[];
+  decision?: string;
+  discussion_details?: string[];
+  risks?: string[];
 }
 
-// Structured meeting report (domain-specific)
-export interface MeetingReport {
-  executive_summary?: string;
-  meeting_date?: string;
-  meeting_location?: string;
-  meeting_type?: string;
+// Domain report JSON stored in DB (raw LLM output)
+// CEO/notech: NotechResult format
+// Other domains: generic with meeting_summary, action_items
+export interface DomainReportJSON {
+  // CEO notech fields
   meeting_topic?: string;
+  summary?: string;
   attendees?: string[];
-  topics?: MeetingReportTopic[];
-  tasks?: MeetingReportTask[];
+  questions?: NotechQuestion[];
+  action_items?: string[];
+  // Generic fields
+  meeting_summary?: string;
+  meeting_type?: string;
+  // Other domain-specific fields preserved as-is
+  [key: string]: unknown;
 }
 
 export interface JobResultResponse {
@@ -149,7 +146,7 @@ export interface JobResultResponse {
   language_distribution: Record<string, number>;
   output_files: Record<string, string>;
   completed_at: string;
-  meeting_report?: MeetingReport;
+  meeting_report?: DomainReportJSON;
 }
 
 export interface TranscribeOptions {
@@ -282,9 +279,12 @@ export async function downloadJobFile(jobId: string, fileType: string): Promise<
   const contentDisposition = response.headers.get('Content-Disposition');
   let filename = `${fileType}.${fileType === 'tasks' ? 'xlsx' : fileType === 'risk_brief' ? 'pdf' : 'docx'}`;
   if (contentDisposition) {
-    const match = contentDisposition.match(/filename="?([^"]+)"?/);
-    if (match) {
-      filename = match[1];
+    const utf8Match = contentDisposition.match(/filename\*=utf-8''([^;]+)/i);
+    if (utf8Match) {
+      filename = decodeURIComponent(utf8Match[1]);
+    } else {
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match) filename = match[1];
     }
   }
 
@@ -320,9 +320,12 @@ export async function downloadJobFileAll(jobId: string): Promise<void> {
   const contentDisposition = response.headers.get('Content-Disposition');
   let filename = `job_${jobId}_files.zip`;
   if (contentDisposition) {
-    const match = contentDisposition.match(/filename="?([^"]+)"?/);
-    if (match) {
-      filename = match[1];
+    const utf8Match = contentDisposition.match(/filename\*=utf-8''([^;]+)/i);
+    if (utf8Match) {
+      filename = decodeURIComponent(utf8Match[1]);
+    } else {
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match) filename = match[1];
     }
   }
 
@@ -650,9 +653,12 @@ export async function downloadAnalyticsReport(
   };
   let filename = defaultFilenames[type] || 'report.docx';
   if (contentDisposition) {
-    const match = contentDisposition.match(/filename="?([^"]+)"?/);
-    if (match) {
-      filename = match[1];
+    const utf8Match = contentDisposition.match(/filename\*=utf-8''([^;]+)/i);
+    if (utf8Match) {
+      filename = decodeURIComponent(utf8Match[1]);
+    } else {
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match) filename = match[1];
     }
   }
 

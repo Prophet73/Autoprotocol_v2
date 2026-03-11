@@ -664,9 +664,10 @@ class EmailService:
                 part.set_payload(f.read())
 
             encoders.encode_base64(part)
+            from backend.core.utils.file_security import make_content_disposition
             part.add_header(
                 'Content-Disposition',
-                f'attachment; filename="{path.name}"'
+                make_content_disposition(path.name),
             )
             msg.attach(part)
 

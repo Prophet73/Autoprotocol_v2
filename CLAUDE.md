@@ -52,7 +52,7 @@ There are **two separate Docker Compose stacks** that MUST NOT be mixed:
 - **NEVER** `docker stop` or `docker rm` containers from the other stack. They belong to different compose projects.
 - **NEVER** run `docker-compose.test.yml down` when dev workers are running — it can kill shared network and cascade-stop dev containers.
 - Dev stack has **2 workers**: `worker-gpu` (media, GPU, queue `transcription_gpu`) and `worker-llm` (text/Gemini, CPU, queue `transcription_llm`). Test stack has **1 combined worker**.
-- For local development: use `npm run dev` (port 3000) + dev API container (port 8000). Do NOT use Docker frontend container.
+- For local development: use Docker dev stack (`make dev`). Frontend runs in `whisperx-frontend-dev` container (port 3000). Rebuild with `docker compose -f docker/docker-compose.dev.yml build frontend && docker compose -f docker/docker-compose.dev.yml up -d frontend`.
 - Dev database (`docker_postgres_data`) contains the actual test users. Do not assume it's empty.
 
 ## Architecture

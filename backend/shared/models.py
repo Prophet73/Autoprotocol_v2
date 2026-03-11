@@ -475,6 +475,9 @@ class TranscriptionJob(Base):
     # Artifacts generated (JSON: {transcript: true, tasks: true, report: false, analysis: false})
     artifacts: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
+    # Domain report JSON (full LLM output for viewer rendering)
+    report_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
     # Error handling
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_stage: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)

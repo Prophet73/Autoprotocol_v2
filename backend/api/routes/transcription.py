@@ -185,6 +185,7 @@ def _complete_job(
     pro_input_tokens: int = 0,
     pro_output_tokens: int = 0,
     all_output_files: dict = None,
+    report_json: dict = None,
 ):
     """Пометить задачу как завершённую в хранилище и БД.
 
@@ -221,6 +222,7 @@ def _complete_job(
             "risk_brief": "risk_brief" in artifacts_source,
             "summary": "summary" in artifacts_source,
         },
+        report_json=report_json,
     )
 
 
@@ -467,7 +469,7 @@ async def create_transcription(
             status="pending",
             user_id=uploader_id,
             project_id=project_id,
-            source_filename=file.filename,
+            source_filename=safe_filename,
             source_size_bytes=file_size,
             is_private=is_private,
         )
@@ -905,6 +907,16 @@ async def get_job_result(
     if user_role not in allowed_roles and "risk_brief" in output_files:
         del output_files["risk_brief"]
 
+    # Get report_json from PostgreSQL (persistent, not Redis)
+    report_json = None
+    try:
+        db_job_result = await db.execute(
+            select(TranscriptionJob.report_json).where(TranscriptionJob.job_id == job_id)
+        )
+        report_json = db_job_result.scalar_one_or_none()
+    except Exception:
+        pass
+
     return JobResultResponse(
         job_id=job.job_id,
         status=job.status,
@@ -914,7 +926,7 @@ async def get_job_result(
         language_distribution=job.language_distribution or {},
         output_files=output_files,
         completed_at=job.completed_at or datetime.now(timezone.utc),
-        meeting_report=job.meeting_report,
+        meeting_report=report_json,
     )
 
 
@@ -980,10 +992,11 @@ async def download_result(
         must_exist=True
     )
 
+    from backend.core.utils.file_security import make_content_disposition
     return FileResponse(
         path=file_path,
-        filename=file_path.name,
         media_type="application/octet-stream",
+        headers={"Content-Disposition": make_content_disposition(file_path.name)},
     )
 
 
@@ -1038,10 +1051,11 @@ async def download_all_results(
 
     filename = f"{job_id}_files.zip"
     from starlette.background import BackgroundTask
+    from backend.core.utils.file_security import make_content_disposition
     return FileResponse(
         path=tmp.name,
-        filename=filename,
         media_type="application/zip",
+        headers={"Content-Disposition": make_content_disposition(filename)},
         background=BackgroundTask(lambda: os.unlink(tmp.name)),
     )
 
@@ -1778,6 +1792,14 @@ async def run_text_report_generation(
         # Mark completed
         _processing_time = round(_time.monotonic() - _job_start_time, 1)
         _token_usage = get_tracker().usage.as_dict()
+        # Build report_json for DB storage
+        _report_json = None
+        if domain_report is not None:
+            try:
+                _report_json = domain_report.model_dump()
+            except Exception:
+                pass
+
         _complete_job(
             store=store,
             job_id=job_id,
@@ -1786,24 +1808,10 @@ async def run_text_report_generation(
             segment_count=len(segments),
             speaker_count=result.speaker_count,
             language_distribution={"ru": len(segments)},
-            all_output_files=output_files,  # Track all artifacts including analysis
+            all_output_files=output_files,
+            report_json=_report_json,
             **_token_usage,
         )
-
-        # Build meeting_report for CEO dashboard viewer
-        if domain != "construction" and domain_report is not None:
-            try:
-                from ...tasks.transcription import _build_meeting_report
-                mr = _build_meeting_report(
-                    domain_type=domain,
-                    domain_report_json=domain_report.model_dump_json(),
-                    basic_report_json=None,
-                )
-                if mr:
-                    store.update(job_id, meeting_report=mr)
-                    logger.info(f"Stored meeting_report for {domain} job {job_id}")
-            except Exception as e:
-                logger.warning(f"Failed to store meeting_report: {e}")
 
         logger.info(f"Text report job {job_id} completed in {_processing_time}s")
 
