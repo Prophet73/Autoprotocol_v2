@@ -90,6 +90,14 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
   const [activeSection, setActiveSection] = useState<SectionId>('summary');
   useFocusTrap(modalRef);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   const { data: jobResult, isLoading } = useQuery<JobResultResponse>({
     queryKey: ['job-result', job.job_id],
     queryFn: () => getJobResult(job.job_id),
@@ -268,10 +276,11 @@ export function CEODetailModal({ job, onClose }: CEODetailModalProps) {
           {/* Close button */}
           <button
             onClick={onClose}
-            className="absolute top-5 right-5 z-10 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+            className="absolute top-4 right-4 z-10 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 hover:shadow-sm rounded-lg transition-all cursor-pointer"
             aria-label="Закрыть"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
+            <span className="text-sm font-medium hidden sm:inline">Закрыть</span>
           </button>
 
           {/* Mobile header */}
