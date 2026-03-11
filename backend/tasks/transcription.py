@@ -1013,6 +1013,12 @@ def generate_llm_reports_task(
     store = get_job_store()
     reset_tracker()
 
+    # Check if job was cancelled before starting LLM work
+    job_data = store.get(job_id)
+    if job_data and job_data.status == "failed":
+        logger.warning(f"Job {job_id} cancelled, aborting LLM generation")
+        return {"aborted": True}
+
     logger.info(f"[Step 1/3] Starting LLM generators for job: {job_id}")
 
     def progress_callback(stage: str, percent: int, message: str):
@@ -1098,6 +1104,16 @@ def save_reports_to_db_task(
     from ..core.transcription.models import TranscriptionResult
 
     store = get_job_store()
+
+    # Check if job was cancelled or previous step aborted
+    if llm_result and llm_result.get("aborted"):
+        logger.warning(f"Job {job_id} aborted in previous step, skipping save")
+        return {"aborted": True}
+    job_data = store.get(job_id)
+    if job_data and job_data.status == "failed":
+        logger.warning(f"Job {job_id} cancelled, aborting save reports")
+        return {"aborted": True}
+
     gpu_output_files = gpu_output_files or {}
     gpu_token_usage = gpu_token_usage or {}
 
@@ -1186,7 +1202,12 @@ def save_reports_to_db_task(
             except Exception:
                 pass
 
-        # Mark completed in Redis (no more meeting_report in Redis)
+        # Mark completed in Redis — but only if not cancelled
+        current_job = store.get(job_id)
+        if current_job and current_job.status == "failed":
+            logger.warning(f"Job {job_id} was cancelled during save, not overwriting failed status")
+            return {"job_id": job_id, "output_files": output_files, "aborted": True}
+
         store.complete(
             job_id=job_id,
             output_files=output_files,
@@ -1263,10 +1284,20 @@ def send_email_notification_task(
     """
     from ..core.storage.job_store import JobStatus
 
+    # Check if job was cancelled or previous step aborted
+    if db_result and db_result.get("aborted"):
+        logger.warning(f"Job {job_id} aborted in previous step, skipping email")
+        return {"job_id": job_id, "email_sent": False, "reason": "aborted"}
+
+    store = get_job_store()
+    job_data = store.get(job_id)
+    if job_data and job_data.status == "failed":
+        logger.warning(f"Job {job_id} cancelled, skipping email notification")
+        return {"job_id": job_id, "email_sent": False, "reason": "cancelled"}
+
     if not notify_emails:
         return {"job_id": job_id, "email_sent": False, "reason": "no_recipients"}
 
-    store = get_job_store()
     output_files = db_result.get("output_files", {})
 
     logger.info(f"[Step 3/3] Sending email for job: {job_id}")
