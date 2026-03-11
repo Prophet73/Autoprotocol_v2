@@ -29,7 +29,6 @@ from .schemas import (
     DomainStatsResponse,
     UsersStatsResponse,
     CostStatsResponse,
-    GlobalStatsResponse,
     SystemHealthResponse,
 )
 
@@ -236,34 +235,6 @@ async def export_stats_excel(
         headers={"Content-Disposition": make_content_disposition(filename)},
     )
 
-
-# =============================================================================
-# Устаревшие эндпоинты (для обратной совместимости)
-# =============================================================================
-
-@router.get(
-    "/global",
-    response_model=GlobalStatsResponse,
-    summary="Глобальная статистика (legacy)",
-    description="""
-Комплексная статистика системы:
-- Количество пользователей по ролям и доменам
-- Задачи транскрипции по статусам (ожидание, обработка, завершено, ошибка)
-- Использование хранилища
-- Индикаторы здоровья системы
-"""
-)
-async def get_global_stats(
-    current_user: AdminUser,
-    db: Annotated[AsyncSession, Depends(get_db_readonly)],
-) -> GlobalStatsResponse:
-    """
-    Получить глобальную статистику системы (устаревший).
-
-    Требует прав суперпользователя.
-    """
-    service = StatsService(db)
-    return await service.get_global_stats()
 
 
 @router.get(

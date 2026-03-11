@@ -178,38 +178,6 @@ export const usersApi = {
 // Stats API
 // =============================================================================
 
-export interface GlobalStats {
-  users: {
-    total_users: number;
-    active_users: number;
-    superusers: number;
-    by_role: Record<string, number>;
-    by_domain: Record<string, number>;
-  };
-  transcriptions: {
-    pending: number;
-    processing: number;
-    completed: number;
-    failed: number;
-    total: number;
-  };
-  storage: {
-    total_bytes: number;
-    total_mb: number;
-    total_gb: number;
-    uploads_bytes: number;
-    outputs_bytes: number;
-  };
-  domains: {
-    construction: number;
-    it: number;
-    general: number;
-  };
-  redis_connected: boolean;
-  gpu_available: boolean;
-  generated_at: string;
-}
-
 export interface SystemHealth {
   status: string;
   redis: boolean;
@@ -221,11 +189,6 @@ export interface SystemHealth {
 }
 
 export const statsApi = {
-  getGlobal: async (): Promise<GlobalStats> => {
-    const response = await adminApi.get('/api/admin/stats/global');
-    return response.data;
-  },
-
   getHealth: async (): Promise<SystemHealth> => {
     const response = await adminApi.get('/api/admin/stats/health');
     return response.data;

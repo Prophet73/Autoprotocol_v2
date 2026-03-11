@@ -8,10 +8,8 @@ Provides aggregated statistics for:
 - Cost analytics
 - Timeline data
 """
-import os
 import logging
 from datetime import datetime, date, timedelta, timezone
-from pathlib import Path
 from typing import List, Optional
 
 from sqlalchemy import select, func, and_, case, distinct
@@ -20,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.shared.models import User, TranscriptionJob
 from backend.domains.base_schemas import DOMAIN_MEETING_TYPES, get_meeting_types
 from backend.core.storage.job_store import get_job_store
-from backend.core.transcription.models import JobStatus
 from .schemas import (
     # New comprehensive schemas
     GeminiPricing,
@@ -41,21 +38,12 @@ from .schemas import (
     OverviewStatsResponse,
     DomainStatsResponse,
     FullDashboardResponse,
-    # Legacy schemas
-    GlobalStatsResponse,
-    UserStatsLegacy as UserStats,
-    TranscriptionStats,
-    StorageStats,
-    DomainStatsLegacy,
     SystemHealthResponse,
 )
 
 logger = logging.getLogger(__name__)
 
 # Data directories
-DATA_DIR = Path(os.getenv("DATA_DIR", "/data"))
-UPLOAD_DIR = DATA_DIR / "uploads"
-OUTPUT_DIR = DATA_DIR / "output"
 
 from backend.domains.registry import get_display_names as _get_display_names
 
@@ -715,131 +703,6 @@ class StatsService:
         if conditions:
             return and_(*conditions)
         return True  # No filters
-
-    # =========================================================================
-    # Legacy Methods (for backwards compatibility)
-    # =========================================================================
-
-    async def get_user_stats(self) -> UserStats:
-        """Get user statistics (legacy)."""
-        total_result = await self.db.execute(select(func.count(User.id)))
-        total = total_result.scalar() or 0
-
-        active_result = await self.db.execute(
-            select(func.count(User.id)).where(User.is_active)
-        )
-        active = active_result.scalar() or 0
-
-        super_result = await self.db.execute(
-            select(func.count(User.id)).where(User.is_superuser)
-        )
-        superusers = super_result.scalar() or 0
-
-        role_result = await self.db.execute(
-            select(User.role, func.count(User.id)).group_by(User.role)
-        )
-        by_role = {role: count for role, count in role_result.all()}
-
-        domain_result = await self.db.execute(
-            select(User.domain, func.count(User.id))
-            .where(User.domain.isnot(None))
-            .group_by(User.domain)
-        )
-        by_domain = {domain: count for domain, count in domain_result.all()}
-
-        return UserStats(
-            total_users=total,
-            active_users=active,
-            superusers=superusers,
-            by_role=by_role,
-            by_domain=by_domain,
-        )
-
-    def get_transcription_stats(self) -> TranscriptionStats:
-        """Get transcription job statistics from Redis (legacy)."""
-        try:
-            job_store = get_job_store()
-            jobs = job_store.list_jobs(limit=10000)
-
-            stats = TranscriptionStats()
-            for job in jobs:
-                stats.total += 1
-                if job.status == JobStatus.PENDING:
-                    stats.pending += 1
-                elif job.status == JobStatus.PROCESSING:
-                    stats.processing += 1
-                elif job.status == JobStatus.COMPLETED:
-                    stats.completed += 1
-                elif job.status == JobStatus.FAILED:
-                    stats.failed += 1
-
-            return stats
-        except Exception as e:
-            logger.error(f"Failed to get transcription stats: {e}")
-            return TranscriptionStats()
-
-    def get_storage_stats(self) -> StorageStats:
-        """Calculate storage usage (legacy)."""
-        try:
-            uploads_bytes = self._get_directory_size(UPLOAD_DIR)
-            outputs_bytes = self._get_directory_size(OUTPUT_DIR)
-            total_bytes = uploads_bytes + outputs_bytes
-
-            return StorageStats(
-                total_bytes=total_bytes,
-                total_mb=round(total_bytes / (1024 * 1024), 2),
-                total_gb=round(total_bytes / (1024 * 1024 * 1024), 3),
-                uploads_bytes=uploads_bytes,
-                outputs_bytes=outputs_bytes,
-            )
-        except Exception as e:
-            logger.error(f"Failed to get storage stats: {e}")
-            return StorageStats()
-
-    def _get_directory_size(self, path: Path) -> int:
-        """Calculate total size of directory recursively."""
-        if not path.exists():
-            return 0
-
-        total = 0
-        try:
-            for entry in path.rglob("*"):
-                if entry.is_file():
-                    total += entry.stat().st_size
-        except Exception as e:
-            logger.warning(f"Error calculating size for {path}: {e}")
-
-        return total
-
-    def _get_domain_stats_legacy(self) -> DomainStatsLegacy:
-        """Get transcription count by domain (legacy)."""
-        return DomainStatsLegacy()
-
-    async def get_global_stats(self) -> GlobalStatsResponse:
-        """Get all global statistics (legacy)."""
-        user_stats = await self.get_user_stats()
-        transcription_stats = self.get_transcription_stats()
-        storage_stats = self.get_storage_stats()
-        domain_stats = self._get_domain_stats_legacy()
-
-        try:
-            job_store = get_job_store()
-            redis_connected = job_store.health_check()
-        except Exception as e:
-            logger.debug(f"Redis health check failed: {e}")
-            redis_connected = False
-
-        gpu_available = self._check_gpu()
-
-        return GlobalStatsResponse(
-            users=user_stats,
-            transcriptions=transcription_stats,
-            storage=storage_stats,
-            domains=domain_stats,
-            redis_connected=redis_connected,
-            gpu_available=gpu_available,
-            generated_at=datetime.now(timezone.utc),
-        )
 
     def _check_gpu(self) -> bool:
         """Check if GPU is available."""

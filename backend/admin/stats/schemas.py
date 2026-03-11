@@ -323,54 +323,6 @@ class FullDashboardResponse(BaseModel):
     generated_at: datetime = Field(..., description="Время генерации")
 
 
-# =============================================================================
-# Legacy схемы (для обратной совместимости)
-# =============================================================================
-
-class TranscriptionStats(BaseModel):
-    """Статистика задач транскрипции по статусам."""
-    pending: int = Field(0, description="В очереди")
-    processing: int = Field(0, description="В обработке")
-    completed: int = Field(0, description="Завершено")
-    failed: int = Field(0, description="С ошибками")
-    total: int = Field(0, description="Всего")
-
-
-class StorageStats(BaseModel):
-    """Статистика использования хранилища."""
-    total_bytes: int = Field(0, description="Всего байт")
-    total_mb: float = Field(0.0, description="Всего МБ")
-    total_gb: float = Field(0.0, description="Всего ГБ")
-    uploads_bytes: int = Field(0, description="Загрузки (байт)")
-    outputs_bytes: int = Field(0, description="Результаты (байт)")
-
-
-class UserStatsLegacy(BaseModel):
-    """Статистика пользователей (legacy)."""
-    total_users: int = Field(0, description="Всего пользователей")
-    active_users: int = Field(0, description="Активных")
-    superusers: int = Field(0, description="Суперпользователей")
-    by_role: Dict[str, int] = Field(default={}, description="По ролям")
-    by_domain: Dict[str, int] = Field(default={}, description="По доменам")
-
-
-class DomainStatsLegacy(BaseModel):
-    """Статистика по доменам (legacy)."""
-    construction: int = Field(0, description="ДПУ")
-    it: int = Field(0, description="IT")
-    general: int = Field(0, description="Общий")
-
-
-class GlobalStatsResponse(BaseModel):
-    """Глобальная статистика системы (legacy)."""
-    users: UserStatsLegacy = Field(..., description="Пользователи")
-    transcriptions: TranscriptionStats = Field(..., description="Транскрипции")
-    storage: StorageStats = Field(..., description="Хранилище")
-    domains: DomainStatsLegacy = Field(..., description="Домены")
-    redis_connected: bool = Field(True, description="Redis подключён")
-    gpu_available: bool = Field(False, description="GPU доступен")
-    generated_at: datetime = Field(..., description="Время генерации")
-
 
 class SystemHealthResponse(BaseModel):
     """Состояние здоровья системы."""

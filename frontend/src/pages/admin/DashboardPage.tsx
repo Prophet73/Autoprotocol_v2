@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { statsApi, logsApi } from '../../api/adminApi';
+import { comprehensiveStatsApi, statsApi, logsApi } from '../../api/adminApi';
 import { getApiErrorMessage } from '../../utils/errorMessage';
-import type { GlobalStats, SystemHealth, ErrorLog } from '../../api/adminApi';
+import type { FullDashboardResponse, SystemHealth, ErrorLog } from '../../api/adminApi';
 
 interface StatCardProps {
   title: string;
@@ -43,7 +43,7 @@ function HealthIndicator({ label, healthy }: { label: string; healthy: boolean }
 }
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<GlobalStats | null>(null);
+  const [stats, setStats] = useState<FullDashboardResponse | null>(null);
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [recentErrors, setRecentErrors] = useState<ErrorLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,7 +58,7 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       const [statsData, healthData] = await Promise.all([
-        statsApi.getGlobal(),
+        comprehensiveStatsApi.getDashboard(),
         statsApi.getHealth(),
       ]);
       setStats(statsData);
@@ -136,8 +136,8 @@ export default function DashboardPage() {
 
         <StatCard
           title="Транскрипций"
-          value={stats?.transcriptions.total || 0}
-          subtitle={`В обработке: ${stats?.transcriptions.processing || 0}`}
+          value={stats?.overview.total_jobs || 0}
+          subtitle={`В обработке: ${stats?.overview.processing_jobs || 0}`}
           color="bg-green-600"
           icon={
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -147,21 +147,21 @@ export default function DashboardPage() {
         />
 
         <StatCard
-          title="Хранилище"
-          value={`${stats?.storage.total_gb?.toFixed(2) || 0} GB`}
-          subtitle={`Загрузки: ${((stats?.storage.uploads_bytes || 0) / 1024 / 1024 / 1024).toFixed(2)} GB`}
+          title="Успешность"
+          value={`${(stats?.overview.success_rate || 0).toFixed(1)}%`}
+          subtitle={`Аудио: ${(stats?.overview.total_audio_hours || 0).toFixed(1)} ч`}
           color="bg-purple-600"
           icon={
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           }
         />
 
         <StatCard
           title="Ошибок"
-          value={stats?.transcriptions.failed || 0}
-          subtitle={`Ожидают: ${stats?.transcriptions.pending || 0}`}
+          value={stats?.overview.failed_jobs || 0}
+          subtitle={`Ожидают: ${stats?.overview.pending_jobs || 0}`}
           color="bg-red-600"
           icon={
             <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -221,28 +221,28 @@ export default function DashboardPage() {
                 <span className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></span>
                 <span className="text-slate-600">Ожидают</span>
               </div>
-              <span className="text-slate-800 font-medium">{stats?.transcriptions.pending || 0}</span>
+              <span className="text-slate-800 font-medium">{stats?.overview.pending_jobs || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <span className="w-3 h-3 bg-blue-500 rounded-full mr-2"></span>
                 <span className="text-slate-600">В обработке</span>
               </div>
-              <span className="text-slate-800 font-medium">{stats?.transcriptions.processing || 0}</span>
+              <span className="text-slate-800 font-medium">{stats?.overview.processing_jobs || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <span className="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
                 <span className="text-slate-600">Завершено</span>
               </div>
-              <span className="text-slate-800 font-medium">{stats?.transcriptions.completed || 0}</span>
+              <span className="text-slate-800 font-medium">{stats?.overview.completed_jobs || 0}</span>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <span className="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
                 <span className="text-slate-600">Ошибка</span>
               </div>
-              <span className="text-slate-800 font-medium">{stats?.transcriptions.failed || 0}</span>
+              <span className="text-slate-800 font-medium">{stats?.overview.failed_jobs || 0}</span>
             </div>
           </div>
         </div>
@@ -332,10 +332,6 @@ export default function DashboardPage() {
       <div className="text-center text-slate-500 text-sm">
         <p>
           Данные обновлены: {stats?.generated_at ? new Date(stats.generated_at).toLocaleString('ru-RU') : 'N/A'}
-        </p>
-        <p className="mt-1">
-          GPU: {stats?.gpu_available ? 'Доступен' : 'Недоступен'} |
-          Redis: {stats?.redis_connected ? 'Подключен' : 'Отключен'}
         </p>
       </div>
     </div>
