@@ -3,11 +3,12 @@
 # WhisperX Production Deployment Script
 # =============================================================================
 # Usage:
-#   ./deploy/deploy-prod.sh              # Full deployment
-#   ./deploy/deploy-prod.sh --rebuild    # Rebuild without cache
-#   ./deploy/deploy-prod.sh --logs       # Show logs after deploy
-#   ./deploy/deploy-prod.sh --seed       # Run seed scripts after deploy
-#   ./deploy/deploy-prod.sh --monitoring # Include Flower monitoring
+#   ./deploy/deploy-prod.sh                # Full deployment
+#   ./deploy/deploy-prod.sh --rebuild      # Rebuild without cache
+#   ./deploy/deploy-prod.sh --logs         # Show logs after deploy
+#   ./deploy/deploy-prod.sh --seed         # Run seed scripts after deploy
+#   ./deploy/deploy-prod.sh --monitoring   # Include Flower monitoring
+#   ./deploy/deploy-prod.sh --migrate-only # Run only database migrations
 # =============================================================================
 
 set -e  # Exit on error
@@ -35,6 +36,7 @@ REBUILD=false
 SHOW_LOGS=false
 RUN_SEED=false
 MONITORING=false
+MIGRATE_ONLY=false
 
 for arg in "$@"; do
     case $arg in
@@ -54,15 +56,20 @@ for arg in "$@"; do
             MONITORING=true
             shift
             ;;
+        --migrate-only)
+            MIGRATE_ONLY=true
+            shift
+            ;;
         --help)
             echo "Usage: ./deploy/deploy-prod.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --rebuild     Rebuild images without cache"
-            echo "  --logs        Show logs after deployment"
-            echo "  --seed        Run database seed scripts"
-            echo "  --monitoring  Enable Flower monitoring"
-            echo "  --help        Show this help"
+            echo "  --rebuild       Rebuild images without cache"
+            echo "  --logs          Show logs after deployment"
+            echo "  --seed          Run database seed scripts"
+            echo "  --monitoring    Enable Flower monitoring"
+            echo "  --migrate-only  Run only database migrations"
+            echo "  --help          Show this help"
             exit 0
             ;;
     esac
@@ -141,15 +148,15 @@ else
 fi
 
 # Stop existing containers
-echo -e "${BLUE}[3/6] Stopping existing containers...${NC}"
+echo -e "${BLUE}[3/7] Stopping existing containers...${NC}"
 docker-compose -f "$COMPOSE_FILE" down 2>/dev/null || true
 
 # Clean anonymous volumes (but NOT named volumes with data!)
-echo -e "${BLUE}[4/6] Cleaning anonymous volumes...${NC}"
+echo -e "${BLUE}[4/7] Cleaning anonymous volumes...${NC}"
 docker volume prune -f 2>/dev/null || true
 
 # Build images
-echo -e "${BLUE}[5/6] Building images...${NC}"
+echo -e "${BLUE}[5/7] Building images...${NC}"
 BUILD_ARGS=""
 if [ "$REBUILD" = true ]; then
     BUILD_ARGS="--no-cache"
@@ -163,8 +170,27 @@ fi
 
 docker-compose -f "$COMPOSE_FILE" build $BUILD_ARGS
 
-# Start services
-echo -e "${BLUE}[6/6] Starting services...${NC}"
+# Run database migrations
+echo -e "${BLUE}[6/7] Running database migrations...${NC}"
+docker-compose -f "$COMPOSE_FILE" up -d postgres redis
+echo -e "${BLUE}Waiting for PostgreSQL to be ready...${NC}"
+docker-compose -f "$COMPOSE_FILE" exec -T postgres pg_isready -U whisperx -d whisperx -t 30
+if ! docker-compose -f "$COMPOSE_FILE" run --rm api alembic upgrade head; then
+    echo -e "${RED}ERROR: Database migration failed! Aborting deployment.${NC}"
+    echo -e "${YELLOW}Fix migration issues and re-run deployment.${NC}"
+    exit 1
+fi
+echo -e "${GREEN}Migrations OK${NC}"
+
+# If --migrate-only, stop here
+if [ "$MIGRATE_ONLY" = true ]; then
+    echo -e "${GREEN}Migrations completed. Stopping (--migrate-only mode).${NC}"
+    docker-compose -f "$COMPOSE_FILE" stop postgres redis
+    exit 0
+fi
+
+# Start all services
+echo -e "${BLUE}[7/7] Starting services...${NC}"
 docker-compose -f "$COMPOSE_FILE" $PROFILE_ARGS up -d
 
 # Wait for services to be healthy

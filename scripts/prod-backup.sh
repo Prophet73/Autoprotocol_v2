@@ -40,6 +40,10 @@ docker-compose -f "$COMPOSE_FILE" exec -T postgres pg_dump -U whisperx whisperx 
 gzip "$BACKUP_PATH/database.sql"
 echo -e "${GREEN}Database backup: $BACKUP_PATH/database.sql.gz${NC}"
 
+# Save Alembic migration version
+ALEMBIC_VERSION=$(docker-compose -f "$COMPOSE_FILE" exec -T postgres psql -U whisperx -d whisperx -tAc "SELECT version_num FROM alembic_version LIMIT 1" 2>/dev/null || echo "none")
+echo -e "${BLUE}Alembic version: ${ALEMBIC_VERSION}${NC}"
+
 # Backup uploads volume
 echo -e "${BLUE}[2/3] Backing up uploads...${NC}"
 docker run --rm \
@@ -95,6 +99,7 @@ cat > "$BACKUP_PATH/manifest.json" << EOF
 {
     "timestamp": "$TIMESTAMP",
     "date": "$(date -Iseconds)",
+    "alembic_version": "$ALEMBIC_VERSION",
     "files": {
         "database": "database.sql.gz",
         "uploads": "uploads.tar.gz",
