@@ -744,10 +744,20 @@ async def download_analytics_report_all(
         )
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-    with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name, path in files:
-            arcname = name if name.endswith(path.suffix) else f"{name}{path.suffix}"
-            zf.write(path, arcname=arcname)
+
+    # Prepare entries with resolved paths for thread
+    zip_entries = []
+    for name, path in files:
+        arcname = name if name.endswith(path.suffix) else f"{name}{path.suffix}"
+        zip_entries.append((arcname, str(path)))
+
+    def _build_zip(zip_path: str, entries: list) -> None:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for arcname, filepath in entries:
+                zf.write(filepath, arcname=arcname)
+
+    import asyncio
+    await asyncio.to_thread(_build_zip, tmp.name, zip_entries)
 
     filename = f"analytics_{analytics_id}_files.zip"
     from starlette.background import BackgroundTask

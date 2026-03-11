@@ -1049,14 +1049,24 @@ async def download_all_results(
         raise HTTPException(status_code=404, detail="No files available to download")
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-    with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
-        for file_type, file_path_str in output_files.items():
-            file_path = validate_file_path(
-                file_path=file_path_str,
-                allowed_dir=OUTPUT_DIR,
-                must_exist=True
-            )
-            zf.write(file_path, arcname=file_path.name)
+
+    # Validate paths before offloading to thread
+    zip_entries = []
+    for file_type, file_path_str in output_files.items():
+        file_path = validate_file_path(
+            file_path=file_path_str,
+            allowed_dir=OUTPUT_DIR,
+            must_exist=True
+        )
+        zip_entries.append((file_path.name, str(file_path)))
+
+    def _build_zip(zip_path: str, entries: list) -> None:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for arcname, filepath in entries:
+                zf.write(filepath, arcname=arcname)
+
+    import asyncio
+    await asyncio.to_thread(_build_zip, tmp.name, zip_entries)
 
     filename = f"{job_id}_files.zip"
     from starlette.background import BackgroundTask
