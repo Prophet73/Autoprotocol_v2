@@ -175,6 +175,16 @@ echo -e "${BLUE}[6/7] Running database migrations...${NC}"
 docker-compose -f "$COMPOSE_FILE" up -d postgres redis
 echo -e "${BLUE}Waiting for PostgreSQL to be ready...${NC}"
 docker-compose -f "$COMPOSE_FILE" exec -T postgres pg_isready -U whisperx -d whisperx -t 30
+
+# If alembic_version table doesn't exist, this is a pre-Alembic DB (v2.1.2 or earlier).
+# Stamp it at 'base' so Alembic knows to apply all migrations from the beginning.
+HAS_ALEMBIC=$(docker-compose -f "$COMPOSE_FILE" exec -T postgres psql -U whisperx -tAc \
+    "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')" 2>/dev/null || echo "f")
+if [ "$HAS_ALEMBIC" != "t" ]; then
+    echo -e "${YELLOW}Pre-Alembic database detected, stamping base...${NC}"
+    docker-compose -f "$COMPOSE_FILE" run --rm api alembic stamp base
+fi
+
 if ! docker-compose -f "$COMPOSE_FILE" run --rm api alembic upgrade head; then
     echo -e "${RED}ERROR: Database migration failed! Aborting deployment.${NC}"
     echo -e "${YELLOW}Fix migration issues and re-run deployment.${NC}"

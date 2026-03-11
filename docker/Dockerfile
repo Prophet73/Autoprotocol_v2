@@ -29,9 +29,10 @@ RUN curl -sSL https://bootstrap.pypa.io/get-pip.py | /venv/bin/python
 COPY docker/requirements-extra.txt .
 RUN /venv/bin/python -m pip install --no-cache-dir -r requirements-extra.txt
 
-# Copy application code and scripts
+# Copy application code, scripts, and Alembic config
 COPY backend/ /opt/whisperx/backend/
 COPY scripts/ /opt/whisperx/scripts/
+COPY alembic.ini /opt/whisperx/alembic.ini
 
 # Copy and prepare entrypoint
 COPY docker/entrypoint.sh /entrypoint.sh
