@@ -38,26 +38,42 @@ SSO_ONLY = os.getenv("SSO_ONLY", "false").lower() in ("1", "true", "yes")
 # Open registration control: disabled by default for security
 REGISTRATION_ENABLED = os.getenv("REGISTRATION_ENABLED", "false").lower() in ("1", "true", "yes")
 
-# Login rate limiting — simple in-memory tracker per IP
-import time
-from collections import defaultdict
+# Login rate limit (configurable via env, Redis-backed via `limits` library)
+RATE_LIMIT_LOGIN = os.getenv("RATE_LIMIT_LOGIN", "5/minute")
 
-_login_attempts: dict[str, list[float]] = defaultdict(list)
-_LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
-_LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "60"))
+# Lazy-initialized Redis-backed rate limiter
+_login_limiter = None
+_login_rate = None
 
 
-def _check_login_rate_limit(client_ip: str) -> None:
-    """Raise 429 if client exceeds login rate limit."""
-    now = time.monotonic()
-    attempts = _login_attempts[client_ip]
-    # Purge old entries outside the window
-    _login_attempts[client_ip] = [t for t in attempts if now - t < _LOGIN_WINDOW_SECONDS]
-    if len(_login_attempts[client_ip]) >= _LOGIN_MAX_ATTEMPTS:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Слишком много попыток входа. Повторите через {_LOGIN_WINDOW_SECONDS} секунд.",
-        )
+def _get_login_limiter():
+    """Get or create Redis-backed login rate limiter (lazy singleton)."""
+    global _login_limiter, _login_rate
+    if _login_limiter is None:
+        from limits import parse
+        from limits.storage import RedisStorage
+        from limits.strategies import FixedWindowRateLimiter
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        storage = RedisStorage(redis_url)
+        _login_limiter = FixedWindowRateLimiter(storage)
+        _login_rate = parse(RATE_LIMIT_LOGIN)
+    return _login_limiter, _login_rate
+
+
+def _check_login_rate_limit(request: Request) -> None:
+    """Check login rate limit via Redis. Fails open if Redis unavailable."""
+    try:
+        limiter, rate = _get_login_limiter()
+        client_ip = request.client.host if request.client else "unknown"
+        if not limiter.hit(rate, "login", client_ip):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Слишком много попыток входа. Повторите позже.",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Fail open — don't block login if Redis is down
 
 
 # =============================================================================
@@ -119,9 +135,8 @@ async def login(
     Использование токена в заголовке Authorization:
     `Authorization: Bearer <token>`
     """
-    # Rate limiting per IP
-    client_ip = request.client.host if request.client else "unknown"
-    _check_login_rate_limit(client_ip)
+    # Rate limiting via Redis (works across multiple workers)
+    _check_login_rate_limit(request)
 
     # Если система настроена на работу только через SSO — запрещаем локальный вход
     if SSO_ONLY:
@@ -141,7 +156,6 @@ async def login(
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(form_data.password, user.hashed_password):
-        _login_attempts[client_ip].append(time.monotonic())
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Неверный логин или пароль",
