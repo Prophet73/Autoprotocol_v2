@@ -3,7 +3,6 @@ LLM helper utilities — shared across all domain generators.
 
 Provides:
 - sanitize_transcript_for_llm: prompt injection defense
-- strip_additional_properties: Gemini schema cleanup
 - run_llm_call: LLM call with timeout, retry, and model fallback
 """
 
@@ -67,24 +66,6 @@ def strip_markdown_json(text: str) -> str:
         text = text.strip()
     return text
 
-
-def strip_additional_properties(schema: dict | list) -> dict | list:
-    """
-    Recursively strip 'additionalProperties' from JSON schema.
-
-    Gemini API rejects schemas containing additionalProperties.
-    Pydantic v2 adds it by default (especially for `dict` fields).
-    """
-    if isinstance(schema, dict):
-        schema.pop("additionalProperties", None)
-        for value in schema.values():
-            if isinstance(value, (dict, list)):
-                strip_additional_properties(value)
-    elif isinstance(schema, list):
-        for item in schema:
-            if isinstance(item, (dict, list)):
-                strip_additional_properties(item)
-    return schema
 
 
 DEFAULT_LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "600"))  # 10 min wait for response

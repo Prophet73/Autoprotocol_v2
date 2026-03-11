@@ -6,7 +6,6 @@ All imports from this path continue to work for backwards compatibility.
 
 from backend.core.llm.llm_utils import (  # noqa: F401
     sanitize_transcript_for_llm,
-    strip_additional_properties,
     run_llm_call,
     DEFAULT_LLM_TIMEOUT_SECONDS,
     DEFAULT_LLM_MAX_ATTEMPTS,
