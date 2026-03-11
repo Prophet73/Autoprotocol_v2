@@ -476,7 +476,16 @@ async def create_transcription(
         db.add(db_job)
         await db.commit()
     except Exception as e:
-        logger.warning(f"Failed to create TranscriptionJob record in DB (non-fatal): {e}")
+        logger.error(f"Failed to create TranscriptionJob record in DB: {e}")
+        await db.rollback()
+        store.fail(job_id, f"Database error: {e}")
+        # Cleanup uploaded file to avoid orphans
+        try:
+            if input_file.exists():
+                input_file.unlink()
+        except OSError:
+            pass
+        raise HTTPException(status_code=500, detail="Failed to create job record. Please try again.")
 
     # Artifact options for task
     artifact_options = {
